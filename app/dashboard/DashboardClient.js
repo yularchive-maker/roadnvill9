@@ -18,11 +18,11 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
   const statusLabel = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
   const statusColor = { confirmed:'#5cb85c', pending:'#f7c948', cancelled:'#e05c5c', consult:'#8a9ab0' }
 
-  const todayStr   = new Date().toISOString().slice(0,10)
-  const todayRes   = reservations.filter(r => r.date === todayStr)
-  const monthStr   = todayStr.slice(0,7)
-  const monthRes   = reservations.filter(r => r.date?.slice(0,7) === monthStr)
-  const totalAmt   = monthRes.reduce((s,r) => s+(r.total||0), 0)
+  const todayStr = new Date().toISOString().slice(0,10)
+  const monthStr = todayStr.slice(0,7)
+  const todayRes = reservations.filter(r => r.date === todayStr)
+  const monthRes = reservations.filter(r => r.date?.slice(0,7) === monthStr)
+  const totalAmt = monthRes.reduce((s,r) => s+(r.total||0), 0)
 
   const navItems = [
     { id:'dashboard',    label:'대시보드',   icon:'📊' },
@@ -82,7 +82,6 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
 
       {/* 메인 */}
       <div style={{ flex:1, overflow:'auto', display:'flex', flexDirection:'column' }}>
-        {/* 헤더 */}
         <div style={{
           height:'52px', background:'#1a2535', borderBottom:'1px solid #2a3a4a',
           display:'flex', alignItems:'center', padding:'0 24px',
@@ -93,16 +92,15 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
 
         <div style={{ flex:1, padding:'24px', overflow:'auto' }}>
 
-          {/* ── 대시보드 ── */}
+          {/* 대시보드 */}
           {activePage==='dashboard' && (
             <div>
-              {/* KPI */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'14px', marginBottom:'24px' }}>
                 {[
-                  { label:'이번달 예약', value:monthRes.length+'건', color:'#4ecdc4' },
+                  { label:'이번달 예약', value:monthRes.length+'건',            color:'#4ecdc4' },
                   { label:'이번달 매출', value:'₩'+totalAmt.toLocaleString(), color:'#e8eaed', small:true },
-                  { label:'오늘 예약',   value:todayRes.length+'건', color:'#f7c948' },
-                  { label:'전체 예약',   value:reservations.length+'건', color:'#8a9ab0' },
+                  { label:'오늘 예약',   value:todayRes.length+'건',            color:'#f7c948' },
+                  { label:'전체 예약',   value:reservations.length+'건',        color:'#8a9ab0' },
                 ].map((k,i)=>(
                   <div key={i} style={{
                     background:'#1a2535', border:'1px solid #2a3a4a',
@@ -114,7 +112,6 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
                 ))}
               </div>
 
-              {/* 최근 예약 */}
               <div style={{ background:'#1a2535', border:'1px solid #2a3a4a', borderRadius:'12px', overflow:'hidden' }}>
                 <div style={{
                   padding:'14px 18px', borderBottom:'1px solid #2a3a4a',
@@ -160,7 +157,7 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
                           </td>
                         </tr>
                       ))}
-                      {reservations.length===0 && (
+                      {reservations.length===0&&(
                         <tr><td colSpan={7} style={{ padding:'40px', textAlign:'center', color:'#8a9ab0' }}>
                           등록된 예약이 없습니다
                         </td></tr>
@@ -172,25 +169,26 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
             </div>
           )}
 
-          {/* ── 예약 관리 ── */}
+          {/* 예약 관리 */}
           {activePage==='reservations' && (
-            <ReservationsPage packages={packages} zones={zones} />
+            <ReservationsPage
+              packages={packages}
+              zones={zones}
+              vendors={vendors}
+            />
           )}
 
-          {/* ── 준비중 ── */}
+          {/* 준비중 */}
           {['timetable','settle','master'].includes(activePage) && (
             <div style={{
               background:'#1a2535', border:'1px solid #2a3a4a',
               borderRadius:'12px', padding:'80px', textAlign:'center'
             }}>
               <div style={{ fontSize:'48px', marginBottom:'16px' }}>🚧</div>
-              <div style={{ fontSize:'16px', fontWeight:'700', color:'#e8eaed', marginBottom:'8px' }}>
-                준비 중입니다
-              </div>
+              <div style={{ fontSize:'16px', fontWeight:'700', color:'#e8eaed', marginBottom:'8px' }}>준비 중입니다</div>
               <div style={{ fontSize:'13px', color:'#8a9ab0' }}>곧 추가될 예정입니다</div>
             </div>
           )}
-
         </div>
       </div>
     </div>
