@@ -3,6 +3,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import ReservationsPage from './reservations/ReservationsPage'
+import MasterPage from './master/MasterPage'
 
 export default function DashboardClient({ user, reservations, vendors, zones, packages }) {
   const supabase = createClientComponentClient()
@@ -39,21 +40,15 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
 
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#0f1923' }}>
-
       {/* 사이드바 */}
       <div style={{
         width:'210px', flexShrink:0, background:'#1a2535',
         borderRight:'1px solid #2a3a4a', display:'flex', flexDirection:'column'
       }}>
         <div style={{ padding:'18px 20px 16px', borderBottom:'1px solid #2a3a4a' }}>
-          <div style={{ fontSize:'14px', fontWeight:'700', color:'#4ecdc4', marginBottom:'4px' }}>
-            🌿 체험예약관리
-          </div>
-          <div style={{ fontSize:'11px', color:'#8a9ab0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            {user.email}
-          </div>
+          <div style={{ fontSize:'14px', fontWeight:'700', color:'#4ecdc4', marginBottom:'4px' }}>🌿 체험예약관리</div>
+          <div style={{ fontSize:'11px', color:'#8a9ab0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user.email}</div>
         </div>
-
         <nav style={{ flex:1, padding:'10px 0' }}>
           {navItems.map(item => (
             <div key={item.id} onClick={() => setActivePage(item.id)} style={{
@@ -64,12 +59,10 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
               borderLeft: activePage===item.id ? '3px solid #4ecdc4' : '3px solid transparent',
               transition:'all .15s'
             }}>
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
+              <span>{item.icon}</span><span>{item.label}</span>
             </div>
           ))}
         </nav>
-
         <div style={{ padding:'14px 20px', borderTop:'1px solid #2a3a4a' }}>
           <button onClick={handleLogout} style={{
             width:'100%', height:'34px', background:'rgba(224,92,92,0.1)',
@@ -86,9 +79,7 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
           height:'52px', background:'#1a2535', borderBottom:'1px solid #2a3a4a',
           display:'flex', alignItems:'center', padding:'0 24px',
           fontSize:'15px', fontWeight:'700', color:'#e8eaed', flexShrink:0
-        }}>
-          {pageTitles[activePage]}
-        </div>
+        }}>{pageTitles[activePage]}</div>
 
         <div style={{ flex:1, padding:'24px', overflow:'auto' }}>
 
@@ -102,28 +93,16 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
                   { label:'오늘 예약',   value:todayRes.length+'건',            color:'#f7c948' },
                   { label:'전체 예약',   value:reservations.length+'건',        color:'#8a9ab0' },
                 ].map((k,i)=>(
-                  <div key={i} style={{
-                    background:'#1a2535', border:'1px solid #2a3a4a',
-                    borderRadius:'12px', padding:'16px 20px'
-                  }}>
+                  <div key={i} style={{ background:'#1a2535', border:'1px solid #2a3a4a', borderRadius:'12px', padding:'16px 20px' }}>
                     <div style={{ fontSize:'11px', color:'#8a9ab0', marginBottom:'8px' }}>{k.label}</div>
                     <div style={{ fontSize:k.small?'18px':'26px', fontWeight:'700', color:k.color }}>{k.value}</div>
                   </div>
                 ))}
               </div>
-
               <div style={{ background:'#1a2535', border:'1px solid #2a3a4a', borderRadius:'12px', overflow:'hidden' }}>
-                <div style={{
-                  padding:'14px 18px', borderBottom:'1px solid #2a3a4a',
-                  display:'flex', justifyContent:'space-between', alignItems:'center'
-                }}>
+                <div style={{ padding:'14px 18px', borderBottom:'1px solid #2a3a4a', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontWeight:'700', fontSize:'14px' }}>최근 예약</span>
-                  <button onClick={()=>setActivePage('reservations')} style={{
-                    height:'28px', padding:'0 12px', background:'none',
-                    border:'1px solid #2a3a4a', borderRadius:'6px',
-                    color:'#8a9ab0', fontSize:'11px', cursor:'pointer',
-                    fontFamily:'Noto Sans KR, sans-serif'
-                  }}>전체 보기</button>
+                  <button onClick={()=>setActivePage('reservations')} style={{ height:'28px', padding:'0 12px', background:'none', border:'1px solid #2a3a4a', borderRadius:'6px', color:'#8a9ab0', fontSize:'11px', cursor:'pointer', fontFamily:'Noto Sans KR, sans-serif' }}>전체 보기</button>
                 </div>
                 <div style={{ overflowX:'auto' }}>
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
@@ -146,22 +125,14 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
                           <td style={{ padding:'12px 16px', color:'#8a9ab0' }}>{r.pkg}</td>
                           <td style={{ padding:'12px 16px' }}>{r.pax}명</td>
                           <td style={{ padding:'12px 16px' }}>
-                            <span style={{
-                              padding:'3px 10px', borderRadius:'20px', fontSize:'11px', fontWeight:'600',
-                              background:(statusColor[r.type]||'#8a9ab0')+'22',
-                              color:statusColor[r.type]||'#8a9ab0'
-                            }}>{statusLabel[r.type]||r.type}</span>
+                            <span style={{ padding:'3px 10px', borderRadius:'20px', fontSize:'11px', fontWeight:'600', background:(statusColor[r.type]||'#8a9ab0')+'22', color:statusColor[r.type]||'#8a9ab0' }}>
+                              {statusLabel[r.type]||r.type}
+                            </span>
                           </td>
-                          <td style={{ padding:'12px 16px', fontFamily:'monospace', fontWeight:'600', color:'#4ecdc4' }}>
-                            ₩{(r.total||0).toLocaleString()}
-                          </td>
+                          <td style={{ padding:'12px 16px', fontFamily:'monospace', fontWeight:'600', color:'#4ecdc4' }}>₩{(r.total||0).toLocaleString()}</td>
                         </tr>
                       ))}
-                      {reservations.length===0&&(
-                        <tr><td colSpan={7} style={{ padding:'40px', textAlign:'center', color:'#8a9ab0' }}>
-                          등록된 예약이 없습니다
-                        </td></tr>
-                      )}
+                      {reservations.length===0&&(<tr><td colSpan={7} style={{ padding:'40px', textAlign:'center', color:'#8a9ab0' }}>등록된 예약이 없습니다</td></tr>)}
                     </tbody>
                   </table>
                 </div>
@@ -169,21 +140,11 @@ export default function DashboardClient({ user, reservations, vendors, zones, pa
             </div>
           )}
 
-          {/* 예약 관리 */}
-          {activePage==='reservations' && (
-            <ReservationsPage
-              packages={packages}
-              zones={zones}
-              vendors={vendors}
-            />
-          )}
+          {activePage==='reservations' && <ReservationsPage packages={packages} zones={zones} vendors={vendors} />}
+          {activePage==='master' && <MasterPage />}
 
-          {/* 준비중 */}
-          {['timetable','settle','master'].includes(activePage) && (
-            <div style={{
-              background:'#1a2535', border:'1px solid #2a3a4a',
-              borderRadius:'12px', padding:'80px', textAlign:'center'
-            }}>
+          {['timetable','settle'].includes(activePage) && (
+            <div style={{ background:'#1a2535', border:'1px solid #2a3a4a', borderRadius:'12px', padding:'80px', textAlign:'center' }}>
               <div style={{ fontSize:'48px', marginBottom:'16px' }}>🚧</div>
               <div style={{ fontSize:'16px', fontWeight:'700', color:'#e8eaed', marginBottom:'8px' }}>준비 중입니다</div>
               <div style={{ fontSize:'13px', color:'#8a9ab0' }}>곧 추가될 예정입니다</div>
