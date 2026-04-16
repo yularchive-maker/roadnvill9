@@ -21,7 +21,7 @@ const labelStyle = {
   fontSize: '11px', color: '#8a9ab0', display: 'block', marginBottom: '5px', fontWeight: '600'
 }
 
-export default function ReservationModal({ isOpen, onClose, onSave, editData, packages, zones }) {
+export default function ReservationModal({ isOpen, onClose, onSave, editData, initialDate, packages, zones }) {
   const [form, setForm] = useState({
     type: 'pending', date: '', end_date: '', zone: '', pkg: '',
     customer: '', tel: '', pax: 1, price: 0, discount: 0,
@@ -37,7 +37,7 @@ export default function ReservationModal({ isOpen, onClose, onSave, editData, pa
       setForm({ ...editData })
     } else {
       setForm({
-        type: 'pending', date: '', end_date: '', zone: '', pkg: '',
+        type: 'pending', date: initialDate || '', end_date: '', zone: '', pkg: '',
         customer: '', tel: '', pax: 1, price: 0, discount: 0,
         pickup: 0, burden: 0, total: 0, payto: '', inflow: '',
         platform: '', plat_fee: 0, agency: '', ag_fee: 0,
@@ -45,7 +45,7 @@ export default function ReservationModal({ isOpen, onClose, onSave, editData, pa
       })
     }
     setTab(0)
-  }, [editData, isOpen])
+  }, [editData, isOpen, initialDate])
 
   const set = (k, v) => {
     setForm(f => {

@@ -1,11 +1,97 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --navy:   #0D1B2A;
+  --navy2:  #1A2E42;
+  --navy3:  #243B55;
+  --accent: #4ECDC4;
+  --accent2:#45B7AA;
+  --amber:  #F7C948;
+  --red:    #E05C5C;
+  --green:  #5CB85C;
+  --purple: #7B68EE;
+  --orange: #FF8C42;
+  --text-primary:   #F0F4F8;
+  --text-secondary: #8FA3B1;
+  --text-muted:     #5A7080;
+  --border:  rgba(78,205,196,0.15);
+  --border2: rgba(78,205,196,0.08);
+  --c1:#4ECDC4; --c2:#F7C948; --c3:#E05C5C;
+  --c4:#7B68EE; --c5:#5CB85C; --c6:#FF8C42;
+  --pickup:#B8B8FF;
+  --sidebar-w: 220px;
+  --header-h: 52px;
 }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   font-family: 'Noto Sans KR', sans-serif;
-  background: #0f1923;
-  color: #e8eaed;
+  background: var(--navy);
+  color: var(--text-primary);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(78,205,196,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(78,205,196,0.4); }
+
+/* 입력 폼 */
+input, select, textarea {
+  font-family: 'Noto Sans KR', sans-serif;
+  color: var(--text-primary);
+}
+input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
+input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
+
+/* 버튼 기본 */
+button { font-family: 'Noto Sans KR', sans-serif; }
+
+/* 모노 폰트 */
+.mono { font-family: 'DM Mono', monospace; }
+
+/* 뱃지 */
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+}
+.badge.confirmed { background: rgba(92,184,92,.15); color: var(--green); }
+.badge.pending   { background: rgba(247,201,72,.15); color: var(--amber); }
+.badge.cancelled { background: rgba(224,92,92,.15);  color: var(--red); }
+.badge.consult   { background: rgba(78,205,196,.15); color: var(--accent); }
+
+/* 달력 */
+.cal-day { border-radius: 8px; transition: background .15s; cursor: pointer; }
+.cal-day:hover { background: rgba(78,205,196,.08); }
+.cal-day.today { background: rgba(78,205,196,.15); }
+.cal-day.selected { background: rgba(78,205,196,.22); box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* 타임테이블 이벤트 */
+.tt-ev { border-radius: 6px; padding: 5px 8px; cursor: pointer; overflow: hidden; transition: filter .15s; }
+.tt-ev:hover { filter: brightness(1.15); }
+.tt-ev.conflict { box-shadow: 0 0 0 2px #33ff33; }
+
+/* 정산 카드 */
+.svc-body { display: none; }
+.svc-body.open { display: block; }
+
+/* 아코디언 */
+.accordion-body { display: none; }
+.accordion-body.open { display: block; }
+
+/* 애니메이션 */
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.slide-down { animation: slideDown .18s ease; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.fade-in { animation: fadeIn .2s ease; }

@@ -6,7 +6,7 @@ import ReservationDetail from './ReservationDetail'
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const STATUS_COLOR = { confirmed:'#5cb85c', pending:'#f7c948', cancelled:'#e05c5c', consult:'#8a9ab0' }
 
-export default function ReservationsPage({ packages, zones, vendors }) {
+export default function ReservationsPage({ packages, zones, vendors, initialNewDate, initialDetailRes, onClearNew }) {
   const [reservations, setReservations] = useState([])
   const [loading,      setLoading]      = useState(true)
   const [modalOpen,    setModalOpen]    = useState(false)
@@ -25,6 +25,23 @@ export default function ReservationsPage({ packages, zones, vendors }) {
   }, [])
 
   useEffect(() => { fetchReservations() }, [fetchReservations])
+
+  // Open new reservation modal when triggered from calendar
+  useEffect(() => {
+    if (initialNewDate) {
+      setEditData(null)
+      setModalOpen(true)
+      onClearNew?.()
+    }
+  }, [initialNewDate]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Open detail when triggered from calendar
+  useEffect(() => {
+    if (initialDetailRes) {
+      setDetailRes(initialDetailRes)
+      onClearNew?.()
+    }
+  }, [initialDetailRes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async (form) => {
     if (editData) {
@@ -185,6 +202,7 @@ export default function ReservationsPage({ packages, zones, vendors }) {
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
         editData={editData}
+        initialDate={initialNewDate || undefined}
         packages={packages}
         zones={zones}
       />

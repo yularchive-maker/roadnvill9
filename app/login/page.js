@@ -11,7 +11,6 @@ export default function LoginPage() {
   const [fails, setFails] = useState(0)
   const [locked, setLocked] = useState(false)
   const router = useRouter()
-  const supabase = createClientComponentClient()
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -19,6 +18,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
+    const supabase = createClientComponentClient()
     const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
