@@ -13,14 +13,14 @@ const lbl = { fontSize:'11px', color:'var(--text-secondary)', display:'block', m
 const card = { background:'var(--navy2)', border:'1px solid var(--border2)', borderRadius:'12px', overflow:'hidden', marginBottom:'16px' }
 const cardHdr = { padding:'13px 18px', borderBottom:'1px solid var(--border2)', display:'flex', justifyContent:'space-between', alignItems:'center' }
 
-function Modal({ open, title, onClose, onSave, onDelete, children }) {
+function Modal({ open, title, onClose, onSave, onDelete, children, wide }) {
   if (!open) return null
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.65)',
       display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:'20px' }}
       onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{ background:'var(--navy2)', border:'1px solid var(--border)', borderRadius:'14px',
-        width:'100%', maxWidth:'460px', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
+        width:'100%', maxWidth: wide ? '560px' : '460px', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border2)',
           display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <span style={{ fontWeight:'700', fontSize:'14px' }}>{title}</span>
@@ -42,20 +42,32 @@ function Modal({ open, title, onClose, onSave, onDelete, children }) {
   )
 }
 
+const TAG = ({ children, color='var(--text-muted)' }) => (
+  <span style={{ fontSize:'10px', padding:'1px 7px', borderRadius:'4px',
+    background:'rgba(255,255,255,.06)', color, border:'1px solid rgba(255,255,255,.08)', marginLeft:'6px' }}>
+    {children}
+  </span>
+)
+
 export default function MasterPage() {
   const [vendors,  setVendors]  = useState([])
   const [zones,    setZones]    = useState([])
   const [packages, setPackages] = useState([])
   const [lodges,   setLodges]   = useState([])
+  const [configs,  setConfigs]  = useState([])  // master_config rows
   const [loading,  setLoading]  = useState(true)
+  const [dbNote,   setDbNote]   = useState('')
 
   // 모달
   const [vendorModal, setVendorModal] = useState({ open:false, data:null })
   const [zoneModal,   setZoneModal]   = useState({ open:false, data:null })
   const [pkgModal,    setPkgModal]    = useState({ open:false, data:null })
   const [progModal,   setProgModal]   = useState({ open:false, pkgId:null, data:null })
-  const [vpModal,     setVpModal]     = useState({ open:false, vendorId:null, data:null }) // vendor programs
+  const [vpModal,     setVpModal]     = useState({ open:false, vendorId:null, data:null })
   const [lodgeModal,  setLodgeModal]  = useState({ open:false, data:null })
+  const [platModal,   setPlatModal]   = useState({ open:false, data:null })
+  const [driverModal, setDriverModal] = useState({ open:false, data:null })
+  const [bizModal,    setBizModal]    = useState({ open:false, data:null })
 
   // 폼
   const [vForm,  setVForm]  = useState({ key:'', name:'', contact:'', tel:'', color:'#4ECDC4', note:'' })
@@ -64,29 +76,36 @@ export default function MasterPage() {
   const [prForm, setPrForm] = useState({ vendor_key:'', prog_name:'', default_start:'09:00', default_end:'10:30', override_price:'' })
   const [vpForm, setVpForm] = useState({ prog_name:'', unit_price:0, settle_type:'per_person' })
   const [lgForm, setLgForm] = useState({ vendor:'', color:'#5CB85C' })
+  const [platForm, setPlatForm] = useState({ type:'플랫폼', name:'', contact:'', tel:'', ind:0, grp:0 })
+  const [driverForm, setDriverForm] = useState({ name:'', tel:'', affil:'자체' })
+  const [bizForm, setBizForm] = useState({ name:'', period:'' })
 
-  // 열기 상태
-  const [openPkgs,   setOpenPkgs]   = useState({})
-  const [openVendors,setOpenVendors]= useState({})
+  const [openPkgs,   setOpenPkgs]    = useState({})
+  const [openVendors,setOpenVendors] = useState({})
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [vRes, zRes, pkRes, lgRes] = await Promise.all([
-      fetch('/api/vendors').then(r=>r.json()),
-      fetch('/api/zones').then(r=>r.json()),
-      fetch('/api/packages').then(r=>r.json()),
-      fetch('/api/lodges').then(r=>r.json()),
+    const [vRes, zRes, pkRes, lgRes, cfgRes] = await Promise.all([
+      fetch('/api/vendors').then(r=>r.json()).catch(()=>[]),
+      fetch('/api/zones').then(r=>r.json()).catch(()=>[]),
+      fetch('/api/packages').then(r=>r.json()).catch(()=>[]),
+      fetch('/api/lodges').then(r=>r.json()).catch(()=>[]),
+      fetch('/api/master-config').then(r=>r.json()).catch(()=>[]),
     ])
     setVendors(Array.isArray(vRes) ? vRes : [])
     setZones(Array.isArray(zRes) ? zRes : [])
     setPackages(Array.isArray(pkRes) ? pkRes : [])
     setLodges(Array.isArray(lgRes) ? lgRes : [])
+    setConfigs(Array.isArray(cfgRes) ? cfgRes : [])
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // ── 업체 저장
+  // config 헬퍼
+  const getCategory = (cat) => configs.filter(c => c.category === cat)
+
+  // ── 업체
   const saveVendor = async () => {
     if (!vForm.key || !vForm.name) { alert('업체 키와 업체명을 입력하세요.'); return }
     if (vendorModal.data) {
@@ -101,18 +120,18 @@ export default function MasterPage() {
     await fetch(`/api/vendors/${id}`, { method:'DELETE' }); await fetchAll()
   }
 
-  // ── 구역 저장
+  // ── 구역
   const saveZone = async () => {
     if (!zForm.code || !zForm.name) { alert('구역코드와 구역명을 입력하세요.'); return }
     if (zoneModal.data) {
-      await fetch(`/api/zones`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:zoneModal.data.id, ...zForm }) })
+      await fetch('/api/zones', { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:zoneModal.data.id, ...zForm }) })
     } else {
       await fetch('/api/zones', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(zForm) })
     }
     setZoneModal({ open:false, data:null }); setZForm({ code:'', name:'' }); await fetchAll()
   }
 
-  // ── 패키지 저장
+  // ── 패키지
   const savePkg = async () => {
     if (!pForm.name) { alert('패키지명을 입력하세요.'); return }
     if (pkgModal.data) {
@@ -127,13 +146,20 @@ export default function MasterPage() {
     await fetch(`/api/packages/${id}`, { method:'DELETE' }); await fetchAll()
   }
 
-  // ── 프로그램 저장
+  // ── 프로그램
   const saveProg = async () => {
     if (!prForm.vendor_key || !prForm.prog_name) { alert('업체와 프로그램명을 입력하세요.'); return }
+    setDbNote('')
+    let res
     if (progModal.data) {
-      await fetch('/api/programs', { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:progModal.data.id, ...prForm }) })
+      res = await fetch('/api/programs', { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:progModal.data.id, ...prForm }) })
     } else {
-      await fetch('/api/programs', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ package_id:progModal.pkgId, ...prForm }) })
+      res = await fetch('/api/programs', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ package_id:progModal.pkgId, ...prForm }) })
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}))
+      setDbNote(`⚠ 프로그램 저장 실패: ${err.error||res.status}. Supabase에 programs 테이블이 있는지 확인하세요.`)
+      return
     }
     setProgModal({ open:false, pkgId:null, data:null }); await fetchAll()
   }
@@ -142,8 +168,7 @@ export default function MasterPage() {
     await fetch('/api/programs', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id }) }); await fetchAll()
   }
 
-  // ── 업체 단가 저장 (vendors 테이블의 programs JSONB 컬럼 — 또는 별도 API)
-  // vendor.programs 배열을 PUT으로 업데이트
+  // ── 업체 단가
   const saveVendorProg = async () => {
     if (!vpForm.prog_name) { alert('프로그램명을 입력하세요.'); return }
     if (!vpForm.unit_price) { alert('단가를 입력하세요.'); return }
@@ -174,34 +199,112 @@ export default function MasterPage() {
     await fetchAll()
   }
 
+  // ── master_config CRUD (플랫폼/드라이버/사업명 공통)
+  const saveConfig = async (category, dataObj, existingId) => {
+    if (existingId) {
+      const res = await fetch('/api/master-config', {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ id:existingId, data:dataObj })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({}))
+        setDbNote(`⚠ 저장 실패: ${err.error||res.status}. Supabase에 master_config 테이블을 생성해주세요.`)
+        return false
+      }
+    } else {
+      const res = await fetch('/api/master-config', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ category, data:dataObj })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({}))
+        setDbNote(`⚠ 저장 실패: ${err.error||res.status}. Supabase에 master_config 테이블을 생성해주세요.`)
+        return false
+      }
+    }
+    setDbNote('')
+    await fetchAll()
+    return true
+  }
+  const deleteConfig = async (id) => {
+    await fetch('/api/master-config', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id }) })
+    await fetchAll()
+  }
+
+  // ── 플랫폼
+  const savePlatform = async () => {
+    if (!platForm.name) { alert('이름을 입력하세요.'); return }
+    const ok = await saveConfig('platform', platForm, platModal.data?.id)
+    if (ok) setPlatModal({ open:false, data:null })
+  }
+  // ── 픽업수행자
+  const saveDriver = async () => {
+    if (!driverForm.name) { alert('성함을 입력하세요.'); return }
+    const ok = await saveConfig('driver', driverForm, driverModal.data?.id)
+    if (ok) setDriverModal({ open:false, data:null })
+  }
+  // ── 사업명
+  const saveBiz = async () => {
+    if (!bizForm.name) { alert('사업명을 입력하세요.'); return }
+    const ok = await saveConfig('biz_project', bizForm, bizModal.data?.id)
+    if (ok) setBizModal({ open:false, data:null })
+  }
+
   if (loading) return <div style={{ padding:'40px', textAlign:'center', color:'var(--text-muted)' }}>불러오는 중...</div>
 
-  const btnAdd = (onClick) => (
-    <button onClick={onClick} style={{ height:'30px', padding:'0 14px', background:'var(--accent)',
-      border:'none', borderRadius:'7px', color:'var(--navy)', fontSize:'12px', fontWeight:'700', cursor:'pointer' }}>
-      + 추가
-    </button>
-  )
+  const platforms = getCategory('platform')
+  const drivers   = getCategory('driver')
+  const bizProjects = getCategory('biz_project')
 
   return (
     <div style={{ maxWidth:'960px' }}>
+
+      {/* DB 오류 안내 */}
+      {dbNote && (
+        <div style={{ padding:'12px 16px', background:'rgba(247,201,72,.1)', border:'1px solid rgba(247,201,72,.3)',
+          borderRadius:'10px', fontSize:'12px', color:'var(--amber)', marginBottom:'16px' }}>
+          {dbNote}
+          <div style={{ marginTop:'8px', fontSize:'11px', color:'var(--text-muted)' }}>
+            Supabase SQL Editor에서 아래 쿼리를 실행하세요:
+            <pre style={{ marginTop:'6px', background:'rgba(0,0,0,.2)', borderRadius:'6px', padding:'8px',
+              fontSize:'11px', color:'var(--text-primary)', overflowX:'auto' }}>{`-- programs 테이블
+CREATE TABLE IF NOT EXISTS programs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  package_id uuid REFERENCES packages(id) ON DELETE CASCADE,
+  vendor_key text NOT NULL,
+  prog_name text NOT NULL,
+  default_start text,
+  default_end text,
+  override_price numeric,
+  created_at timestamptz DEFAULT now()
+);
+
+-- master_config 테이블 (플랫폼/픽업수행자/사업명)
+CREATE TABLE IF NOT EXISTS master_config (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  category text NOT NULL,
+  data jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz DEFAULT now()
+);`}</pre>
+          </div>
+        </div>
+      )}
 
       {/* ══ 체험 업체 ══ */}
       <div style={card}>
         <div style={cardHdr}>
           <div>
             <span style={{ fontWeight:'700', fontSize:'14px' }}>체험 업체</span>
+            <TAG>M_운영</TAG>
             <span style={{ fontSize:'11px', color:'var(--text-muted)', marginLeft:'8px' }}>단가 등록 후 정산 자동계산</span>
           </div>
           <button onClick={() => { setVForm({ key:'', name:'', contact:'', tel:'', color:'#4ECDC4', note:'' }); setVendorModal({ open:true, data:null }) }}
             style={{ height:'30px', padding:'0 14px', background:'var(--accent)', border:'none', borderRadius:'7px',
               color:'var(--navy)', fontSize:'12px', fontWeight:'700', cursor:'pointer' }}>+ 업체 추가</button>
         </div>
-
         {vendors.length === 0 && (
           <div style={{ padding:'20px', color:'var(--text-muted)', fontSize:'13px', textAlign:'center' }}>등록된 업체가 없습니다</div>
         )}
-
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'0' }}>
           {vendors.map((v, i) => {
             const vprogs = v.vendor_programs || []
@@ -214,7 +317,8 @@ export default function MasterPage() {
                       <div style={{ width:'10px', height:'10px', borderRadius:'50%', background:v.color||'#4ECDC4', flexShrink:0 }}/>
                       <span style={{ fontWeight:'700', fontSize:'13px' }}>{v.name}</span>
                       <span style={{ fontSize:'10px', padding:'1px 6px', background:'rgba(78,205,196,.1)',
-                        border:'1px solid var(--border2)', borderRadius:'4px', color:'var(--text-muted)' }}>{v.key}</span>
+                        border:'1px solid var(--border2)', borderRadius:'4px', color:'var(--text-muted)',
+                        fontFamily:'monospace' }}>{v.key}</span>
                     </div>
                     <div style={{ display:'flex', gap:'4px' }}>
                       <button onClick={() => { setVForm({ key:v.key, name:v.name, contact:v.contact||'', tel:v.tel||'', color:v.color||'#4ECDC4', note:v.note||'' }); setVendorModal({ open:true, data:v }) }}
@@ -226,8 +330,8 @@ export default function MasterPage() {
                   <div style={{ fontSize:'12px', color:'var(--text-muted)', display:'flex', flexDirection:'column', gap:'2px', marginBottom:'8px' }}>
                     <div>👤 {v.contact||'담당자 미입력'}</div>
                     <div style={{ fontFamily:'monospace' }}>📞 {v.tel||'연락처 미입력'}</div>
+                    {v.note && <div>📝 {v.note}</div>}
                   </div>
-                  {/* 단가 토글 */}
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                     <button onClick={() => setOpenVendors(p=>({...p,[v.id]:!p[v.id]}))}
                       style={{ height:'26px', padding:'0 10px', background:'rgba(78,205,196,.08)',
@@ -260,6 +364,11 @@ export default function MasterPage() {
                       ))}
                     </div>
                   )}
+                  {isOpen && vprogs.length === 0 && (
+                    <div style={{ marginTop:'8px', fontSize:'11px', color:'var(--text-muted)', textAlign:'center', padding:'6px' }}>
+                      단가 미등록
+                    </div>
+                  )}
                 </div>
               </div>
             )
@@ -267,35 +376,78 @@ export default function MasterPage() {
         </div>
       </div>
 
-      {/* ══ 구역 ══ */}
-      <div style={card}>
-        <div style={cardHdr}>
-          <span style={{ fontWeight:'700', fontSize:'14px' }}>구역</span>
-          <button onClick={() => { setZForm({code:'',name:''}); setZoneModal({open:true,data:null}) }}
-            style={{ height:'30px', padding:'0 14px', background:'none', border:'1px solid var(--border)',
-              borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 추가</button>
-        </div>
-        {zones.length === 0 && <div style={{ padding:'16px 18px', fontSize:'13px', color:'var(--text-muted)' }}>등록된 구역이 없습니다</div>}
-        {zones.map(z => (
-          <div key={z.id} style={{ padding:'11px 18px', borderBottom:'1px solid var(--border2)',
-            display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:'13px' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-              <span style={{ fontSize:'11px', padding:'2px 8px', background:'rgba(78,205,196,.1)',
-                color:'var(--accent)', borderRadius:'4px', fontFamily:'monospace' }}>{z.code}</span>
-              <span style={{ fontWeight:'500' }}>{z.name}</span>
-            </div>
-            <div style={{ display:'flex', gap:'4px' }}>
+      {/* ══ 구역 + 패키지 2열 ══ */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'16px', marginBottom:'16px' }}>
+
+        {/* 구역 */}
+        <div style={{ ...card, marginBottom:0 }}>
+          <div style={cardHdr}>
+            <div><span style={{ fontWeight:'700', fontSize:'14px' }}>구역</span><TAG>M_운영</TAG></div>
+            <button onClick={() => { setZForm({code:'',name:''}); setZoneModal({open:true,data:null}) }}
+              style={{ height:'30px', padding:'0 14px', background:'none', border:'1px solid var(--border)',
+                borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 추가</button>
+          </div>
+          {zones.length === 0 && <div style={{ padding:'16px 18px', fontSize:'13px', color:'var(--text-muted)' }}>등록된 구역이 없습니다</div>}
+          {zones.map(z => (
+            <div key={z.id} style={{ padding:'11px 18px', borderBottom:'1px solid var(--border2)',
+              display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:'13px' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                <span style={{ fontSize:'11px', padding:'2px 8px', background:'rgba(78,205,196,.1)',
+                  color:'var(--accent)', borderRadius:'4px', fontFamily:'monospace' }}>{z.code}</span>
+                <span style={{ fontWeight:'500' }}>{z.name}</span>
+              </div>
               <button onClick={() => { setZForm({code:z.code,name:z.name}); setZoneModal({open:true,data:z}) }}
                 style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:'13px' }}>✎</button>
             </div>
+          ))}
+        </div>
+
+        {/* 플랫폼·여행사 */}
+        <div style={{ ...card, marginBottom:0 }}>
+          <div style={cardHdr}>
+            <div><span style={{ fontWeight:'700', fontSize:'14px' }}>플랫폼 · 여행사</span><TAG color='var(--amber)'>M_결제</TAG></div>
+            <button onClick={() => { setPlatForm({ type:'플랫폼', name:'', contact:'', tel:'', ind:0, grp:0 }); setPlatModal({open:true,data:null}) }}
+              style={{ height:'30px', padding:'0 14px', background:'none', border:'1px solid var(--border)',
+                borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 추가</button>
           </div>
-        ))}
+          {platforms.length === 0 && <div style={{ padding:'16px 18px', fontSize:'12px', color:'var(--text-muted)' }}>등록된 플랫폼/여행사가 없습니다</div>}
+          {platforms.map(row => {
+            const d = row.data
+            return (
+              <div key={row.id} style={{ padding:'11px 18px', borderBottom:'1px solid var(--border2)',
+                display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:'13px' }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                    <span style={{ fontSize:'10px', padding:'1px 7px', borderRadius:'10px',
+                      background: d.type==='여행사' ? 'rgba(247,201,72,.15)' : 'rgba(78,205,196,.1)',
+                      color: d.type==='여행사' ? 'var(--amber)' : 'var(--accent)',
+                      fontWeight:'600' }}>{d.type}</span>
+                    <span style={{ fontWeight:'600' }}>{d.name}</span>
+                  </div>
+                  <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'3px', display:'flex', gap:'8px' }}>
+                    {d.contact && <span>👤 {d.contact}</span>}
+                    {d.tel && <span>📞 {d.tel}</span>}
+                    <span style={{ fontFamily:'DM Mono,monospace', color:'var(--accent)' }}>
+                      개인 {d.ind}% / 단체 {d.grp}%
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:'4px' }}>
+                  <button onClick={() => { setPlatForm({ type:d.type, name:d.name, contact:d.contact||'', tel:d.tel||'', ind:d.ind||0, grp:d.grp||0 }); setPlatModal({open:true,data:row}) }}
+                    style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:'13px' }}>✎</button>
+                  <button onClick={async()=>{ if(!confirm('삭제하시겠습니까?'))return; await deleteConfig(row.id) }}
+                    style={{ background:'none', border:'none', color:'var(--red)', cursor:'pointer', fontSize:'13px' }}>✕</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      {/* ══ 패키지 ══ */}
+      {/* ══ 패키지 · 프로그램 ══ */}
       <div style={card}>
         <div style={cardHdr}>
-          <span style={{ fontWeight:'700', fontSize:'14px' }}>패키지 · 프로그램</span>
+          <div><span style={{ fontWeight:'700', fontSize:'14px' }}>패키지 · 프로그램</span><TAG>M_운영</TAG></div>
           <button onClick={() => { setPForm({zone:'',name:'',pax_limit:''}); setPkgModal({open:true,data:null}) }}
             style={{ height:'30px', padding:'0 14px', background:'none', border:'1px solid var(--border)',
               borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 패키지 추가</button>
@@ -316,9 +468,9 @@ export default function MasterPage() {
                       {pkg.zone && <span style={{ fontSize:'10px', padding:'1px 7px', background:'rgba(78,205,196,.1)',
                         color:'var(--accent)', borderRadius:'4px', fontFamily:'monospace' }}>{pkg.zone}</span>}
                       <span style={{ fontWeight:'600', fontSize:'13px' }}>{pkg.name}</span>
-                      {pkg.pax_limit && <span style={{ fontSize:'11px', color:'var(--amber)' }}>인원한도 {pkg.pax_limit}명</span>}
+                      {pkg.pax_limit && <span style={{ fontSize:'11px', color:'var(--amber)' }}>⚠ {pkg.pax_limit}명 한도</span>}
                     </div>
-                    <div style={{ display:'flex', gap:'4px', marginTop:'4px', flexWrap:'wrap' }}>
+                    <div style={{ display:'flex', gap:'4px', marginTop:'4px', flexWrap:'wrap', alignItems:'center' }}>
                       {vendorKeys.map(k => { const v=vendors.find(x=>x.key===k); return (
                         <div key={k} style={{ width:'8px', height:'8px', borderRadius:'50%', background:v?.color||'#4ECDC4' }} title={v?.name||k}/>
                       )})}
@@ -342,7 +494,9 @@ export default function MasterPage() {
               {openPkgs[pkg.id] && (
                 <div style={{ background:'rgba(0,0,0,.15)' }}>
                   {progs.length === 0 && (
-                    <div style={{ padding:'12px 48px', fontSize:'12px', color:'var(--text-muted)' }}>프로그램이 없습니다.</div>
+                    <div style={{ padding:'12px 48px', fontSize:'12px', color:'var(--text-muted)' }}>
+                      프로그램이 없습니다. + 프로그램 버튼으로 추가하세요.
+                    </div>
                   )}
                   {progs.map(pr => {
                     const v = vendors.find(x=>x.key===pr.vendor_key)
@@ -356,7 +510,7 @@ export default function MasterPage() {
                             <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' }}>
                               {v?.name||pr.vendor_key}
                               {pr.default_start && ` · ${pr.default_start}~${pr.default_end}`}
-                              {pr.override_price ? ` · 단가오버라이드 ₩${Number(pr.override_price).toLocaleString()}` : ''}
+                              {pr.override_price ? ` · 단가 ₩${Number(pr.override_price).toLocaleString()}` : ''}
                             </div>
                           </div>
                         </div>
@@ -377,11 +531,81 @@ export default function MasterPage() {
         })}
       </div>
 
+      {/* ══ 픽업수행자 + 사업명 2열 ══ */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'16px', marginBottom:'16px' }}>
+
+        {/* 픽업수행자 */}
+        <div style={{ ...card, marginBottom:0 }}>
+          <div style={cardHdr}>
+            <div><span style={{ fontWeight:'700', fontSize:'14px' }}>픽업수행자</span><TAG color='var(--amber)'>M_결제</TAG></div>
+            <button onClick={() => { setDriverForm({ name:'', tel:'', affil:'자체' }); setDriverModal({open:true,data:null}) }}
+              style={{ height:'30px', padding:'0 14px', background:'none', border:'1px solid var(--border)',
+                borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 추가</button>
+          </div>
+          <div style={{ padding:'8px 18px', background:'rgba(247,201,72,.04)', borderBottom:'1px solid var(--border2)',
+            fontSize:'11px', color:'var(--amber)' }}>
+            💡 픽업비는 여행사 정산금에서 차감 후 담당자에게 지급
+          </div>
+          {drivers.length === 0 && <div style={{ padding:'16px 18px', fontSize:'12px', color:'var(--text-muted)' }}>등록된 픽업수행자가 없습니다</div>}
+          {drivers.map(row => {
+            const d = row.data
+            return (
+              <div key={row.id} style={{ padding:'11px 18px', borderBottom:'1px solid var(--border2)',
+                display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:'13px' }}>
+                <div>
+                  <div style={{ fontWeight:'600' }}>{d.name}
+                    <span style={{ fontSize:'10px', marginLeft:'6px', padding:'1px 6px', background:'var(--navy3)',
+                      border:'1px solid var(--border2)', borderRadius:'4px', color:'var(--text-muted)' }}>{d.affil}</span>
+                  </div>
+                  <div style={{ fontSize:'11px', color:'var(--text-muted)', fontFamily:'monospace', marginTop:'2px' }}>{d.tel}</div>
+                </div>
+                <div style={{ display:'flex', gap:'4px' }}>
+                  <button onClick={() => { setDriverForm({ name:d.name, tel:d.tel||'', affil:d.affil||'자체' }); setDriverModal({open:true,data:row}) }}
+                    style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:'13px' }}>✎</button>
+                  <button onClick={async()=>{ if(!confirm('삭제하시겠습니까?'))return; await deleteConfig(row.id) }}
+                    style={{ background:'none', border:'none', color:'var(--red)', cursor:'pointer', fontSize:'13px' }}>✕</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* 사업명 */}
+        <div style={{ ...card, marginBottom:0 }}>
+          <div style={cardHdr}>
+            <div><span style={{ fontWeight:'700', fontSize:'14px' }}>사업명</span><TAG color='var(--purple)'>M_사업비</TAG></div>
+            <button onClick={() => { setBizForm({ name:'', period:'' }); setBizModal({open:true,data:null}) }}
+              style={{ height:'30px', padding:'0 14px', background:'none', border:'1px solid var(--border)',
+                borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 추가</button>
+          </div>
+          {bizProjects.length === 0 && <div style={{ padding:'16px 18px', fontSize:'12px', color:'var(--text-muted)' }}>등록된 사업명이 없습니다</div>}
+          {bizProjects.map(row => {
+            const d = row.data
+            return (
+              <div key={row.id} style={{ padding:'11px 18px', borderBottom:'1px solid var(--border2)',
+                display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:'13px' }}>
+                <div>
+                  <div style={{ fontWeight:'600' }}>{d.name}</div>
+                  {d.period && <div style={{ fontSize:'11px', color:'var(--text-muted)', fontFamily:'DM Mono,monospace', marginTop:'2px' }}>{d.period}</div>}
+                </div>
+                <div style={{ display:'flex', gap:'4px' }}>
+                  <button onClick={() => { setBizForm({ name:d.name, period:d.period||'' }); setBizModal({open:true,data:row}) }}
+                    style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:'13px' }}>✎</button>
+                  <button onClick={async()=>{ if(!confirm('삭제하시겠습니까?'))return; await deleteConfig(row.id) }}
+                    style={{ background:'none', border:'none', color:'var(--red)', cursor:'pointer', fontSize:'13px' }}>✕</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
       {/* ══ 숙소 ══ */}
       <div style={card}>
         <div style={cardHdr}>
           <div>
             <span style={{ fontWeight:'700', fontSize:'14px' }}>숙소 · 객실</span>
+            <TAG>M_운영</TAG>
             <span style={{ fontSize:'11px', color:'var(--text-muted)', marginLeft:'8px' }}>전화확인 후 수동입력</span>
           </div>
           <button onClick={() => { setLgForm({ vendor:'', color:'#5CB85C' }); setLodgeModal({ open:true, data:null }) }}
@@ -389,23 +613,20 @@ export default function MasterPage() {
               borderRadius:'7px', color:'var(--text-secondary)', fontSize:'12px', cursor:'pointer' }}>+ 숙소 추가</button>
         </div>
         {lodges.length === 0 && (
-          <div style={{ padding:'16px 18px', fontSize:'13px', color:'var(--text-muted)' }}>
-            등록된 숙소가 없습니다. Supabase에 lodges 테이블이 필요합니다.
-          </div>
+          <div style={{ padding:'16px 18px', fontSize:'13px', color:'var(--text-muted)' }}>등록된 숙소가 없습니다</div>
         )}
         {lodges.map(lg => (
-          <div key={lg.id} style={{ borderBottom:'1px solid var(--border2)', padding:'12px 18px' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-                <div style={{ width:'10px', height:'10px', borderRadius:'50%', background:lg.color||'var(--c5)', flexShrink:0 }}/>
-                <span style={{ fontWeight:'600', fontSize:'13px' }}>{lg.vendor || lg.name}</span>
-              </div>
-              <button onClick={async () => {
-                if (!confirm('숙소를 삭제하시겠습니까?')) return
-                await fetch('/api/lodges', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:lg.id }) })
-                fetchAll()
-              }} style={{ background:'none', border:'none', color:'var(--red)', cursor:'pointer', fontSize:'13px' }}>✕</button>
+          <div key={lg.id} style={{ borderBottom:'1px solid var(--border2)', padding:'12px 18px',
+            display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+              <div style={{ width:'10px', height:'10px', borderRadius:'50%', background:lg.color||'var(--c5)', flexShrink:0 }}/>
+              <span style={{ fontWeight:'600', fontSize:'13px' }}>{lg.vendor || lg.name}</span>
             </div>
+            <button onClick={async () => {
+              if (!confirm('숙소를 삭제하시겠습니까?')) return
+              await fetch('/api/lodges', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:lg.id }) })
+              fetchAll()
+            }} style={{ background:'none', border:'none', color:'var(--red)', cursor:'pointer', fontSize:'13px' }}>✕</button>
           </div>
         ))}
       </div>
@@ -416,8 +637,8 @@ export default function MasterPage() {
       <Modal open={vendorModal.open} title={vendorModal.data?'업체 수정':'업체 추가'}
         onClose={() => setVendorModal({open:false,data:null})} onSave={saveVendor}
         onDelete={vendorModal.data ? () => deleteVendor(vendorModal.data.id) : null}>
-        <div><label style={lbl}>업체 키 (A, B, C...)</label>
-          <input style={inp} value={vForm.key} onChange={e=>setVForm(f=>({...f,key:e.target.value}))} placeholder="A" maxLength={2}/></div>
+        <div><label style={lbl}>업체 키 * (예: A, B, KIM, ABC 등 자유롭게)</label>
+          <input style={inp} value={vForm.key} onChange={e=>setVForm(f=>({...f,key:e.target.value.toUpperCase()}))} placeholder="A"/></div>
         <div><label style={lbl}>업체명 *</label>
           <input style={inp} value={vForm.name} onChange={e=>setVForm(f=>({...f,name:e.target.value}))} placeholder="A업체 (애프터눈티)"/></div>
         <div><label style={lbl}>담당자</label>
@@ -443,7 +664,8 @@ export default function MasterPage() {
 
       {/* 업체 단가 모달 */}
       <Modal open={vpModal.open} title={vpModal.data >= 0 ? '단가 수정' : '단가 추가'}
-        onClose={() => setVpModal({open:false,vendorId:null,data:null})} onSave={saveVendorProg}>
+        onClose={() => setVpModal({open:false,vendorId:null,data:null})} onSave={saveVendorProg}
+        onDelete={vpModal.data >= 0 ? () => { deleteVendorProg(vpModal.vendorId, vpModal.data); setVpModal({open:false,vendorId:null,data:null}) } : null}>
         <div><label style={lbl}>프로그램명 *</label>
           <input style={inp} value={vpForm.prog_name} onChange={e=>setVpForm(f=>({...f,prog_name:e.target.value}))} placeholder="애프터눈티, 쿠킹클래스 등"/></div>
         <div><label style={lbl}>단가 (원) *</label>
@@ -451,10 +673,9 @@ export default function MasterPage() {
         <div><label style={lbl}>정산방식</label>
           <select style={inp} value={vpForm.settle_type} onChange={e=>setVpForm(f=>({...f,settle_type:e.target.value}))}>
             {SETTLE_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
+          </select></div>
         <div style={{ padding:'10px 12px', background:'var(--navy3)', borderRadius:'8px', fontSize:'11px', color:'var(--text-muted)' }}>
-          💡 인원×단가: 참여인원 × 단가<br/>건당고정: 예약 1건당 고정금액
+          💡 인원×단가: 참여인원 × 단가 / 건당고정: 예약 1건당 고정금액
         </div>
       </Modal>
 
@@ -503,6 +724,54 @@ export default function MasterPage() {
           <input type="number" style={inp} value={prForm.override_price} onChange={e=>setPrForm(f=>({...f,override_price:e.target.value}))} placeholder="(선택사항)"/></div>
       </Modal>
 
+      {/* 플랫폼·여행사 모달 */}
+      <Modal open={platModal.open} title={platModal.data?'플랫폼·여행사 수정':'플랫폼·여행사 추가'}
+        onClose={() => setPlatModal({open:false,data:null})} onSave={savePlatform}
+        onDelete={platModal.data ? async()=>{ if(!confirm('삭제하시겠습니까?'))return; await deleteConfig(platModal.data.id); setPlatModal({open:false,data:null}) } : null}>
+        <div><label style={lbl}>구분 *</label>
+          <select style={inp} value={platForm.type} onChange={e=>setPlatForm(f=>({...f,type:e.target.value}))}>
+            <option>플랫폼</option>
+            <option>여행사</option>
+          </select></div>
+        <div><label style={lbl}>이름 *</label>
+          <input style={inp} value={platForm.name} onChange={e=>setPlatForm(f=>({...f,name:e.target.value}))} placeholder="길과마을, PBP 등"/></div>
+        <div><label style={lbl}>담당자</label>
+          <input style={inp} value={platForm.contact} onChange={e=>setPlatForm(f=>({...f,contact:e.target.value}))} placeholder="홍길동"/></div>
+        <div><label style={lbl}>연락처</label>
+          <input style={inp} value={platForm.tel} onChange={e=>setPlatForm(f=>({...f,tel:e.target.value}))} placeholder="010-0000-0000"/></div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+          <div><label style={lbl}>개인 수수료 (%)</label>
+            <input type="number" style={inp} value={platForm.ind} onChange={e=>setPlatForm(f=>({...f,ind:Number(e.target.value)}))} placeholder="5"/></div>
+          <div><label style={lbl}>단체 수수료 (%)</label>
+            <input type="number" style={inp} value={platForm.grp} onChange={e=>setPlatForm(f=>({...f,grp:Number(e.target.value)}))} placeholder="3"/></div>
+        </div>
+      </Modal>
+
+      {/* 픽업수행자 모달 */}
+      <Modal open={driverModal.open} title={driverModal.data?'픽업수행자 수정':'픽업수행자 추가'}
+        onClose={() => setDriverModal({open:false,data:null})} onSave={saveDriver}
+        onDelete={driverModal.data ? async()=>{ if(!confirm('삭제하시겠습니까?'))return; await deleteConfig(driverModal.data.id); setDriverModal({open:false,data:null}) } : null}>
+        <div><label style={lbl}>성함 *</label>
+          <input style={inp} value={driverForm.name} onChange={e=>setDriverForm(f=>({...f,name:e.target.value}))} placeholder="홍길동"/></div>
+        <div><label style={lbl}>연락처</label>
+          <input style={inp} value={driverForm.tel} onChange={e=>setDriverForm(f=>({...f,tel:e.target.value}))} placeholder="010-0000-0000"/></div>
+        <div><label style={lbl}>소속</label>
+          <select style={inp} value={driverForm.affil} onChange={e=>setDriverForm(f=>({...f,affil:e.target.value}))}>
+            <option>자체</option>
+            <option>외부</option>
+          </select></div>
+      </Modal>
+
+      {/* 사업명 모달 */}
+      <Modal open={bizModal.open} title={bizModal.data?'사업명 수정':'사업명 추가'}
+        onClose={() => setBizModal({open:false,data:null})} onSave={saveBiz}
+        onDelete={bizModal.data ? async()=>{ if(!confirm('삭제하시겠습니까?'))return; await deleteConfig(bizModal.data.id); setBizModal({open:false,data:null}) } : null}>
+        <div><label style={lbl}>사업명 *</label>
+          <input style={inp} value={bizForm.name} onChange={e=>setBizForm(f=>({...f,name:e.target.value}))} placeholder="사업A"/></div>
+        <div><label style={lbl}>기간</label>
+          <input style={inp} value={bizForm.period} onChange={e=>setBizForm(f=>({...f,period:e.target.value}))} placeholder="2026-01-01 ~ 2026-12-31"/></div>
+      </Modal>
+
       {/* 숙소 모달 */}
       <Modal open={lodgeModal.open} title="숙소 추가" onClose={() => setLodgeModal({open:false,data:null})}
         onSave={async () => {
@@ -522,6 +791,7 @@ export default function MasterPage() {
           </div>
         </div>
       </Modal>
+
     </div>
   )
 }
