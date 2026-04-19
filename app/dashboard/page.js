@@ -132,7 +132,7 @@ export default function DashboardPage() {
         <div className="kpi-card">
           <div className="kpi-label">미정산 (체험)</div>
           <div className="kpi-value" style={{color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)'}}>{unsettledCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-          <div className="kpi-sub">settle_status = unsettled</div>
+          <div className="kpi-sub">취소 제외</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">업체 확인 대기</div>
