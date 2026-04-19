@@ -115,7 +115,10 @@ export default function DashboardLayout({ children }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
               <div className="status-dot"></div>연결됨
             </div>
-            <button className="btn-primary" onClick={() => router.push('/dashboard/reservations?new=1')}>
+            <button className="btn-primary" onClick={() => {
+              const from = pathname === '/dashboard' ? '&from=dashboard' : ''
+              router.push(`/dashboard/reservations?new=1${from}`)
+            }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
