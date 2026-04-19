@@ -18,12 +18,16 @@ function calcTotal(price, pax, discount, pickupFee, burden) {
 // ══════════════════════════════════════════════════════
 // 예약 모달
 // ══════════════════════════════════════════════════════
-function ReservationModal({ editData, onClose, onSaved, zones, packages, platforms, drivers, bizList }) {
-  const isEdit = !!editData
-  const today  = new Date().toISOString().slice(0,10)
+function nextDay(ds) {
+  const d = new Date(ds); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10)
+}
+
+function ReservationModal({ editData, initDate, onClose, onSaved, zones, packages, platforms, drivers, bizList }) {
+  const isEdit  = !!editData
+  const baseDate = initDate || new Date().toISOString().slice(0,10)
 
   const EMPTY = {
-    no:'', type:'confirmed', date: today, end_date: today,
+    no:'', type:'confirmed', date: baseDate, end_date: nextDay(baseDate),
     zone_code:'', package_name:'', customer:'', tel:'', pax:1,
     price:0, discount:0, pickup_fee:0, burden:0, total:0,
     payto:'', inflow:'', platform_name:'', plat_fee:0, agency_name:'', ag_fee:0,
@@ -463,6 +467,7 @@ function ReservationModal({ editData, onClose, onSaved, zones, packages, platfor
 export default function ReservationsPage() {
   const searchParams = useSearchParams()
   const router       = useRouter()
+  const fromDashboard = searchParams.get('from') === 'dashboard'
 
   const [reservations, setReservations] = useState([])
   const [zones,     setZones]     = useState([])
@@ -538,7 +543,12 @@ export default function ReservationsPage() {
 
   function openEdit(r) { setModal({ mode:'edit', data: r }) }
 
-  function onSaved() { setModal(null); load(); router.replace('/dashboard/reservations') }
+  function closeModal() {
+    setModal(null)
+    if (fromDashboard) router.replace('/dashboard')
+    else router.replace('/dashboard/reservations')
+  }
+  function onSaved() { setModal(null); load(); if (fromDashboard) router.replace('/dashboard'); else router.replace('/dashboard/reservations') }
 
   if (loading) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'300px',color:'var(--text-muted)'}}>로딩 중…</div>
@@ -607,7 +617,8 @@ export default function ReservationsPage() {
         <ReservationModal
           key={modal.mode === 'new' ? 'new' : modal.data?.no}
           editData={modal.mode === 'edit' ? modal.data : null}
-          onClose={() => { setModal(null); router.replace('/dashboard/reservations') }}
+          initDate={modal.mode === 'new' ? modal.date : undefined}
+          onClose={closeModal}
           onSaved={onSaved}
           zones={zones}
           packages={packages}
