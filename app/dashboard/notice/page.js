@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
 
 const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 
@@ -21,9 +22,14 @@ export default function NoticePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/notices?from=${ym}-01&to=${ym}-31`)
-    const data = res.ok ? await res.json() : []
-    setNotices(Array.isArray(data) ? data : [])
+    const { data, error } = await supabase
+      .from('notices')
+      .select('*')
+      .gte('date', `${ym}-01`)
+      .lte('date', `${ym}-31`)
+      .order('date')
+    if (error) { alert('알림 로드 실패: ' + error.message); setLoading(false); return }
+    setNotices(data || [])
     setLoading(false)
   }, [ym])
 
