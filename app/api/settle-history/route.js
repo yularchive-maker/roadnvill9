@@ -1,44 +1,39 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
-export async function GET() {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const { data, error } = await supabase
+export async function GET(req) {
+  const { searchParams } = new URL(req.url)
+  const vendorKey = searchParams.get('vendor_key')
+  let q = supabase
     .from('settle_history')
-    .select('*')
+    .select('*, settle_history_items(*), vendors(name,color)')
     .order('settled_at', { ascending: false })
-
-  if (error) return NextResponse.json([], { status: 200 })
-  return NextResponse.json(data || [])
+  if (vendorKey) q = q.eq('vendor_key', vendorKey)
+  const { data, error } = await q
+  if (error) return NextResponse.json({ error }, { status: 500 })
+  return NextResponse.json(data)
 }
 
-export async function POST(request) {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+export async function POST(req) {
+  const body = await req.json()
+  const { items, reservation_nos, ...historyBody } = body
 
-  const body = await request.json()
-  const { data, error } = await supabase
-    .from('settle_history')
-    .insert([{ ...body, settled_by: session.user.email }])
-    .select()
-    .single()
+  const { data: hist, error } = await supabase
+    .from('settle_history').insert(historyBody).select().single()
+  if (error) return NextResponse.json({ error }, { status: 500 })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
-}
+  if (items?.length) {
+    await supabase.from('settle_history_items').insert(
+      items.map(it => ({ ...it, settle_history_id: hist.id }))
+    )
+  }
 
-export async function DELETE(request) {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  // 정산 완료 처리
+  if (reservation_nos?.length) {
+    await supabase.from('reservations')
+      .update({ settle_status: 'settled' })
+      .in('no', reservation_nos)
+  }
 
-  const { id } = await request.json()
-  const { error } = await supabase.from('settle_history').delete().eq('id', id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true })
+  return NextResponse.json(hist)
 }

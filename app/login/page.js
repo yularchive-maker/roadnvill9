@@ -1,126 +1,117 @@
 'use client'
-import { useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { login } from '@/lib/auth'
+
+const MAX_FAILS = 5
+const LOCK_MS   = 30 * 1000
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
+  const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [fails, setFails] = useState(0)
-  const [locked, setLocked] = useState(false)
+  const [error,    setError]    = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const fails     = useRef(0)
+  const lockedUntil = useRef(0)
   const router = useRouter()
 
-  const handleLogin = async (e) => {
-    e.preventDefault()
-    if (locked) return
+  function attempt() {
+    if (loading) return
+    const now = Date.now()
+
+    if (now < lockedUntil.current) {
+      const sec = Math.ceil((lockedUntil.current - now) / 1000)
+      setError(`⛔ 로그인 시도가 너무 많습니다. ${sec}초 후 다시 시도하세요.`)
+      return
+    }
+
+    if (!email || !password) { setError('이메일과 비밀번호를 입력하세요.'); return }
+
     setLoading(true)
     setError('')
+    const session = login(email, password)
 
-    const supabase = createClientComponentClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (error) {
-      const newFails = fails + 1
-      setFails(newFails)
-      if (newFails >= 5) {
-        setLocked(true)
-        setError('로그인 5회 실패. 30초 후 다시 시도해주세요.')
-        setTimeout(() => { setLocked(false); setFails(0); setError('') }, 30000)
+    if (!session) {
+      fails.current += 1
+      if (fails.current >= MAX_FAILS) {
+        lockedUntil.current = Date.now() + LOCK_MS
+        fails.current = 0
+        setError(`⛔ ${MAX_FAILS}회 실패로 30초간 잠금됩니다.`)
+        setTimeout(() => { setError(''); lockedUntil.current = 0 }, LOCK_MS)
       } else {
-        setError(`이메일 또는 비밀번호가 올바르지 않습니다. (${newFails}/5)`)
+        setError(`❌ 이메일 또는 비밀번호가 올바르지 않습니다. (${fails.current}/${MAX_FAILS})`)
       }
+      setPassword('')
       setLoading(false)
-    } else {
-      router.push('/dashboard')
-      router.refresh()
+      return
     }
+
+    fails.current = 0
+    router.push('/dashboard')
   }
 
   return (
     <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', background: '#0f1923'
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backgroundImage: 'radial-gradient(ellipse at 20% 50%, rgba(78,205,196,0.07) 0%, transparent 60%)',
     }}>
       <div style={{
-        background: '#1a2535', border: '1px solid #2a3a4a',
-        borderRadius: '16px', padding: '40px', width: '100%', maxWidth: '400px'
+        width: '380px', padding: '48px 40px',
+        background: 'var(--navy2)', border: '1px solid var(--border)', borderRadius: '16px',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ fontSize: '40px', marginBottom: '12px' }}>🌿</div>
-          <h1 style={{ fontSize: '20px', fontWeight: '700', color: '#e8eaed' }}>
-            체험 예약 관리 시스템
-          </h1>
-          <p style={{ fontSize: '13px', color: '#8a9ab0', marginTop: '6px' }}>
-            팀원만 접속 가능합니다
-          </p>
+        {/* 로고 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '36px' }}>
+          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--navy)">
+              <path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7zm0 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/>
+            </svg>
+          </div>
+          <div>
+            <h1 style={{ fontSize: '15px', fontWeight: 700 }}>체험 예약 관리</h1>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '1px' }}>Experience Booking System</span>
+          </div>
         </div>
 
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ fontSize: '12px', color: '#8a9ab0', display: 'block', marginBottom: '6px' }}>
-              이메일
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              disabled={locked}
-              style={{
-                width: '100%', height: '44px', background: '#0f1923',
-                border: '1px solid #2a3a4a', borderRadius: '8px',
-                padding: '0 14px', fontSize: '14px', color: '#e8eaed',
-                outline: 'none', opacity: locked ? 0.5 : 1
-              }}
-              placeholder="이메일 입력"
-            />
+        {/* 이메일 */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>이메일</label>
+          <input
+            type="email" value={email} onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && document.getElementById('pw').focus()}
+            placeholder="이메일 입력" autoComplete="username"
+            style={{ width: '100%', height: '44px', background: 'var(--navy3)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 14px', fontSize: '14px', color: 'var(--text-primary)', outline: 'none' }}
+          />
+        </div>
+
+        {/* 비밀번호 */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>비밀번호</label>
+          <input
+            id="pw" type="password" value={password} onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && attempt()}
+            placeholder="비밀번호 입력" autoComplete="current-password"
+            style={{ width: '100%', height: '44px', background: 'var(--navy3)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 14px', fontSize: '14px', color: 'var(--text-primary)', outline: 'none' }}
+          />
+        </div>
+
+        {/* 에러 */}
+        {error && (
+          <div style={{ marginBottom: '14px', padding: '10px 14px', background: 'rgba(224,92,92,0.1)', border: '1px solid rgba(224,92,92,0.25)', borderRadius: '8px', fontSize: '12px', color: 'var(--red)', lineHeight: 1.5 }}>
+            {error}
           </div>
+        )}
 
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ fontSize: '12px', color: '#8a9ab0', display: 'block', marginBottom: '6px' }}>
-              비밀번호
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              disabled={locked}
-              style={{
-                width: '100%', height: '44px', background: '#0f1923',
-                border: '1px solid #2a3a4a', borderRadius: '8px',
-                padding: '0 14px', fontSize: '14px', color: '#e8eaed',
-                outline: 'none', opacity: locked ? 0.5 : 1
-              }}
-              placeholder="비밀번호 입력"
-            />
-          </div>
+        <button
+          onClick={attempt} disabled={loading}
+          style={{ width: '100%', height: '46px', background: 'var(--accent)', border: 'none', borderRadius: '8px', color: 'var(--navy)', fontSize: '15px', fontWeight: 700, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}
+        >
+          {loading ? '확인 중…' : '로그인'}
+        </button>
 
-          {error && (
-            <div style={{
-              background: 'rgba(224,92,92,0.1)', border: '1px solid rgba(224,92,92,0.3)',
-              borderRadius: '8px', padding: '10px 14px', marginBottom: '16px',
-              fontSize: '13px', color: '#e05c5c', textAlign: 'center'
-            }}>
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || locked}
-            style={{
-              width: '100%', height: '44px', background: '#4ecdc4',
-              border: 'none', borderRadius: '8px', fontSize: '14px',
-              fontWeight: '700', color: '#0f1923', cursor: locked ? 'not-allowed' : 'pointer',
-              opacity: (loading || locked) ? 0.6 : 1, transition: 'opacity .2s'
-            }}
-          >
-            {loading ? '로그인 중...' : locked ? '잠금 중 (30초)' : '로그인'}
-          </button>
-        </form>
+        <p style={{ marginTop: '16px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>팀원 계정으로만 접근 가능합니다</p>
+        <p style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', opacity: 0.55 }}>
+          데모: admin@experience.com / Admin1234!
+        </p>
       </div>
     </div>
   )

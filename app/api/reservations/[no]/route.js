@@ -1,54 +1,28 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
-// 예약 단건 조회
-export async function GET(request, { params }) {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
+export async function GET(_, { params }) {
   const { data, error } = await supabase
-    .from('reservations')
-    .select('*')
-    .eq('no', params.no)
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 })
+    .from('reservations').select('*, reservation_pickup(*), lodge_confirms(*), vendor_confirms(*)')
+    .eq('no', params.no).single()
+  if (error) return NextResponse.json({ error }, { status: 404 })
   return NextResponse.json(data)
 }
 
-// 예약 수정
-export async function PUT(request, { params }) {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const body = await request.json()
-  delete body.no // no는 변경 불가
-
+export async function PUT(req, { params }) {
+  const body = await req.json()
   const { data, error } = await supabase
-    .from('reservations')
-    .update(body)
-    .eq('no', params.no)
-    .select()
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    .from('reservations').update(body).eq('no', params.no).select().single()
+  if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }
 
-// 예약 삭제
-export async function DELETE(request, { params }) {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const { error } = await supabase
-    .from('reservations')
-    .delete()
-    .eq('no', params.no)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true })
+export async function DELETE(_, { params }) {
+  // FK CASCADE 있으나 vendor_confirms, lodge_confirms, reservation_pickup 먼저 삭제
+  await supabase.from('vendor_confirms').delete().eq('reservation_no', params.no)
+  await supabase.from('lodge_confirms').delete().eq('reservation_no', params.no)
+  await supabase.from('reservation_pickup').delete().eq('reservation_no', params.no)
+  const { error } = await supabase.from('reservations').delete().eq('no', params.no)
+  if (error) return NextResponse.json({ error }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }
