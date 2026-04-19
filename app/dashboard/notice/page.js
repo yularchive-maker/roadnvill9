@@ -22,16 +22,17 @@ export default function NoticePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    const lastDay = new Date(year, month, 0).getDate()
     const { data, error } = await supabase
       .from('notices')
       .select('*')
       .gte('date', `${ym}-01`)
-      .lte('date', `${ym}-31`)
+      .lte('date', `${ym}-${String(lastDay).padStart(2,'0')}`)
       .order('date')
     if (error) { alert('알림 로드 실패: ' + error.message); setLoading(false); return }
     setNotices(data || [])
     setLoading(false)
-  }, [ym])
+  }, [ym, year, month])
 
   useEffect(() => { load() }, [load])
 
