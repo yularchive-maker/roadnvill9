@@ -4,8 +4,12 @@ import { NextResponse } from 'next/server'
 export async function GET(req) {
   const { searchParams } = new URL(req.url)
   const date = searchParams.get('date')
+  const from = searchParams.get('from')
+  const to   = searchParams.get('to')
   let q = supabase.from('notices').select('*').order('date').order('created_at')
   if (date) q = q.eq('date', date)
+  if (from) q = q.gte('date', from)
+  if (to)   q = q.lte('date', to)
   const { data, error } = await q
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)

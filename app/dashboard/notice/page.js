@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
 
 const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 
@@ -22,16 +21,9 @@ export default function NoticePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const from = `${ym}-01`
-    const to   = `${ym}-31`
-    const { data } = await supabase
-      .from('notices')
-      .select('*')
-      .gte('date', from)
-      .lte('date', to)
-      .order('date')
-      .order('created_at')
-    setNotices(data || [])
+    const res = await fetch(`/api/notices?from=${ym}-01&to=${ym}-31`)
+    const data = res.ok ? await res.json() : []
+    setNotices(Array.isArray(data) ? data : [])
     setLoading(false)
   }, [ym])
 
@@ -58,19 +50,23 @@ export default function NoticePage() {
   async function save() {
     if (!form.date || !form.content.trim()) return alert('날짜와 내용을 입력하세요.')
     setSaving(true)
+    const body = { date: form.date, content: form.content.trim(), special: form.special.trim() || null }
+    let res
     if (modal.mode === 'new') {
-      await supabase.from('notices').insert({ date: form.date, content: form.content.trim(), special: form.special.trim() || null })
+      res = await fetch('/api/notices', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
     } else {
-      await supabase.from('notices').update({ date: form.date, content: form.content.trim(), special: form.special.trim() || null }).eq('id', modal.data.id)
+      res = await fetch('/api/notices', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: modal.data.id, ...body }) })
     }
     setSaving(false)
+    if (!res.ok) { const e = await res.json(); return alert('저장 실패: ' + (e.error?.message || JSON.stringify(e.error))) }
     setModal(null)
     load()
   }
 
   async function del(id) {
     if (!confirm('삭제하시겠습니까?')) return
-    await supabase.from('notices').delete().eq('id', id)
+    const res = await fetch('/api/notices', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id }) })
+    if (!res.ok) return alert('삭제 실패')
     load()
   }
 
