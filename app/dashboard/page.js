@@ -141,7 +141,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 340px', gap:'16px', marginBottom:'24px' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 380px', gap:'16px', marginBottom:'24px' }}>
         {/* 달력 */}
         <div className="cal-card">
           {/* 달력 헤더 */}
@@ -197,14 +197,58 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 상태별 현황 */}
+        {/* 선택일 예약 목록 */}
         <div>
-          <div style={{ fontSize:'13px', fontWeight:700, marginBottom:'10px' }}>예약 상태 현황</div>
+          <div className="section-header" style={{ marginBottom:'10px' }}>
+            <div className="section-title" style={{ fontSize:'13px' }}>
+              {selectedDate} 예약 목록
+              <span style={{ fontSize:'12px', fontWeight:400, color:'var(--text-muted)', marginLeft:'8px' }}>{selRes.length}건</span>
+            </div>
+            <button className="btn-primary" style={{ fontSize:'12px', padding:'5px 10px' }} onClick={() => router.push(`/dashboard/reservations?new=1&date=${selectedDate}`)}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              등록
+            </button>
+          </div>
+          {selRes.length === 0 ? (
+            <div className="card" style={{ padding:'30px', textAlign:'center', color:'var(--text-muted)', fontSize:'12px' }}>
+              해당 날짜 예약 없음
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:'6px', maxHeight:'400px', overflowY:'auto' }}>
+              {selRes.map(r => (
+                <div
+                  key={r.no}
+                  className="card"
+                  style={{ padding:'10px 12px', cursor:'pointer', display:'grid', gridTemplateColumns:'44px 1fr auto', gap:'8px', alignItems:'center' }}
+                  onClick={() => router.push(`/dashboard/reservations?no=${r.no}`)}
+                >
+                  <span style={{ fontFamily:'DM Mono,monospace', fontSize:'11px', color:'var(--text-muted)' }}>#{r.no}</span>
+                  <div>
+                    <div style={{ fontWeight:500, fontSize:'13px' }}>{r.customer}</div>
+                    <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' }}>{r.package_name} · {r.pax}명</div>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    <span className={`badge ${r.type}`} style={{ fontSize:'10px' }}>{STATUS_LABEL[r.type]}</span>
+                    <div style={{ fontSize:'10px', color: r.settle_status==='settled' ? 'var(--green)' : 'var(--amber)', marginTop:'2px' }}>
+                      {r.settle_status==='settled' ? '정산완료' : '미정산'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 예약 상태 현황 */}
+      <div>
+        <div style={{ fontSize:'13px', fontWeight:700, marginBottom:'10px' }}>예약 상태 현황</div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px' }}>
           {Object.entries(byStatus).map(([type, count]) => (
             <div
               key={type}
               className="card"
-              style={{ padding:'14px 16px', marginBottom:'8px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}
+              style={{ padding:'14px 16px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}
               onClick={() => router.push(`/dashboard/reservations?type=${type}`)}
             >
               <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
@@ -215,53 +259,6 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* 선택일 예약 목록 */}
-      <div>
-        <div className="section-header">
-          <div className="section-title">
-            {selectedDate} 예약 목록
-            <span style={{ fontSize:'12px', fontWeight:400, color:'var(--text-muted)', marginLeft:'8px' }}>{selRes.length}건</span>
-          </div>
-          <button className="btn-primary" onClick={() => router.push(`/dashboard/reservations?new=1&date=${selectedDate}`)}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            예약 등록
-          </button>
-        </div>
-
-        {selRes.length === 0 ? (
-          <div className="card" style={{ padding:'40px', textAlign:'center', color:'var(--text-muted)', fontSize:'13px' }}>
-            해당 날짜 예약 없음
-          </div>
-        ) : (
-          <div className="list-card">
-            <div className="list-header" style={{ gridTemplateColumns:'60px 1fr 80px 60px 80px 100px 80px' }}>
-              <span>NO</span><span>고객명 / 패키지</span><span>구분</span><span>인원</span><span>총금액</span><span>결제처</span><span>정산</span>
-            </div>
-            {selRes.map(r => (
-              <div
-                key={r.no}
-                className="list-row"
-                style={{ gridTemplateColumns:'60px 1fr 80px 60px 80px 100px 80px' }}
-                onClick={() => router.push(`/dashboard/reservations?no=${r.no}`)}
-              >
-                <span className="no-col">#{r.no}</span>
-                <div>
-                  <div style={{ fontWeight:500 }}>{r.customer}</div>
-                  <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'2px' }}>{r.package_name}</div>
-                </div>
-                <span><span className={`badge ${r.type}`}>{STATUS_LABEL[r.type]}</span></span>
-                <span style={{ fontSize:'13px' }}>{r.pax}명</span>
-                <span style={{ fontFamily:'DM Mono,monospace', fontSize:'12px' }}>{(r.total||0).toLocaleString()}</span>
-                <span style={{ fontSize:'12px', color:'var(--text-secondary)' }}>{r.payto||'-'}</span>
-                <span style={{ fontSize:'11px', color: r.settle_status==='settled' ? 'var(--green)' : 'var(--amber)' }}>
-                  {r.settle_status==='settled' ? '완료' : '미정산'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* NOTICE 팝업 */}
