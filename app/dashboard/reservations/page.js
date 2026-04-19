@@ -481,7 +481,14 @@ export default function ReservationsPage() {
   const [filterType,setFilterType]= useState(searchParams.get('type')||'')
   const [filterMonth,setFilterMonth] = useState('')
 
-  const [modal,    setModal]    = useState(null)  // null | { mode:'new', date } | { mode:'edit', data }
+  const [modal, setModal] = useState(() => {
+    const newParam  = searchParams.get('new')
+    const dateParam = searchParams.get('date')
+    const noParam   = searchParams.get('no')
+    if (newParam === '1') return { mode:'new', date: dateParam || new Date().toISOString().slice(0,10) }
+    if (noParam)          return { mode:'openByNo', no: noParam }
+    return null
+  })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -503,19 +510,6 @@ export default function ReservationsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  // URL 파라미터로 모달 자동 열기
-  useEffect(() => {
-    const newParam  = searchParams.get('new')
-    const dateParam = searchParams.get('date')
-    const noParam   = searchParams.get('no')
-    if (newParam === '1') {
-      setModal({ mode:'new', date: dateParam || new Date().toISOString().slice(0,10) })
-    } else if (noParam) {
-      // no 파라미터가 있으면 해당 예약 모달 열기 (데이터 로드 후)
-      setModal({ mode:'openByNo', no: noParam })
-    }
-  }, [searchParams])
 
   // no로 모달 열기
   useEffect(() => {
