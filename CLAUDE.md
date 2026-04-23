@@ -93,6 +93,32 @@ ALTER TABLE timetable_events
 
 ---
 
+## 작업 내역 (2026-04-23) — 타임테이블 구현
+
+### Priority 6 — 타임테이블 (`/dashboard/timetable`) ✅ 완료
+
+**신규 생성 파일:**
+- `app/api/timetable/route.js` — GET/POST/PUT/DELETE (수동 이벤트 CRUD)
+- `app/dashboard/timetable/page.js` — 전면 재작성 (stub → 완전 구현)
+
+**구현 내용:**
+- 일간(Day) / 주간(Week) 뷰 전환
+- 구역별 서브탭 필터 (zones 테이블 기반 동적 생성)
+- 그룹 탭: 전체 / 구역별 / 패키지별 / 업체별
+- 예약 DB × package_programs 기반 자동 이벤트 블록 생성
+  - `reservations.pkg` → `packages.name` 매칭 → `package_programs.default_start/end`
+  - 취소 상태 예약 제외
+- 수동 이벤트 추가/삭제 (timetable_events 테이블)
+- 겹침 감지: 같은 vendor_key + 시간 겹침
+  - 같은 구역(zone_code) → real (🟢 형광연두 #33ff33 테두리)
+  - 다른 구역 → warn (🟡 amber 테두리)
+  - 겹침 건수 배지 클릭 시 상세 alert
+- 이벤트 블록 클릭 → 상세 팝업 (자동 이벤트: 정보 표시만, 수동 이벤트: 삭제 가능)
+- 오늘 현재시각 표시선 (실선)
+- 픽업/드랍 별도 컬럼 (파선 테두리)
+
+---
+
 ## 오늘 작업 내역 (2026-04-18)
 
 ### 1. Phase 2 — lodges INSERT & FK (Supabase 대시보드 직접 실행)
@@ -185,9 +211,9 @@ ALTER TABLE timetable_events
 | 3 | 대시보드 | KPI 실시간 연동 (PRD 1-1) | 📋 미시작 |
 | 3 | 대시보드 | 달력 임계초과 표시 (PRD 1-3) | 📋 미시작 |
 | 3 | 대시보드 | Notice 알림 팝업 (PRD 1-4) | 📋 미시작 |
-| 4 | 타임테이블 | 이벤트 블록 렌더링 오류 (PRD 2-1) | 📋 미시작 |
-| 4 | 타임테이블 | 구역별 탭 필터 (PRD 2-3) | 📋 미시작 |
-| 4 | 타임테이블 | 겹침 뱃지 및 팝업 (PRD 2-5) | 📋 미시작 |
+| 4 | 타임테이블 | 이벤트 블록 렌더링 (PRD 2-1) | ✅ 완료 |
+| 4 | 타임테이블 | 구역별 탭 필터 (PRD 2-3) | ✅ 완료 |
+| 4 | 타임테이블 | 겹침 배지 및 팝업 (PRD 2-5) | ✅ 완료 |
 | 5 | 업체별 정산 | DB 연동 + 아코디언 (PRD 4-1, 4-2) | 📋 미시작 |
 | 5 | 업체별 정산 | 정산완료 처리 (PRD 4-3) | 📋 미시작 |
 | 6 | 정산 요약 | DB 연동 + 월별 집계 (PRD 5-1) | 📋 미시작 |
