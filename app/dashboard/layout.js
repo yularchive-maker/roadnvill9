@@ -1,7 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { getSession, logout } from '@/lib/auth'
 
 const NAV = [
   {
@@ -40,23 +38,12 @@ const PAGE_TITLE = {
   '/dashboard/master':       '기준 정보',
 }
 
+const SESSION = { name: '관리자', role: '운영팀장', avatar: '관' }
+
 export default function DashboardLayout({ children }) {
-  const router   = useRouter()
+  const router = useRouter()
   const pathname = usePathname()
-  const [session, setSession] = useState(null)
-
-  useEffect(() => {
-    const s = getSession()
-    if (!s) { router.replace('/login'); return }
-    setSession(s)
-  }, [])
-
-  function handleLogout() {
-    logout()
-    router.replace('/login')
-  }
-
-  if (!session) return null
+  const session = SESSION
 
   const title = PAGE_TITLE[pathname] || '대시보드'
 
@@ -95,13 +82,6 @@ export default function DashboardLayout({ children }) {
             <div>
               <div className="user-name">{session.name}</div>
               <div className="user-role">{session.role}</div>
-            </div>
-            <div className="logout-btn" onClick={handleLogout} title="로그아웃">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
             </div>
           </div>
         </div>
