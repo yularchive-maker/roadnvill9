@@ -420,6 +420,9 @@ export default function TimetablePage() {
     const level = conflictMap?.get(ev.id)
     const borderColor = level === 'real' ? '#33ff33' : level === 'warn' ? '#F7C948' : color
     const icon = level === 'real' ? '🟢 ' : level === 'warn' ? '🟡 ' : ''
+    const isCompact = h < 42
+    const customerText = ev.customer ? `${ev.customer}${ev.pax ? ` ${ev.pax}명` : ''}` : ''
+    const timeText = `${ev.start_time?.slice(0,5)}~${ev.end_time?.slice(0,5)}`
 
     const handleClick = e => {
       e.stopPropagation()
@@ -433,26 +436,41 @@ export default function TimetablePage() {
                    background: color + '22',
                    border: level ? `2px solid ${borderColor}` : `1px solid ${color}44`,
                    borderLeft:`3px solid ${borderColor}`,
-                   borderRadius:'5px',padding:'3px 6px',cursor:'pointer',overflow:'hidden',
+                   borderRadius:'5px',padding: isCompact ? '2px 5px' : '3px 6px',cursor:'pointer',overflow:'hidden',
                    boxSizing:'border-box'}}>
-        <div style={{fontWeight:'700',fontSize:'11px',color:borderColor,
-                     whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-          {icon}{isPickup ? '🚐 ' : ''}{ev.vendor_name || ev.vendor_key}
-        </div>
-        {ev.customer && (
-          <div style={{fontSize:'10px',color,opacity:.9}}>
-            {ev.customer}{ev.pax ? ` ${ev.pax}명` : ''}
-          </div>
+        {isCompact ? (
+          <>
+            <div style={{fontWeight:'700',fontSize:'10px',lineHeight:'11px',color:borderColor,
+                         whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {icon}{isPickup ? '🚐 ' : ''}{ev.vendor_name || ev.vendor_key}{customerText ? ` · ${customerText}` : ''}
+            </div>
+            <div style={{fontSize:'9px',lineHeight:'10px',color,opacity:.9,
+                         whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {ev.prog_name || ev.pkg_name || ''}{ev.prog_name || ev.pkg_name ? ' · ' : ''}{timeText}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{fontWeight:'700',fontSize:'11px',color:borderColor,
+                         whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {icon}{isPickup ? '🚐 ' : ''}{ev.vendor_name || ev.vendor_key}
+            </div>
+            {ev.customer && (
+              <div style={{fontSize:'10px',color,opacity:.9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                {customerText}
+              </div>
+            )}
+            {ev.prog_name && (
+              <div style={{fontSize:'10px',color,opacity:.75,whiteSpace:'nowrap',
+                           overflow:'hidden',textOverflow:'ellipsis'}}>
+                {ev.prog_name}
+              </div>
+            )}
+            <div style={{fontSize:'10px',color,opacity:.7}}>
+              {timeText}
+            </div>
+          </>
         )}
-        {ev.prog_name && (
-          <div style={{fontSize:'10px',color,opacity:.75,whiteSpace:'nowrap',
-                       overflow:'hidden',textOverflow:'ellipsis'}}>
-            {ev.prog_name}
-          </div>
-        )}
-        <div style={{fontSize:'10px',color,opacity:.7}}>
-          {ev.start_time?.slice(0,5)}~{ev.end_time?.slice(0,5)}
-        </div>
       </div>
     )
   }
