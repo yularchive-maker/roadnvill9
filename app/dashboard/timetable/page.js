@@ -32,7 +32,9 @@ function buildAutoEvents(reservations, packages) {
   let counter = 0
   reservations.forEach(r => {
     if (r.type === 'cancelled') return
-    const pkg = packages.find(p => p.name === r.pkg)
+    const packageName = r.package_name || r.pkg
+    const zoneCode = r.zone_code || r.zone
+    const pkg = packages.find(p => p.name === packageName)
     if (!pkg) return
     ;(pkg.package_programs || []).forEach(pp => {
       if (!pp.default_start || !pp.default_end) return
@@ -48,10 +50,10 @@ function buildAutoEvents(reservations, packages) {
         vendor_color: vendor?.color || '#4ECDC4',
         prog_name: pp.prog_name,
         reservation_no: r.no,
-        pkg_name: r.pkg,
+        pkg_name: packageName,
         customer: r.customer,
         pax: r.pax,
-        zone_code: r.zone,
+        zone_code: zoneCode,
         memo: '',
         is_manual: false,
       })
@@ -102,10 +104,10 @@ function EventModal({ open, onClose, onSave, vendors, reservations, defaultDate 
     const selRes = reservations.find(r => r.no === form.reservation_no)
     onSave({
       ...form,
-      package_name: selRes?.pkg || '',
+      package_name: selRes?.package_name || selRes?.pkg || '',
       customer: selRes?.customer || '',
       pax: selRes?.pax || 0,
-      zone_code: selRes?.zone || '',
+      zone_code: selRes?.zone_code || selRes?.zone || '',
     })
   }
 
@@ -160,7 +162,7 @@ function EventModal({ open, onClose, onSave, vendors, reservations, defaultDate 
             <select style={S.inp} value={form.reservation_no} onChange={e => set('reservation_no', e.target.value)}>
               <option value="">연결 안 함</option>
               {reservations.map(r => (
-                <option key={r.no} value={r.no}>#{r.no} {r.customer} · {r.date} · {r.pkg}</option>
+                <option key={r.no} value={r.no}>#{r.no} {r.customer} · {r.date} · {r.package_name || r.pkg}</option>
               ))}
             </select>
           </div>
@@ -498,13 +500,15 @@ export default function TimetablePage() {
       const resNos = [...new Set(expEvs.map(e => e.reservation_no).filter(Boolean))]
       cols = resNos.map(no => {
         const r = reservations.find(x => x.no === no)
-        const zone = zones.find(z => z.code === r?.zone)
+        const packageName = r?.package_name || r?.pkg || ''
+        const zoneCode = r?.zone_code || r?.zone || ''
+        const zone = zones.find(z => z.code === zoneCode)
         return {
           key: no,
           header: (
             <div>
               {zone && <div style={{fontSize:'9px',color:'#5a7080',marginBottom:'1px'}}>{zone.code} · {zone.name}</div>}
-              <div style={{fontSize:'11px',fontWeight:'700',color:'var(--accent)'}}>{r?.pkg || ''}</div>
+              <div style={{fontSize:'11px',fontWeight:'700',color:'var(--accent)'}}>{packageName}</div>
               <div style={{fontSize:'11px',color:'#e8eaed'}}>NO.{no} · {r?.customer || ''} · {r?.pax || 0}명</div>
             </div>
           ),
@@ -803,7 +807,7 @@ export default function TimetablePage() {
         <div style={{display:'flex',gap:'6px',marginBottom:'10px',flexWrap:'wrap'}}>
           {zones.map(z => {
             const ds = dateStr(curDate)
-            const cnt = reservations.filter(r => r.zone === z.code && r.date === ds).length
+            const cnt = reservations.filter(r => (r.zone_code || r.zone) === z.code && r.date === ds).length
             return (
               <button key={z.code} onClick={() => setSelZone(z.code)}
                       style={{height:'30px',padding:'0 14px',borderRadius:'7px',cursor:'pointer',
