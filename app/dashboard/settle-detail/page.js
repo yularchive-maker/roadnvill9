@@ -4,8 +4,8 @@ import { supabase } from '@/lib/supabase'
 
 const fmt = n => (n || 0).toLocaleString()
 const todayStr = () => new Date().toISOString().slice(0, 10)
-const TYPE_COLOR = { '체험': 'var(--accent)', '숙박': 'var(--amber)', '픽업': 'var(--pickup)' }
-const TYPE_BG    = { '체험': 'rgba(78,205,196,0.1)', '숙박': 'rgba(247,201,72,0.1)', '픽업': 'rgba(184,184,255,0.1)' }
+const TYPE_COLOR = { '체험': 'var(--accent)', '숙박': 'var(--amber)', '픽업': 'var(--pickup)', '플랫폼': 'var(--purple)', '여행사': 'var(--green)' }
+const TYPE_BG    = { '체험': 'rgba(78,205,196,0.1)', '숙박': 'rgba(247,201,72,0.1)', '픽업': 'rgba(184,184,255,0.1)', '플랫폼': 'rgba(123,104,238,0.1)', '여행사': 'rgba(92,184,92,0.1)' }
 
 function monthRange() {
   const d = new Date()
@@ -18,6 +18,10 @@ function pkgName(r) { return r.package_name || r.pkg }
 
 function settledKey(type, vendorKey, it) {
   return [type || '', vendorKey || '', it.no || it.reservation_no || '', it.detail || '', Number(it.amt) || 0].join('|')
+}
+
+function feeAmount(total, percent) {
+  return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
 export default function SettleDetailPage() {
@@ -130,7 +134,35 @@ export default function SettleDetailPage() {
       pMap[k].nos.add(r.no)
     }
 
-    const all = [...Object.values(vMap), ...Object.values(lMap), ...Object.values(pMap)]
+    const platMap = {}
+    const agencyMap = {}
+    for (const r of resv) {
+      const platformAmt = feeAmount(r.total, r.plat_fee)
+      if (r.platform_name && platformAmt > 0) {
+        const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: r.platform_name, amt: platformAmt }
+        if (!settled.has(settledKey('플랫폼', null, item))) {
+          const k = r.platform_name
+          if (!platMap[k]) platMap[k] = { key: 'platform-' + k, vendor: k, color: 'var(--purple)', type: '플랫폼', totalAmt: 0, items: [], nos: new Set() }
+          platMap[k].items.push(item)
+          platMap[k].totalAmt += platformAmt
+          platMap[k].nos.add(r.no)
+        }
+      }
+
+      const agencyAmt = feeAmount(r.total, r.ag_fee)
+      if (r.agency_name && agencyAmt > 0) {
+        const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: r.agency_name, amt: agencyAmt }
+        if (!settled.has(settledKey('여행사', null, item))) {
+          const k = r.agency_name
+          if (!agencyMap[k]) agencyMap[k] = { key: 'agency-' + k, vendor: k, color: 'var(--green)', type: '여행사', totalAmt: 0, items: [], nos: new Set() }
+          agencyMap[k].items.push(item)
+          agencyMap[k].totalAmt += agencyAmt
+          agencyMap[k].nos.add(r.no)
+        }
+      }
+    }
+
+    const all = [...Object.values(vMap), ...Object.values(lMap), ...Object.values(pMap), ...Object.values(platMap), ...Object.values(agencyMap)]
       .filter(g => g.totalAmt > 0)
       .map(g => ({ ...g, nos: Array.from(g.nos) }))
     setGroups(all)
