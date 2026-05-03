@@ -356,6 +356,7 @@ function PackagesTab() {
   const [form,     setForm]     = useState({})
   const [progs,    setProgs]    = useState([])
   const [progForm, setProgForm] = useState({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+  const [editingProgId, setEditingProgId] = useState(null)
   const [expanded, setExpanded] = useState({})
 
   const load = useCallback(async () => {
@@ -374,6 +375,7 @@ function PackagesTab() {
     setForm({ code: '', zone_code: '', name: '', pax_limit: 0, total_price: 0 })
     setProgs([])
     setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setEditingProgId(null)
     setModal({ mode: 'new' })
   }
 
@@ -381,6 +383,7 @@ function PackagesTab() {
     setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || '', name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0 })
     setProgs(p.package_programs || [])
     setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setEditingProgId(null)
     setModal({ mode: 'edit', data: p })
   }
 
@@ -415,17 +418,47 @@ function PackagesTab() {
   async function addProg() {
     if (!modal.data?.id) { alert('패키지를 먼저 저장하세요.'); return }
     if (!progForm.vendor_key || !progForm.prog_name) { alert('업체와 프로그램명을 입력하세요.'); return }
-    const code = await genProgCode(form.zone_code, progForm.vendor_key, 'package_programs')
-    await supabase.from('package_programs').insert({ ...progForm, code, package_id: modal.data.id, sort_order: Number(progForm.sort_order) || 0 })
+    const payload = {
+      ...progForm,
+      package_id: modal.data.id,
+      sort_order: Number(progForm.sort_order) || 0,
+    }
+    if (editingProgId) {
+      const { error } = await supabase.from('package_programs').update(payload).eq('id', editingProgId)
+      if (error) { alert('수정 실패: ' + error.message); return }
+    } else {
+      const code = await genProgCode(form.zone_code, progForm.vendor_key, 'package_programs')
+      const { error } = await supabase.from('package_programs').insert({ ...payload, code })
+      if (error) { alert('추가 실패: ' + error.message); return }
+    }
     const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
     setProgs(data || [])
+    setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setEditingProgId(null)
     load()
+  }
+
+  function editProg(p) {
+    setEditingProgId(p.id)
+    setProgForm({
+      vendor_key: p.vendor_key || '',
+      prog_name: p.prog_name || '',
+      default_start: p.default_start?.slice(0, 5) || '09:00',
+      default_end: p.default_end?.slice(0, 5) || '10:00',
+      sort_order: p.sort_order || 0,
+    })
+  }
+
+  function cancelProgEdit() {
+    setEditingProgId(null)
+    setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
   }
 
   async function delProg(id) {
     await supabase.from('package_programs').delete().eq('id', id)
     const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
     setProgs(data || [])
+    if (editingProgId === id) cancelProgEdit()
     load()
   }
 
@@ -523,7 +556,7 @@ function PackagesTab() {
           {modal.mode === 'edit' && (
             <div style={{ marginTop: '16px' }}>
               <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                프로그램 일정 <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
+                {editingProgId ? '프로그램 일정 수정' : '프로그램 일정'} <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
               </div>
               <div className="form-grid form-grid-3" style={{ marginBottom: '8px', gap: '8px' }}>
                 <Field label="업체">
@@ -539,19 +572,22 @@ function PackagesTab() {
                 <Field label="기본 시작시간"><input className="form-input" type="time" value={progForm.default_start} onChange={e => setProgForm(f => ({ ...f, default_start: e.target.value }))} /></Field>
                 <Field label="기본 종료시간"><input className="form-input" type="time" value={progForm.default_end} onChange={e => setProgForm(f => ({ ...f, default_end: e.target.value }))} /></Field>
               </div>
-              <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 추가</button>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                <button className="btn-add-row" onClick={addProg} style={{ flex: 1 }}>{editingProgId ? '수정 저장' : '+ 추가'}</button>
+                {editingProgId && <button className="btn-outline" onClick={cancelProgEdit} style={{ height: '34px' }}>취소</button>}
+              </div>
               <div className="list-box">
                 <div className="list-box-header" style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px' }}><span>순</span><span>업체</span><span>코드</span><span>프로그램</span><span>시작</span><span>종료</span><span /></div>
                 {progs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {progs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px' }}>
+                  <div key={p.id} className="list-box-row" onClick={() => editProg(p)} style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px', cursor: 'pointer', background: editingProgId === p.id ? 'rgba(78,205,196,0.08)' : undefined }}>
                     <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{p.sort_order}</span>
                     <span className="no-col">{p.vendor_key}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.code || '-'}</span>
                     <span style={{ fontSize: '12px' }}>{p.prog_name}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_start?.slice(0, 5)}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_end?.slice(0, 5)}</span>
-                    <button className="icon-btn" onClick={() => delProg(p.id)}>✕</button>
+                    <button className="icon-btn" onClick={e => { e.stopPropagation(); delProg(p.id) }}>✕</button>
                   </div>
                 ))}
               </div>
