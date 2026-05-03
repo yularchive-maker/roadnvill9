@@ -150,6 +150,43 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     return error
   }
 
+  async function findLodgeConflict(row, { skipLocal = false } = {}) {
+    if (!form.date || !row.lodge_name || !row.room_name) return null
+
+    if (!skipLocal) {
+      const localConflict = lodges.some(l =>
+        l.lodge_name === row.lodge_name &&
+        l.room_name === row.room_name &&
+        l.id !== row.id
+      )
+      if (localConflict) return `${form.date}에 이미 추가된 객실입니다.`
+    }
+
+    let q = supabase
+      .from('reservations')
+      .select('no')
+      .eq('date', form.date)
+      .neq('type', 'cancelled')
+    if (form.no) q = q.neq('no', form.no)
+
+    const { data: sameDateReservations, error: reservationError } = await q
+    if (reservationError) return `예약 중복 확인 실패: ${reservationError.message}`
+
+    const reservationNos = (sameDateReservations || []).map(r => r.no).filter(Boolean)
+    if (!reservationNos.length) return null
+
+    const { data: conflicts, error: lodgeError } = await supabase
+      .from('lodge_confirms')
+      .select('id')
+      .in('reservation_no', reservationNos)
+      .eq('lodge_name', row.lodge_name)
+      .eq('room_name', row.room_name)
+      .limit(1)
+
+    if (lodgeError) return `객실 중복 확인 실패: ${lodgeError.message}`
+    return conflicts?.length ? `${form.date}에 이미 예약된 객실입니다.` : null
+  }
+
   // 저장
   async function save() {
     if (!form.customer) { alert('고객명을 입력하세요.'); return }
@@ -182,6 +219,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         .filter(l => String(l.id || '').startsWith('tmp-'))
         .map(l => lodgePayload(l, no))
       if (pendingLodges.length) {
+        for (const lodge of pendingLodges) {
+          const conflict = await findLodgeConflict(lodge, { skipLocal: true })
+          if (conflict) {
+            alert(conflict)
+            setSaving(false)
+            return
+          }
+        }
         const lodgeError = await insertLodgeRows(pendingLodges)
         if (lodgeError) {
           alert('객실 저장 실패: ' + lodgeError.message)
@@ -202,6 +247,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         }
       }
     } else {
+      for (const lodge of lodges) {
+        const conflict = await findLodgeConflict(lodge, { skipLocal: true })
+        if (conflict) {
+          alert(conflict)
+          setSaving(false)
+          return
+        }
+      }
       const { error } = await supabase.from('reservations').update(payload).eq('no', no)
       if (error) { alert('수정 실패: ' + error.message); setSaving(false); return }
     }
@@ -243,6 +296,9 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   // 숙소 배정 추가
   async function addLodge() {
     if (!lgRow.lodge_name || !lgRow.room_name) { alert('숙박공간과 객실을 선택하세요.'); return }
+    const conflict = await findLodgeConflict(lgRow)
+    if (conflict) { alert(conflict); return }
+
     if (!isEdit) {
       const pending = lodgePayload(lgRow, '')
       setLodges(list => [...list, { ...pending, id: `tmp-${Date.now()}` }])
