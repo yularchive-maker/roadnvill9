@@ -16,7 +16,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   const body = await req.json()
-  const { items, reservation_nos, ...historyBody } = body
+  const { items, reservation_nos, update_reservations, ...historyBody } = body
 
   const { data: hist, error } = await supabase
     .from('settle_history').insert(historyBody).select().single()
@@ -28,8 +28,9 @@ export async function POST(req) {
     )
   }
 
-  // 정산 완료 처리
-  if (reservation_nos?.length) {
+  // Reservation-level status is optional because a single reservation can have
+  // multiple vendor/lodge/pickup settlement items.
+  if (update_reservations && reservation_nos?.length) {
     await supabase.from('reservations')
       .update({ settle_status: 'settled' })
       .in('no', reservation_nos)
