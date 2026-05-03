@@ -26,6 +26,25 @@ function priceTypeLabel(type) {
   return type === 'per_person' ? '인원당' : '객실당'
 }
 
+function emptyLodgeRow() {
+  return {
+    lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'',
+    room_price:0, price_type:'per_room',
+    support_amt:0, support_by:'', burden:0, checked:false, note:'',
+  }
+}
+
+function lodgePayload(row, reservationNo) {
+  const burden = (Number(row.room_price)||0) - (Number(row.support_amt)||0)
+  const { id, lodge_vendor_id, lodge_id, ...payload } = row
+  return {
+    ...payload,
+    reservation_no: reservationNo,
+    price_type: payload.price_type || 'per_room',
+    burden: burden > 0 ? burden : 0,
+  }
+}
+
 // ══════════════════════════════════════════════════════
 // 예약 모달
 // ══════════════════════════════════════════════════════
@@ -55,7 +74,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [pkRow, setPkRow] = useState({ pickup_type:'픽업', driver_id:'', pickup_fee:0 })
 
   // lodge form row
-  const [lgRow, setLgRow] = useState({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, price_type:'per_room', support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+  const [lgRow, setLgRow] = useState(emptyLodgeRow)
 
   const selectedLodgeVendor = lodgeVendors.find(v => v.id === lgRow.lodge_vendor_id)
   const lodgeSpaces = selectedLodgeVendor?.lodges || []
@@ -120,6 +139,17 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     }))
   }
 
+  async function insertLodgeRows(rows) {
+    const { error } = await supabase.from('lodge_confirms').insert(rows)
+    if (!error) return null
+    if (error.code === '42703' && error.message?.includes('price_type')) {
+      const legacyRows = rows.map(({ price_type, ...row }) => row)
+      const retry = await supabase.from('lodge_confirms').insert(legacyRows)
+      return retry.error || null
+    }
+    return error
+  }
+
   // 저장
   async function save() {
     if (!form.customer) { alert('고객명을 입력하세요.'); return }
@@ -147,6 +177,18 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       no = last?.length ? String(parseInt(last[0].no,10)+1).padStart(3,'0') : '001'
       const { error } = await supabase.from('reservations').insert({ ...payload, no })
       if (error) { alert('저장 실패: ' + error.message); setSaving(false); return }
+
+      const pendingLodges = lodges
+        .filter(l => String(l.id || '').startsWith('tmp-'))
+        .map(l => lodgePayload(l, no))
+      if (pendingLodges.length) {
+        const lodgeError = await insertLodgeRows(pendingLodges)
+        if (lodgeError) {
+          alert('객실 저장 실패: ' + lodgeError.message)
+          setSaving(false)
+          return
+        }
+      }
 
       // 패키지 업체 자동으로 vendor_confirms 생성
       const pkg = packages.find(p => p.name === payload.package_name)
@@ -200,17 +242,27 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   // 숙소 배정 추가
   async function addLodge() {
-    if (!isEdit) { alert('예약을 먼저 저장하세요.'); return }
     if (!lgRow.lodge_name || !lgRow.room_name) { alert('숙박공간과 객실을 선택하세요.'); return }
-    const burden = (Number(lgRow.room_price)||0) - (Number(lgRow.support_amt)||0)
-    const { lodge_vendor_id, lodge_id, ...payload } = lgRow
-    await supabase.from('lodge_confirms').insert({ reservation_no: form.no, ...payload, burden: burden > 0 ? burden : 0 })
-    const { data } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
+    if (!isEdit) {
+      const pending = lodgePayload(lgRow, '')
+      setLodges(list => [...list, { ...pending, id: `tmp-${Date.now()}` }])
+      setLgRow(emptyLodgeRow())
+      return
+    }
+
+    const error = await insertLodgeRows([lodgePayload(lgRow, form.no)])
+    if (error) { alert('객실 저장 실패: ' + error.message); return }
+    const { data, error: loadError } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
+    if (loadError) { alert('객실 목록 조회 실패: ' + loadError.message); return }
     setLodges(data || [])
-    setLgRow({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, price_type:'per_room', support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+    setLgRow(emptyLodgeRow())
   }
 
   async function delLodge(id) {
+    if (String(id || '').startsWith('tmp-')) {
+      setLodges(list => list.filter(l => l.id !== id))
+      return
+    }
     await supabase.from('lodge_confirms').delete().eq('id', id)
     const { data } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
     setLodges(data || [])
