@@ -12,11 +12,13 @@ export async function GET() {
 
 export async function POST(req) {
   const body = await req.json()
-  // key 자동생성: 현재 최대 key 다음 알파벳
+  // key 자동생성: V001, V002, ...
   const { data: existing } = await supabase.from('vendors').select('key').order('key', { ascending: false }).limit(1)
-  const nextKey = existing?.length
-    ? String.fromCharCode(existing[0].key.charCodeAt(0) + 1)
-    : 'A'
+  let nextKey = 'V001'
+  if (existing?.length) {
+    const n = parseInt(existing[0].key.replace(/\D/g, ''), 10) + 1
+    nextKey = 'V' + String(n).padStart(3, '0')
+  }
   const { data, error } = await supabase.from('vendors').insert({ ...body, key: nextKey }).select().single()
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
