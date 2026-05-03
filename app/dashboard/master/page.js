@@ -591,7 +591,7 @@ function LodgesTab() {
   const selVendor = vendors.find(v => v.id === selVendorId)
   const spaces    = selVendor?.lodges || []
   const selSpace  = spaces.find(s => s.id === selSpaceId)
-  const rooms     = selSpace?.rooms || []   // [{name, price}]
+  const rooms     = selSpace?.rooms || []   // [{name, price, price_type}]
 
   // ── 숙박업체 CRUD
   async function saveVendor() {
@@ -634,7 +634,11 @@ function LodgesTab() {
   // ── 객실 CRUD (jsonb mutation)
   async function saveRoom() {
     if (!roomForm.name) { alert('객실명을 입력하세요.'); return }
-    const newRoom = { name: roomForm.name, price: Number(roomForm.price) || 0 }
+    const newRoom = {
+      name: roomForm.name,
+      price: Number(roomForm.price) || 0,
+      price_type: roomForm.price_type || 'per_room',
+    }
     const newRooms = roomModal.mode === 'new'
       ? [...rooms, newRoom]
       : rooms.map((r, i) => i === roomModal.idx ? newRoom : r)
@@ -724,7 +728,7 @@ function LodgesTab() {
             </span>
             {selSpaceId && (
               <button className="btn-primary" style={{ height: '24px', fontSize: '11px', padding: '0 10px' }}
-                onClick={() => { setRoomForm({ name: '', price: '' }); setRoomModal({ mode: 'new' }) }}>+ 추가</button>
+                onClick={() => { setRoomForm({ name: '', price: '', price_type: 'per_room' }); setRoomModal({ mode: 'new' }) }}>+ 추가</button>
             )}
           </div>
           <div style={{ ...bodyStyle, padding: '12px' }}>
@@ -733,12 +737,13 @@ function LodgesTab() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {rooms.map((r, i) => (
                 <div key={i}
-                  onClick={() => { setRoomForm({ name: r.name, price: r.price }); setRoomModal({ mode: 'edit', idx: i, data: r }) }}
+                  onClick={() => { setRoomForm({ name: r.name, price: r.price, price_type: r.price_type || 'per_room' }); setRoomModal({ mode: 'edit', idx: i, data: r }) }}
                   style={{ background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', minWidth: '130px' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border2)'}>
                   <div style={{ fontSize: '13px', fontWeight: 600 }}>{r.name}</div>
                   <div style={{ fontSize: '12px', color: 'var(--accent)', fontFamily: 'DM Mono,monospace', marginTop: '2px' }}>₩{(r.price || 0).toLocaleString()}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{(r.price_type || 'per_room') === 'per_person' ? '인원당' : '객실당'}</div>
                 </div>
               ))}
             </div>
@@ -781,6 +786,12 @@ function LodgesTab() {
             </Field>
             <Field label="금액(원)">
               <input className="form-input" type="number" value={roomForm.price || ''} onChange={e => setRoomForm(f => ({ ...f, price: e.target.value }))} placeholder="150000" />
+            </Field>
+            <Field label="요금 유형">
+              <select className="form-select" value={roomForm.price_type || 'per_room'} onChange={e => setRoomForm(f => ({ ...f, price_type: e.target.value }))}>
+                <option value="per_room">객실당</option>
+                <option value="per_person">인원당</option>
+              </select>
             </Field>
           </div>
         </Modal>

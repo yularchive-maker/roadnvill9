@@ -15,6 +15,17 @@ function calcTotal(price, pax, discount, pickupFee, burden) {
     + (Number(burden)||0)
 }
 
+function calcRoomPrice(room, pax) {
+  const unitPrice = Number(room?.price) || 0
+  return (room?.price_type || 'per_room') === 'per_person'
+    ? unitPrice * (Number(pax) || 0)
+    : unitPrice
+}
+
+function priceTypeLabel(type) {
+  return type === 'per_person' ? '인원당' : '객실당'
+}
+
 // ══════════════════════════════════════════════════════
 // 예약 모달
 // ══════════════════════════════════════════════════════
@@ -44,7 +55,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [pkRow, setPkRow] = useState({ pickup_type:'픽업', driver_id:'', pickup_fee:0 })
 
   // lodge form row
-  const [lgRow, setLgRow] = useState({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+  const [lgRow, setLgRow] = useState({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, price_type:'per_room', support_amt:0, support_by:'', burden:0, checked:false, note:'' })
 
   const selectedLodgeVendor = lodgeVendors.find(v => v.id === lgRow.lodge_vendor_id)
   const lodgeSpaces = selectedLodgeVendor?.lodges || []
@@ -71,6 +82,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     next.total = calcTotal(next.price, next.pax, next.discount, next.pickup_fee, next.burden)
     return next
   })
+
+  function onPaxChange(value) {
+    inp('pax', value)
+    setLgRow(r => {
+      if (r.price_type !== 'per_person' || !r.room_name) return r
+      const room = lodgeRooms.find(x => x.name === r.room_name)
+      return { ...r, room_price: calcRoomPrice(room, value) }
+    })
+  }
 
   // 패키지 선택 → 1인 판매가 자동입력
   function onPkgChange(pkgName) {
@@ -187,7 +207,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     await supabase.from('lodge_confirms').insert({ reservation_no: form.no, ...payload, burden: burden > 0 ? burden : 0 })
     const { data } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
     setLodges(data || [])
-    setLgRow({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+    setLgRow({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, price_type:'per_room', support_amt:0, support_by:'', burden:0, checked:false, note:'' })
   }
 
   async function delLodge(id) {
@@ -261,7 +281,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   </div>
                   <div className="form-field">
                     <label>인원 <span className="req">*</span></label>
-                    <input className="form-input" type="number" min="1" value={form.pax} onChange={e=>inp('pax',e.target.value)} placeholder="명"/>
+                    <input className="form-input" type="number" min="1" value={form.pax} onChange={e=>onPaxChange(e.target.value)} placeholder="명"/>
                   </div>
                 </div>
                 <div className="form-grid form-grid-2">
@@ -289,6 +309,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       lodge_name:'',
                       room_name:'',
                       room_price:0,
+                      price_type:'per_room',
                     }))}>
                       <option value="">선택</option>
                       {lodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
@@ -304,6 +325,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                         lodge_name:space?.name||'',
                         room_name:'',
                         room_price:0,
+                        price_type:'per_room',
                       }))
                     }}>
                       <option value="">선택</option>
@@ -317,15 +339,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       setLgRow(r=>({
                         ...r,
                         room_name:room?.name||'',
-                        room_price:room?.price||0,
+                        room_price:calcRoomPrice(room, form.pax),
+                        price_type:room?.price_type || 'per_room',
                       }))
                     }}>
                       <option value="">선택</option>
-                      {lodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {(room.price||0).toLocaleString()}원</option>)}
+                      {lodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {(room.price||0).toLocaleString()}원 ({priceTypeLabel(room.price_type)})</option>)}
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>객실금액</label>
+                    <label>객실금액 ({priceTypeLabel(lgRow.price_type)})</label>
                     <input className="form-input auto-fill" type="number" value={lgRow.room_price||0} onChange={e=>setLgRow(r=>({...r,room_price:e.target.value}))}/>
                   </div>
                 </div>
@@ -341,14 +364,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
                 <button className="btn-add-row" onClick={addLodge} style={{marginBottom:'8px'}}>+ 객실 추가</button>
                 <div className="list-box">
-                  <div className="list-box-header" style={{gridTemplateColumns:'1fr 1fr 80px 80px 40px'}}>
-                    <span>숙소</span><span>객실</span><span>금액</span><span>부담금</span><span/>
+                  <div className="list-box-header" style={{gridTemplateColumns:'1fr 1fr 70px 80px 80px 40px'}}>
+                    <span>숙소</span><span>객실</span><span>유형</span><span>금액</span><span>부담금</span><span/>
                   </div>
                   {lodges.length === 0 && <div className="list-box-empty">배정된 객실 없음</div>}
                   {lodges.map(l=>(
-                    <div key={l.id} className="list-box-row" style={{gridTemplateColumns:'1fr 1fr 80px 80px 40px'}}>
+                    <div key={l.id} className="list-box-row" style={{gridTemplateColumns:'1fr 1fr 70px 80px 80px 40px'}}>
                       <span>{l.lodge_name||'-'}</span>
                       <span>{l.room_name||'-'}</span>
+                      <span style={{fontSize:'11px',color:'var(--text-muted)'}}>{priceTypeLabel(l.price_type)}</span>
                       <span style={{fontFamily:'DM Mono,monospace',fontSize:'11px'}}>{(l.room_price||0).toLocaleString()}</span>
                       <span style={{fontFamily:'DM Mono,monospace',fontSize:'11px'}}>{(l.burden||0).toLocaleString()}</span>
                       <button className="icon-btn" onClick={()=>delLodge(l.id)}>✕</button>
