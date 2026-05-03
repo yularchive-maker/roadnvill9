@@ -22,7 +22,7 @@ function nextDay(ds) {
   const d = new Date(ds); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10)
 }
 
-function ReservationModal({ editData, initDate, onClose, onSaved, zones, packages, platforms, drivers, bizList }) {
+function ReservationModal({ editData, initDate, onClose, onSaved, zones, packages, platforms, drivers, bizList, lodgeVendors }) {
   const isEdit  = !!editData
   const baseDate = initDate || new Date().toISOString().slice(0,10)
 
@@ -44,7 +44,12 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [pkRow, setPkRow] = useState({ pickup_type:'픽업', driver_id:'', pickup_fee:0 })
 
   // lodge form row
-  const [lgRow, setLgRow] = useState({ lodge_name:'', room_name:'', room_price:0, support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+  const [lgRow, setLgRow] = useState({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+
+  const selectedLodgeVendor = lodgeVendors.find(v => v.id === lgRow.lodge_vendor_id)
+  const lodgeSpaces = selectedLodgeVendor?.lodges || []
+  const selectedLodgeSpace = lodgeSpaces.find(l => l.id === lgRow.lodge_id)
+  const lodgeRooms = selectedLodgeSpace?.rooms || []
 
   // 편집 시 관련 데이터 로드
   useEffect(() => {
@@ -176,11 +181,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   // 숙소 배정 추가
   async function addLodge() {
     if (!isEdit) { alert('예약을 먼저 저장하세요.'); return }
+    if (!lgRow.lodge_name || !lgRow.room_name) { alert('숙박공간과 객실을 선택하세요.'); return }
     const burden = (Number(lgRow.room_price)||0) - (Number(lgRow.support_amt)||0)
-    await supabase.from('lodge_confirms').insert({ reservation_no: form.no, ...lgRow, burden: burden > 0 ? burden : 0 })
+    const { lodge_vendor_id, lodge_id, ...payload } = lgRow
+    await supabase.from('lodge_confirms').insert({ reservation_no: form.no, ...payload, burden: burden > 0 ? burden : 0 })
     const { data } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
     setLodges(data || [])
-    setLgRow({ lodge_name:'', room_name:'', room_price:0, support_amt:0, support_by:'', burden:0, checked:false, note:'' })
+    setLgRow({ lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'', room_price:0, support_amt:0, support_by:'', burden:0, checked:false, note:'' })
   }
 
   async function delLodge(id) {
@@ -274,20 +281,62 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 <div className="form-section-label">객실 배정</div>
                 <div className="form-grid form-grid-4" style={{marginBottom:'8px',gap:'8px'}}>
                   <div className="form-field">
-                    <label>숙소명</label>
-                    <input className="form-input" value={lgRow.lodge_name} onChange={e=>setLgRow(r=>({...r,lodge_name:e.target.value}))} placeholder="숙소명"/>
+                    <label>숙박업체</label>
+                    <select className="form-select" value={lgRow.lodge_vendor_id||''} onChange={e=>setLgRow(r=>({
+                      ...r,
+                      lodge_vendor_id:e.target.value,
+                      lodge_id:'',
+                      lodge_name:'',
+                      room_name:'',
+                      room_price:0,
+                    }))}>
+                      <option value="">선택</option>
+                      {lodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
                   </div>
                   <div className="form-field">
-                    <label>객실명</label>
-                    <input className="form-input" value={lgRow.room_name} onChange={e=>setLgRow(r=>({...r,room_name:e.target.value}))} placeholder="객실명"/>
+                    <label>숙박공간</label>
+                    <select className="form-select" value={lgRow.lodge_id||''} disabled={!lgRow.lodge_vendor_id} onChange={e=>{
+                      const space = lodgeSpaces.find(s=>s.id===e.target.value)
+                      setLgRow(r=>({
+                        ...r,
+                        lodge_id:e.target.value,
+                        lodge_name:space?.name||'',
+                        room_name:'',
+                        room_price:0,
+                      }))
+                    }}>
+                      <option value="">선택</option>
+                      {lodgeSpaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label>객실</label>
+                    <select className="form-select" value={lgRow.room_name||''} disabled={!lgRow.lodge_id} onChange={e=>{
+                      const room = lodgeRooms.find(x=>x.name===e.target.value)
+                      setLgRow(r=>({
+                        ...r,
+                        room_name:room?.name||'',
+                        room_price:room?.price||0,
+                      }))
+                    }}>
+                      <option value="">선택</option>
+                      {lodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {(room.price||0).toLocaleString()}원</option>)}
+                    </select>
                   </div>
                   <div className="form-field">
                     <label>객실금액</label>
-                    <input className="form-input" type="number" value={lgRow.room_price||0} onChange={e=>setLgRow(r=>({...r,room_price:e.target.value}))}/>
+                    <input className="form-input auto-fill" type="number" value={lgRow.room_price||0} onChange={e=>setLgRow(r=>({...r,room_price:e.target.value}))}/>
                   </div>
+                </div>
+                <div className="form-grid form-grid-2" style={{marginBottom:'8px',gap:'8px'}}>
                   <div className="form-field">
                     <label>숙박지원금</label>
                     <input className="form-input" type="number" value={lgRow.support_amt||0} onChange={e=>setLgRow(r=>({...r,support_amt:e.target.value}))}/>
+                  </div>
+                  <div className="form-field">
+                    <label>비고</label>
+                    <input className="form-input" value={lgRow.note||''} onChange={e=>setLgRow(r=>({...r,note:e.target.value}))}/>
                   </div>
                 </div>
                 <button className="btn-add-row" onClick={addLodge} style={{marginBottom:'8px'}}>+ 객실 추가</button>
@@ -475,6 +524,7 @@ export default function ReservationsPage() {
   const [platforms, setPlatforms] = useState([])
   const [drivers,   setDrivers]   = useState([])
   const [bizList,   setBizList]   = useState([])
+  const [lodgeVendors, setLodgeVendors] = useState([])
   const [loading,   setLoading]   = useState(true)
 
   const [search,    setSearch]    = useState('')
@@ -492,13 +542,14 @@ export default function ReservationsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [resR, zoneR, pkgR, platR, drvR, bizR] = await Promise.all([
+    const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR] = await Promise.all([
       supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_programs(vendor_key)').order('name'),
       supabase.from('platforms').select('*').order('type').order('name'),
       supabase.from('drivers').select('*').order('name'),
       supabase.from('biz').select('*').order('name'),
+      supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
     ])
     setReservations(resR.data || [])
     setZones(zoneR.data || [])
@@ -506,6 +557,7 @@ export default function ReservationsPage() {
     setPlatforms(platR.data || [])
     setDrivers(drvR.data || [])
     setBizList(bizR.data || [])
+    setLodgeVendors(lodgeR.data || [])
     setLoading(false)
   }, [])
 
@@ -619,6 +671,7 @@ export default function ReservationsPage() {
           platforms={platforms}
           drivers={drivers}
           bizList={bizList}
+          lodgeVendors={lodgeVendors}
         />
       )}
     </div>
