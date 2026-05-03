@@ -929,24 +929,8 @@ function _applySession(s) {
 
 // 페이지 새로고침 시 세션 복원
 (function _restoreSession() {
-  const raw = sessionStorage.getItem('_sess');
-  if (!raw) return;
-  try {
-    const s = JSON.parse(raw);
-    if (Date.now() - s.loginAt < SESSION_MS) {
-      _applySession(s);
-      document.getElementById('login-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      const remain = SESSION_MS - (Date.now() - s.loginAt);
-      clearTimeout(window._sessTimer);
-      window._sessTimer = setTimeout(() => {
-        alert('⏰ 세션이 만료되었습니다. 다시 로그인하세요.');
-        doLogout();
-      }, remain);
-      return;
-    }
-  } catch(e) {}
-  sessionStorage.removeItem('_sess');
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
 })();
 
 // ══════════════════════════════════════════════════════════════════
