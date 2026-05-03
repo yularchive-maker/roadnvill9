@@ -55,6 +55,7 @@ export default function SettleSummaryPage() {
   const [vendors,  setVendors]  = useState([])
   const [packages, setPackages] = useState([])
   const [rows,     setRows]     = useState(emptyRows())
+  const [activeType, setActiveType] = useState(TYPES[0].key)
 
   useEffect(() => {
     Promise.all([
@@ -204,6 +205,13 @@ export default function SettleSummaryPage() {
 
   useEffect(() => { load() }, [load])
 
+  const activeMeta = TYPES.find(t => t.key === activeType) || TYPES[0]
+  const activeData = rows[activeType] || []
+  const totalAmt = activeData.reduce((s, r) => s + r.settled + r.unsettled, 0)
+  const totalUnsettled = activeData.reduce((s, r) => s + r.unsettled, 0)
+  const totalSettled = activeData.reduce((s, r) => s + r.settled, 0)
+  const totalCount = activeData.reduce((s, r) => s + r.count, 0)
+
   return (
     <div>
       {/* 월 선택 */}
@@ -218,58 +226,68 @@ export default function SettleSummaryPage() {
         <button className="btn-primary" onClick={load}>조회</button>
       </div>
 
+      <div className="tab-bar" style={{ marginBottom: '16px' }}>
+        {TYPES.map(t => {
+          const data = rows[t.key] || []
+          const count = data.reduce((s, r) => s + r.count, 0)
+          return (
+            <button
+              key={t.key}
+              className={`tab-btn${activeType === t.key ? ' active' : ''}`}
+              onClick={() => setActiveType(t.key)}
+            >
+              {t.key}
+              <span style={{ marginLeft: '6px', fontSize: '11px', color: activeType === t.key ? 'var(--accent)' : 'var(--text-muted)' }}>
+                {count}건
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>조회 중...</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-          {TYPES.map(t => {
-            const data = rows[t.key] || []
-            const totalAmt   = data.reduce((s, r) => s + r.settled + r.unsettled, 0)
-            const totalUnsettled = data.reduce((s, r) => s + r.unsettled, 0)
-            const totalSettled   = data.reduce((s, r) => s + r.settled, 0)
-            return (
-              <div key={t.key} className="list-card">
-                <div className="master-card-header">
-                  <div className="master-card-title">{t.title}</div>
-                  {totalAmt > 0 && (
-                    <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '13px', fontWeight: 700, color: 'var(--accent)' }}>
-                      ₩{fmt(totalAmt)}
-                    </span>
-                  )}
-                </div>
-                <div className="list-header" style={{ gridTemplateColumns: '1fr 44px 90px 76px 76px', fontSize: '10px' }}>
-                  <span>업체</span><span>건수</span><span>합계</span><span>미정산</span><span>완료</span>
-                </div>
-                {data.length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-                    내역 없음
-                  </div>
-                ) : data.map((r, i) => (
-                  <div key={i} className="list-row" style={{ gridTemplateColumns: '1fr 44px 90px 76px 76px', fontSize: '12px' }}>
-                    <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {r.color && (
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: r.color, display: 'inline-block', flexShrink: 0 }} />
-                      )}
-                      {r.vendor}
-                    </span>
-                    <span style={{ color: 'var(--text-muted)' }}>{r.count}건</span>
-                    <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(r.settled + r.unsettled)}</span>
-                    <span style={{ color: r.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(r.unsettled)}</span>
-                    <span style={{ color: r.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(r.settled)}</span>
-                  </div>
-                ))}
-                {data.length > 0 && (
-                  <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: '1fr 44px 90px 76px 76px', fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                    <span>합계</span>
-                    <span>{data.reduce((s, r) => s + r.count, 0)}건</span>
-                    <span style={{ fontFamily: "'DM Mono',monospace", color: 'var(--accent)' }}>₩{fmt(totalAmt)}</span>
-                    <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(totalUnsettled)}</span>
-                    <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(totalSettled)}</span>
-                  </div>
+        <div className="list-card">
+          <div className="master-card-header">
+            <div className="master-card-title">{activeMeta.title}</div>
+            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
+              <span>{totalCount}건</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '13px', fontWeight: 700, color: 'var(--accent)' }}>
+                ₩{fmt(totalAmt)}
+              </span>
+            </div>
+          </div>
+          <div className="list-header" style={{ gridTemplateColumns: '1fr 70px 120px 110px 110px', fontSize: '10px' }}>
+            <span>업체</span><span>건수</span><span>합계</span><span>미정산</span><span>완료</span>
+          </div>
+          {activeData.length === 0 ? (
+            <div style={{ padding: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
+              내역 없음
+            </div>
+          ) : activeData.map((r, i) => (
+            <div key={i} className="list-row" style={{ gridTemplateColumns: '1fr 70px 120px 110px 110px', fontSize: '13px' }}>
+              <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {r.color && (
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: r.color, display: 'inline-block', flexShrink: 0 }} />
                 )}
-              </div>
-            )
-          })}
+                {r.vendor}
+              </span>
+              <span style={{ color: 'var(--text-muted)' }}>{r.count}건</span>
+              <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(r.settled + r.unsettled)}</span>
+              <span style={{ color: r.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(r.unsettled)}</span>
+              <span style={{ color: r.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(r.settled)}</span>
+            </div>
+          ))}
+          {activeData.length > 0 && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: '1fr 70px 120px 110px 110px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+              <span>합계</span>
+              <span>{totalCount}건</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: 'var(--accent)' }}>₩{fmt(totalAmt)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(totalUnsettled)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(totalSettled)}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
