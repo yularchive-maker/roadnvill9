@@ -13,10 +13,13 @@ export async function GET() {
 export async function POST(req) {
   const body = await req.json()
   // key 자동생성: V001, V002, ...
-  const { data: existing } = await supabase.from('vendors').select('key').order('key', { ascending: false }).limit(1)
+  const { data: existing } = await supabase.from('vendors').select('key').like('key', 'V%')
   let nextKey = 'V001'
-  if (existing?.length) {
-    const n = parseInt(existing[0].key.replace(/\D/g, ''), 10) + 1
+  const nums = (existing || [])
+    .map(v => parseInt(String(v.key || '').replace(/\D/g, ''), 10))
+    .filter(n => Number.isFinite(n))
+  if (nums.length) {
+    const n = Math.max(...nums) + 1
     nextKey = 'V' + String(n).padStart(3, '0')
   }
   const { data, error } = await supabase.from('vendors').insert({ ...body, key: nextKey }).select().single()

@@ -35,35 +35,41 @@ function Field({ label, required, auto, children }) {
 
 // ── 코드 자동생성 유틸
 async function genZoneCode() {
-  const { data } = await supabase.from('zones').select('code').order('code', { ascending: false }).limit(1)
-  if (!data?.length) return 'A0001'
-  const n = parseInt(data[0].code.replace(/\D/g, ''), 10) + 1
+  const { data } = await supabase.from('zones').select('code').like('code', 'A%')
+  const nums = (data || []).map(z => parseInt(String(z.code || '').replace(/\D/g, ''), 10)).filter(n => Number.isFinite(n))
+  if (!nums.length) return 'A0001'
+  const n = Math.max(...nums) + 1
   return 'A' + String(n).padStart(4, '0')
 }
 
 async function genVendorKey() {
-  const { data } = await supabase.from('vendors').select('key').order('key', { ascending: false }).limit(1)
-  if (!data?.length) return 'V001'
-  const n = parseInt(data[0].key.replace(/\D/g, ''), 10) + 1
+  const { data } = await supabase.from('vendors').select('key').like('key', 'V%')
+  const nums = (data || []).map(v => parseInt(String(v.key || '').replace(/\D/g, ''), 10)).filter(n => Number.isFinite(n))
+  if (!nums.length) return 'V001'
+  const n = Math.max(...nums) + 1
   return 'V' + String(n).padStart(3, '0')
 }
 
 async function genPackageCode(zoneCode) {
   if (!zoneCode) return ''
   const prefix = `PKG-${zoneCode}-`
-  const { data } = await supabase.from('packages').select('code').like('code', `${prefix}%`).order('code', { ascending: false }).limit(1)
-  if (!data?.length || !data[0]?.code) return `${prefix}01`
-  const suffix = data[0].code.slice(prefix.length)
-  const n = parseInt(suffix, 10) + 1
-  return `${prefix}${String(n).padStart(2, '0')}`
+  const { data } = await supabase.from('packages').select('code').like('code', `${prefix}%`)
+  if (!data?.length || !data[0]?.code) return `${prefix}001`
+  const nums = data.map(p => parseInt(String(p.code || '').slice(prefix.length), 10)).filter(n => Number.isFinite(n))
+  if (!nums.length) return `${prefix}001`
+  const n = Math.max(...nums) + 1
+  return `${prefix}${String(n).padStart(3, '0')}`
 }
 
-async function genProgCode(vendorKey) {
-  const { data } = await supabase.from('vendor_programs').select('code').like('code', `${vendorKey}-P%`).order('code', { ascending: false }).limit(1)
-  if (!data?.length || !data[0]?.code) return `${vendorKey}-P01`
-  const suffix = data[0].code.split('-P').pop()
-  const n = parseInt(suffix, 10) + 1
-  return `${vendorKey}-P${String(n).padStart(2, '0')}`
+async function genProgCode(zoneCode, vendorKey, table = 'vendor_programs') {
+  if (!zoneCode || !vendorKey) return ''
+  const prefix = `${zoneCode}-${vendorKey}-P`
+  const { data } = await supabase.from(table).select('code').like('code', `${prefix}%`)
+  if (!data?.length || !data[0]?.code) return `${prefix}01`
+  const nums = data.map(p => parseInt(String(p.code || '').split('-P').pop(), 10)).filter(n => Number.isFinite(n))
+  if (!nums.length) return `${prefix}01`
+  const n = Math.max(...nums) + 1
+  return `${prefix}${String(n).padStart(2, '0')}`
 }
 
 // ══════════════════════════════════════════════════════
@@ -148,14 +154,19 @@ function ZonesTab() {
 // ══════════════════════════════════════════════════════
 function VendorsTab() {
   const [vendors,  setVendors]  = useState([])
+  const [zones,    setZones]    = useState([])
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
   const [programs, setPrograms] = useState([])
-  const [progForm, setProgForm] = useState({ prog_name: '', unit_price: '', settle_type: 'per_person' })
+  const [progForm, setProgForm] = useState({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('vendors').select('*, vendor_programs(*)').order('key')
-    setVendors(data || [])
+    const [vendorR, zoneR] = await Promise.all([
+      supabase.from('vendors').select('*, vendor_programs(*)').order('key'),
+      supabase.from('zones').select('*').order('code'),
+    ])
+    setVendors(vendorR.data || [])
+    setZones(zoneR.data || [])
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -163,14 +174,14 @@ function VendorsTab() {
     const key = await genVendorKey()
     setForm({ key, name: '', contact: '', tel: '', color: '#4ECDC4', note: '' })
     setPrograms([])
-    setProgForm({ prog_name: '', unit_price: '', settle_type: 'per_person' })
+    setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
     setModal({ mode: 'new' })
   }
 
   function openEdit(v) {
     setForm({ key: v.key, name: v.name, contact: v.contact || '', tel: v.tel || '', color: v.color || '#4ECDC4', note: v.note || '' })
     setPrograms(v.vendor_programs || [])
-    setProgForm({ prog_name: '', unit_price: '', settle_type: 'per_person' })
+    setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
     setModal({ mode: 'edit', data: v })
   }
 
@@ -197,11 +208,12 @@ function VendorsTab() {
 
   async function addProg() {
     if (!progForm.prog_name) { alert('프로그램명을 입력하세요.'); return }
+    if (!progForm.zone_code) { alert('구역을 선택하세요.'); return }
     const vendorKey = modal.mode === 'edit' ? modal.data.key : form.key
     if (!vendorKey) { alert('업체를 먼저 저장하세요.'); return }
-    const code = await genProgCode(vendorKey)
-    await supabase.from('vendor_programs').insert({ code, vendor_key: vendorKey, prog_name: progForm.prog_name, unit_price: Number(progForm.unit_price) || 0, settle_type: progForm.settle_type })
-    setProgForm({ prog_name: '', unit_price: '', settle_type: 'per_person' })
+    const code = await genProgCode(progForm.zone_code, vendorKey)
+    await supabase.from('vendor_programs').insert({ code, zone_code: progForm.zone_code, vendor_key: vendorKey, prog_name: progForm.prog_name, unit_price: Number(progForm.unit_price) || 0, settle_type: progForm.settle_type })
+    setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
     const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vendorKey).order('code')
     setPrograms(data || [])
     load()
@@ -295,7 +307,13 @@ function VendorsTab() {
               <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 프로그램 관리 <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
               </div>
-              <div className="form-grid form-grid-3" style={{ marginBottom: '8px' }}>
+              <div className="form-grid form-grid-4" style={{ marginBottom: '8px' }}>
+                <Field label="구역">
+                  <select className="form-select" value={progForm.zone_code} onChange={e => setProgForm(f => ({ ...f, zone_code: e.target.value }))}>
+                    <option value="">선택</option>
+                    {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
+                  </select>
+                </Field>
                 <Field label="프로그램명"><input className="form-input" value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))} /></Field>
                 <Field label="단가(원)"><input className="form-input" type="number" value={progForm.unit_price} onChange={e => setProgForm(f => ({ ...f, unit_price: e.target.value }))} /></Field>
                 <Field label="정산방식">
@@ -307,10 +325,10 @@ function VendorsTab() {
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
               <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: '70px 1fr 80px 70px 36px' }}><span>코드</span><span>프로그램명</span><span>단가</span><span>방식</span><span /></div>
+                <div className="list-box-header" style={{ gridTemplateColumns: '120px 1fr 80px 70px 36px' }}><span>코드</span><span>프로그램명</span><span>단가</span><span>방식</span><span /></div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '70px 1fr 80px 70px 36px' }}>
+                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '120px 1fr 80px 70px 36px' }}>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.code || '-'}</span>
                     <span>{p.prog_name}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px' }}>{(p.unit_price || 0).toLocaleString()}</span>
@@ -397,7 +415,8 @@ function PackagesTab() {
   async function addProg() {
     if (!modal.data?.id) { alert('패키지를 먼저 저장하세요.'); return }
     if (!progForm.vendor_key || !progForm.prog_name) { alert('업체와 프로그램명을 입력하세요.'); return }
-    await supabase.from('package_programs').insert({ ...progForm, package_id: modal.data.id, sort_order: Number(progForm.sort_order) || 0 })
+    const code = await genProgCode(form.zone_code, progForm.vendor_key, 'package_programs')
+    await supabase.from('package_programs').insert({ ...progForm, code, package_id: modal.data.id, sort_order: Number(progForm.sort_order) || 0 })
     const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
     setProgs(data || [])
     load()
@@ -459,6 +478,7 @@ function PackagesTab() {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: '13px', fontWeight: 600 }}>{pr.prog_name}</div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                            {pr.code && `${pr.code} · `}
                             {v?.name || pr.vendor_key}
                             {pr.default_start && ` · ${pr.default_start.slice(0, 5)}~${pr.default_end?.slice(0, 5)}`}
                           </div>
@@ -521,12 +541,13 @@ function PackagesTab() {
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 추가</button>
               <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: '30px 70px 1fr 60px 60px 30px' }}><span>순</span><span>업체</span><span>프로그램</span><span>시작</span><span>종료</span><span /></div>
+                <div className="list-box-header" style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px' }}><span>순</span><span>업체</span><span>코드</span><span>프로그램</span><span>시작</span><span>종료</span><span /></div>
                 {progs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {progs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '30px 70px 1fr 60px 60px 30px' }}>
+                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px' }}>
                     <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{p.sort_order}</span>
                     <span className="no-col">{p.vendor_key}</span>
+                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.code || '-'}</span>
                     <span style={{ fontSize: '12px' }}>{p.prog_name}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_start?.slice(0, 5)}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_end?.slice(0, 5)}</span>
