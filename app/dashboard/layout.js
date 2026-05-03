@@ -47,6 +47,12 @@ export default function DashboardLayout({ children }) {
 
   const title = PAGE_TITLE[pathname] || '대시보드'
 
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.replace('/login')
+    router.refresh()
+  }
+
   return (
     <div className="app-layout">
       {/* ── 사이드바 */}
@@ -83,6 +89,7 @@ export default function DashboardLayout({ children }) {
               <div className="user-name">{session.name}</div>
               <div className="user-role">{session.role}</div>
             </div>
+            <button className="logout-btn" onClick={logout}>로그아웃</button>
           </div>
         </div>
       </nav>
