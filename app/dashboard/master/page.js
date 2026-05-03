@@ -782,7 +782,7 @@ function PlatformsTab() {
   }, [])
   useEffect(() => { load() }, [load])
 
-  function openNew()   { setForm({ type: '플랫폼', name: '', contact: '', tel: '', fee_ind: 0, fee_grp: 0 }); setModal({ mode: 'new' }) }
+  function openNew(type = '플랫폼') { setForm({ type, name: '', contact: '', tel: '', fee_ind: 0, fee_grp: 0 }); setModal({ mode: 'new' }) }
   function openEdit(p) { setForm({ ...p }); setModal({ mode: 'edit', data: p }) }
 
   async function save() {
@@ -804,31 +804,43 @@ function PlatformsTab() {
   }
 
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const platforms = list.filter(p => p.type === '플랫폼')
+  const agencies  = list.filter(p => p.type === '여행사')
+
+  const renderGroup = (title, type, items) => (
+    <div className="list-card" style={{ marginBottom: '14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+        <div>
+          <span style={{ fontSize: '13px', fontWeight: 700 }}>{title}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>{items.length}개</span>
+        </div>
+        <button className="btn-primary" style={{ height: '28px', fontSize: '12px', padding: '0 12px' }} onClick={() => openNew(type)}>+ {title} 추가</button>
+      </div>
+      <div className="list-header" style={{ gridTemplateColumns: '1fr 80px 120px 60px 60px' }}>
+        <span>이름</span><span>담당자</span><span>연락처</span><span>개인(%)</span><span>단체(%)</span>
+      </div>
+      {items.length === 0 && <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 {title} 없음</div>}
+      {items.map(p => (
+        <div key={p.id} className="list-row" style={{ gridTemplateColumns: '1fr 80px 120px 60px 60px' }} onClick={() => openEdit(p)}>
+          <span style={{ fontWeight: 500 }}>{p.name}</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{p.contact || '-'}</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{p.tel || '-'}</span>
+          <span className="no-col">{p.fee_ind}%</span>
+          <span className="no-col">{p.fee_grp}%</span>
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <div>
       <div className="section-header">
         <div className="section-title">플랫폼 · 여행사</div>
-        <button className="btn-primary" onClick={openNew}>+ 추가</button>
       </div>
-      <div className="list-card">
-        <div className="list-header" style={{ gridTemplateColumns: '70px 1fr 80px 120px 60px 60px' }}>
-          <span>구분</span><span>이름</span><span>담당자</span><span>연락처</span><span>개인(%)</span><span>단체(%)</span>
-        </div>
-        {list.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 항목 없음</div>}
-        {list.map(p => (
-          <div key={p.id} className="list-row" style={{ gridTemplateColumns: '70px 1fr 80px 120px 60px 60px' }} onClick={() => openEdit(p)}>
-            <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: p.type === '플랫폼' ? 'rgba(78,205,196,.1)' : 'rgba(247,201,72,.1)', color: p.type === '플랫폼' ? 'var(--accent)' : 'var(--amber)', fontWeight: 600 }}>{p.type}</span>
-            <span style={{ fontWeight: 500 }}>{p.name}</span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{p.contact || '-'}</span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{p.tel || '-'}</span>
-            <span className="no-col">{p.fee_ind}%</span>
-            <span className="no-col">{p.fee_grp}%</span>
-          </div>
-        ))}
-      </div>
+      {renderGroup('플랫폼', '플랫폼', platforms)}
+      {renderGroup('여행사', '여행사', agencies)}
       {modal && (
-        <Modal title={modal.mode === 'new' ? '추가' : '수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null}>
+        <Modal title={modal.mode === 'new' ? `${form.type || '항목'} 추가` : `${form.type || '항목'} 수정`} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null}>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="구분" required>
               <select className="form-select" value={form.type || '플랫폼'} onChange={e => inp('type', e.target.value)}>
