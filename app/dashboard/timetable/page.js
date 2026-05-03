@@ -312,8 +312,9 @@ export default function TimetablePage() {
   // ── 날짜 네비게이션
   const navigate = dir => {
     const d = new Date(curDate)
-    if (view === 'day') d.setDate(d.getDate() + dir)
-    else d.setDate(d.getDate() + dir * 7)
+    if (view === 'day')        d.setDate(d.getDate() + dir)
+    else if (view === 'week')  d.setDate(d.getDate() + dir * 7)
+    else                       d.setMonth(d.getMonth() + dir)
     setCurDate(d)
   }
 
@@ -661,6 +662,74 @@ export default function TimetablePage() {
     )
   }
 
+  // ── 월간 뷰
+  const MonthView = () => {
+    const y = curDate.getFullYear()
+    const m = curDate.getMonth()
+    const first    = new Date(y, m, 1).getDay()
+    const last     = new Date(y, m+1, 0).getDate()
+    const prevLast = new Date(y, m, 0).getDate()
+    const dows     = ['일','월','화','수','목','금','토']
+    const adj      = first === 0 ? 6 : first - 1
+    const todayS   = dateStr(new Date())
+
+    const cells = []
+    for (let i = 0; i < adj; i++)
+      cells.push({ day: prevLast - adj + i + 1, date: null, other: true })
+    for (let d = 1; d <= last; d++) {
+      const ds = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+      cells.push({ day: d, date: ds, other: false, isToday: ds === todayS,
+                   evs: allEvents.filter(e => e.date === ds) })
+    }
+    const rem = (adj + last) % 7
+    if (rem > 0) for (let i = 1; i <= 7 - rem; i++)
+      cells.push({ day: i, date: null, other: true })
+
+    return (
+      <div style={{padding:'16px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'4px'}}>
+          {dows.map(d => (
+            <div key={d} style={{textAlign:'center',fontSize:'10px',fontWeight:'600',
+                                  color:'#5a7080',padding:'4px 0'}}>{d}</div>
+          ))}
+          {cells.map((cell, i) => (
+            <div key={i}
+                 onClick={() => cell.date && (setCurDate(new Date(cell.date + 'T00:00:00')), setView('day'))}
+                 style={{
+                   background:'#243B55',
+                   border:`1px solid ${cell.isToday ? '#4ecdc4' : '#2a3a4a'}`,
+                   borderRadius:'8px', minHeight:'80px', padding:'6px',
+                   cursor: cell.date ? 'pointer' : 'default',
+                   opacity: cell.other ? 0.4 : 1,
+                   transition:'border-color .15s',
+                   boxSizing:'border-box',
+                 }}>
+              <div style={{fontSize:'12px',fontWeight: cell.isToday ? '700' : '500',
+                           marginBottom:'4px',
+                           color: cell.isToday ? '#4ecdc4' : '#e8eaed'}}>{cell.day}</div>
+              {!cell.other && cell.evs?.slice(0,3).map((ev, j) => {
+                const color = ev.vendor_color || '#4ECDC4'
+                return (
+                  <div key={j} style={{
+                    fontSize:'10px', padding:'2px 5px', borderRadius:'3px',
+                    marginBottom:'2px', whiteSpace:'nowrap', overflow:'hidden',
+                    textOverflow:'ellipsis', fontWeight:'500',
+                    background: color + '22', color,
+                  }}>{ev.start_time?.slice(0,5)} {ev.vendor_name}</div>
+                )
+              })}
+              {!cell.other && cell.evs?.length > 3 && (
+                <div style={{fontSize:'10px',color:'#5a7080',padding:'1px 4px'}}>
+                  +{cell.evs.length - 3}개
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   // ── 현재 뷰의 전체 겹침 수 (툴바 배지용)
   const curConflictCount = (() => {
     if (view === 'day') {
@@ -682,7 +751,7 @@ export default function TimetablePage() {
         {/* 뷰 전환 */}
         <div style={{display:'flex',gap:'3px',background:'#1a2535',border:'1px solid #2a3a4a',
                      borderRadius:'8px',padding:'3px'}}>
-          {[['day','일'],['week','주']].map(([v,l]) => (
+          {[['day','일'],['week','주'],['month','월']].map(([v,l]) => (
             <button key={v} onClick={() => setView(v)} style={tabBtn(view === v)}>{l}</button>
           ))}
         </div>
@@ -699,7 +768,9 @@ export default function TimetablePage() {
         </div>
         {/* 날짜 표시 */}
         <div style={{fontSize:'14px',fontWeight:'700',color:'#e8eaed'}}>
-          {view === 'day' ? formatDay(curDate) : `${getMon(curDate).getMonth()+1}월 ${getMon(curDate).getDate()}일 주간`}
+          {view === 'day'   ? formatDay(curDate)
+           : view === 'week' ? `${getMon(curDate).getMonth()+1}월 ${getMon(curDate).getDate()}일 주간`
+           : `${curDate.getFullYear()}년 ${curDate.getMonth()+1}월`}
         </div>
 
         <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
@@ -750,7 +821,7 @@ export default function TimetablePage() {
 
       {/* ── 타임테이블 본문 */}
       <div style={{background:'#1a2535',border:'1px solid #2a3a4a',borderRadius:'12px',overflow:'hidden'}}>
-        {view === 'day' ? <DayView/> : <WeekView/>}
+        {view === 'day' ? <DayView/> : view === 'week' ? <WeekView/> : <MonthView/>}
       </div>
 
       <div style={{marginTop:'8px',fontSize:'11px',color:'#5a7080'}}>
