@@ -363,7 +363,7 @@ function PackagesTab() {
     const [pkgR, zoneR, vendorR] = await Promise.all([
       supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('vendors').select('key,name,color').order('key'),
+      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name)').order('key'),
     ])
     setPackages(pkgR.data || [])
     setZones(zoneR.data || [])
@@ -560,12 +560,24 @@ function PackagesTab() {
               </div>
               <div className="form-grid form-grid-3" style={{ marginBottom: '8px', gap: '8px' }}>
                 <Field label="업체">
-                  <select className="form-select" value={progForm.vendor_key} onChange={e => setProgForm(f => ({ ...f, vendor_key: e.target.value }))}>
+                  <select className="form-select" value={progForm.vendor_key} onChange={e => setProgForm(f => ({ ...f, vendor_key: e.target.value, prog_name: '' }))}>
                     <option value="">선택</option>
                     {vendors.map(v => <option key={v.key} value={v.key}>{v.key} · {v.name.replace(/\s*\(.*\)/, '')}</option>)}
                   </select>
                 </Field>
-                <Field label="프로그램명"><input className="form-input" value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))} /></Field>
+                <Field label="프로그램명">
+                  {(() => {
+                    const vProgs = vendors.find(v => v.key === progForm.vendor_key)?.vendor_programs || []
+                    return vProgs.length > 0 ? (
+                      <select className="form-select" value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))}>
+                        <option value="">선택</option>
+                        {vProgs.map(p => <option key={p.prog_name} value={p.prog_name}>{p.prog_name}</option>)}
+                      </select>
+                    ) : (
+                      <input className="form-input" placeholder={progForm.vendor_key ? '프로그램 없음' : '업체 먼저 선택'} value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))} />
+                    )
+                  })()}
+                </Field>
                 <Field label="순서"><input className="form-input" type="number" value={progForm.sort_order} onChange={e => setProgForm(f => ({ ...f, sort_order: e.target.value }))} /></Field>
               </div>
               <div className="form-grid form-grid-2" style={{ marginBottom: '8px', gap: '8px' }}>
