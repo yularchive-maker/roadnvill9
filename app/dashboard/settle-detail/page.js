@@ -24,6 +24,14 @@ function feeAmount(total, percent) {
   return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
+function historyVendorName(h) {
+  if (h.vendors?.name) return h.vendors.name
+  if (h.settle_type === '플랫폼' || h.settle_type === '여행사') {
+    return h.settle_history_items?.[0]?.detail || h.settle_type
+  }
+  return h.settle_type
+}
+
 export default function SettleDetailPage() {
   const [s0, e0] = monthRange()
   const [startDate, setStartDate] = useState(s0)
@@ -138,7 +146,7 @@ export default function SettleDetailPage() {
     const agencyMap = {}
     for (const r of resv) {
       const platformAmt = feeAmount(r.total, r.plat_fee)
-      if (r.platform_name && platformAmt > 0) {
+      if (r.platform_name) {
         const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: r.platform_name, amt: platformAmt }
         if (!settled.has(settledKey('플랫폼', null, item))) {
           const k = r.platform_name
@@ -150,7 +158,7 @@ export default function SettleDetailPage() {
       }
 
       const agencyAmt = feeAmount(r.total, r.ag_fee)
-      if (r.agency_name && agencyAmt > 0) {
+      if (r.agency_name) {
         const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: r.agency_name, amt: agencyAmt }
         if (!settled.has(settledKey('여행사', null, item))) {
           const k = r.agency_name
@@ -163,7 +171,7 @@ export default function SettleDetailPage() {
     }
 
     const all = [...Object.values(vMap), ...Object.values(lMap), ...Object.values(pMap), ...Object.values(platMap), ...Object.values(agencyMap)]
-      .filter(g => g.totalAmt > 0)
+      .filter(g => g.items.length > 0)
       .map(g => ({ ...g, nos: Array.from(g.nos) }))
     setGroups(all)
     setCheckedItems({})
@@ -396,7 +404,7 @@ export default function SettleDetailPage() {
             <div key={h.id} className="settle-history-card">
               <div className="shc-header">
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700 }}>{h.vendors?.name || h.settle_type}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700 }}>{historyVendorName(h)}</div>
                   <div className="shc-date">{h.period_start} ~ {h.period_end}</div>
                 </div>
                 <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '10px', background: 'rgba(92,184,92,0.15)', color: 'var(--green)', fontWeight: 600 }}>정산완료</span>

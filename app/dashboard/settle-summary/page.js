@@ -21,14 +21,40 @@ const TYPES = [
   { key: '체험', title: '월별 체험 정산' },
   { key: '숙박', title: '월별 숙박 정산' },
   { key: '픽업', title: '월별 픽업 정산' },
+  { key: '플랫폼', title: '월별 플랫폼 정산' },
+  { key: '여행사', title: '월별 여행사 정산' },
 ]
+
+function emptyRows() {
+  return Object.fromEntries(TYPES.map(t => [t.key, []]))
+}
+
+function emptyMap() {
+  return Object.fromEntries(TYPES.map(t => [t.key, {}]))
+}
+
+function feeAmount(total, percent) {
+  return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
+}
+
+function historyVendorName(h) {
+  if (h.vendors?.name) return h.vendors.name
+  if (h.settle_type === '플랫폼' || h.settle_type === '여행사') {
+    return h.settle_history_items?.[0]?.detail || h.settle_type
+  }
+  return h.settle_type
+}
+
+function settledKey(type, vendorKey, it) {
+  return [type || '', vendorKey || '', it.no || it.reservation_no || '', it.detail || '', Number(it.amt) || 0].join('|')
+}
 
 export default function SettleSummaryPage() {
   const [month,    setMonth]    = useState(curMonth())
   const [loading,  setLoading]  = useState(false)
   const [vendors,  setVendors]  = useState([])
   const [packages, setPackages] = useState([])
-  const [rows,     setRows]     = useState({ '체험': [], '숙박': [], '픽업': [] })
+  const [rows,     setRows]     = useState(emptyRows())
 
   useEffect(() => {
     Promise.all([
@@ -52,23 +78,34 @@ export default function SettleSummaryPage() {
       .gte('settled_at', start).lte('settled_at', end)
 
     // settled 금액 집계: type → vendor → {count, amt, color}
-    const settledMap = { '체험': {}, '숙박': {}, '픽업': {} }
+    const settledMap = emptyMap()
     for (const h of hist || []) {
       const type = h.settle_type
       if (!settledMap[type]) continue
-      const name = h.vendors?.name || h.settle_type
+      const name = historyVendorName(h)
       if (!settledMap[type][name]) settledMap[type][name] = { vendor: name, color: h.vendors?.color, count: 0, settled: 0, unsettled: 0 }
       settledMap[type][name].count += (h.settle_history_items || []).length
       settledMap[type][name].settled += h.total_amt || 0
     }
 
+    const { data: allHist } = await supabase
+      .from('settle_history')
+      .select('vendor_key, settle_type, settle_history_items(reservation_no, detail, amt)')
+
+    const settled = new Set()
+    ;(allHist || []).forEach(h => {
+      ;(h.settle_history_items || []).forEach(it => {
+        settled.add(settledKey(h.settle_type, h.vendor_key, it))
+      })
+    })
+
     // 미정산 금액 집계 (이 달 reservations, unsettled)
     const { data: resv } = await supabase
       .from('reservations').select('*')
       .gte('date', start).lte('date', end)
-      .neq('type', 'cancelled').eq('settle_status', 'unsettled')
+      .neq('type', 'cancelled')
 
-    const unsettledMap = { '체험': {}, '숙박': {}, '픽업': {} }
+    const unsettledMap = emptyMap()
 
     if (resv?.length) {
       const nos = resv.map(r => r.no)
@@ -87,6 +124,8 @@ export default function SettleSummaryPage() {
           const vp = vendor.vendor_programs?.find(x => x.prog_name === pp.prog_name)
           if (!vp) continue
           const amt = vp.settle_type === 'per_person' ? vp.unit_price * (r.pax || 0) : vp.unit_price
+          const item = { no: r.no, detail: pp.prog_name, amt }
+          if (settled.has(settledKey('체험', pp.vendor_key, item))) continue
           const k = vendor.name
           if (!unsettledMap['체험'][k]) unsettledMap['체험'][k] = { vendor: k, color: vendor.color, count: 0, settled: 0, unsettled: 0 }
           unsettledMap['체험'][k].count += 1
@@ -97,6 +136,8 @@ export default function SettleSummaryPage() {
       // 숙박 미정산
       for (const lc of lcRes.data || []) {
         if (!lc.lodge_name || !lc.room_price) continue
+        const item = { no: lc.reservation_no, detail: lc.room_name || '', amt: lc.room_price }
+        if (settled.has(settledKey('숙박', null, item))) continue
         const k = lc.lodge_name
         if (!unsettledMap['숙박'][k]) unsettledMap['숙박'][k] = { vendor: k, color: 'var(--amber)', count: 0, settled: 0, unsettled: 0 }
         unsettledMap['숙박'][k].count += 1
@@ -106,15 +147,42 @@ export default function SettleSummaryPage() {
       // 픽업 미정산
       for (const rp of rpRes.data || []) {
         if (!rp.pickup_fee) continue
+        const item = { no: rp.reservation_no, detail: rp.pickup_place || '', amt: rp.pickup_fee }
+        if (settled.has(settledKey('픽업', null, item))) continue
         const k = rp.drivers?.name || '픽업수행자'
         if (!unsettledMap['픽업'][k]) unsettledMap['픽업'][k] = { vendor: k, color: 'var(--pickup)', count: 0, settled: 0, unsettled: 0 }
         unsettledMap['픽업'][k].count += 1
         unsettledMap['픽업'][k].unsettled += rp.pickup_fee
       }
+
+      // 플랫폼/여행사 미정산
+      for (const r of resv) {
+        const platformAmt = feeAmount(r.total, r.plat_fee)
+        if (r.platform_name) {
+          const item = { no: r.no, detail: r.platform_name, amt: platformAmt }
+          if (!settled.has(settledKey('플랫폼', null, item))) {
+            const k = r.platform_name
+            if (!unsettledMap['플랫폼'][k]) unsettledMap['플랫폼'][k] = { vendor: k, color: 'var(--purple)', count: 0, settled: 0, unsettled: 0 }
+            unsettledMap['플랫폼'][k].count += 1
+            unsettledMap['플랫폼'][k].unsettled += platformAmt
+          }
+        }
+
+        const agencyAmt = feeAmount(r.total, r.ag_fee)
+        if (r.agency_name) {
+          const item = { no: r.no, detail: r.agency_name, amt: agencyAmt }
+          if (!settled.has(settledKey('여행사', null, item))) {
+            const k = r.agency_name
+            if (!unsettledMap['여행사'][k]) unsettledMap['여행사'][k] = { vendor: k, color: 'var(--green)', count: 0, settled: 0, unsettled: 0 }
+            unsettledMap['여행사'][k].count += 1
+            unsettledMap['여행사'][k].unsettled += agencyAmt
+          }
+        }
+      }
     }
 
     // 두 맵 병합
-    const merged = { '체험': {}, '숙박': {}, '픽업': {} }
+    const merged = emptyMap()
     for (const type of TYPES.map(t => t.key)) {
       const names = new Set([...Object.keys(settledMap[type]), ...Object.keys(unsettledMap[type])])
       for (const name of names) {
@@ -130,11 +198,7 @@ export default function SettleSummaryPage() {
       }
     }
 
-    setRows({
-      '체험': Object.values(merged['체험']),
-      '숙박': Object.values(merged['숙박']),
-      '픽업': Object.values(merged['픽업']),
-    })
+    setRows(Object.fromEntries(TYPES.map(t => [t.key, Object.values(merged[t.key])])))
     setLoading(false)
   }, [month, vendors, packages])
 
@@ -157,7 +221,7 @@ export default function SettleSummaryPage() {
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>조회 중...</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
           {TYPES.map(t => {
             const data = rows[t.key] || []
             const totalAmt   = data.reduce((s, r) => s + r.settled + r.unsettled, 0)
