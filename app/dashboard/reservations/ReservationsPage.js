@@ -87,6 +87,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [readinessLoading, setReadinessLoading] = useState(false)
   const [bulkConfirming, setBulkConfirming] = useState(false)
   const [telegramSending, setTelegramSending] = useState(false)
+  const [vendorReplyRefreshing, setVendorReplyRefreshing] = useState(false)
   const [notice, setNotice] = useState(null)
   const noticeTimer = useRef(null)
   const [saving,  setSaving]  = useState(false)
@@ -489,6 +490,25 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     setVendorConfirms(data || [])
     return data || []
   }
+
+  async function refreshVendorReplies(showMessage = false) {
+    if (!form.no) return
+    setVendorReplyRefreshing(true)
+    await reloadVendorConfirms()
+    await refreshReadiness(false)
+    setVendorReplyRefreshing(false)
+    if (showMessage) {
+      showNotice('success', '회신 상태 새로고침', '업체 회신 상태를 다시 불러왔습니다.')
+    }
+  }
+
+  useEffect(() => {
+    if (!isEdit || tab !== 1 || !form.no) return
+    const timer = setInterval(() => {
+      reloadVendorConfirms()
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [isEdit, tab, form.no])
 
   function confirmPayloadForRow(row, extra = {}) {
     return {
@@ -1021,7 +1041,10 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 <div style={{ fontSize:'12px', color:'var(--text-muted)', lineHeight:1.5, minWidth:0 }}>
                   이번 예약 {Number(form.pax)||0}명 · 당일 확정 {dayConfirmedPeople}명 · 상담/대기 {dayPendingPeople}명 · 최대 예상 {dayMaxExpectedPeople}명
                 </div>
-                <div style={{ display:'flex', justifyContent:'flex-end', gap:'6px', flexWrap:'wrap', maxWidth:'430px' }}>
+                <div style={{ display:'flex', justifyContent:'flex-end', gap:'6px', flexWrap:'wrap', maxWidth:'520px' }}>
+                  <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={() => refreshVendorReplies(true)} disabled={!isEdit || vendorReplyRefreshing} title="텔레그램 버튼 회신 후 상태를 다시 불러오기">
+                    {vendorReplyRefreshing ? '확인중' : '회신 새로고침'}
+                  </button>
                   <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={sendTelegramToSelectedVendors} disabled={!isEdit || telegramSending} title="체크한 업체에 텔레그램 가능 여부 요청">
                     {telegramSending ? '발송중' : '텔레그램 요청'}
                   </button>
@@ -1071,7 +1094,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
               )}
 
               <div style={{ marginTop:'10px', fontSize:'11px', color:'var(--text-muted)', lineHeight:1.5 }}>
-                텔레그램 요청은 회신대기 업체에게만 발송됩니다. 시간, 장소, 인원 등을 조율해 다시 확인해야 할 때는 선택 재요청을 사용하세요. 전화/현장 확인은 수동 가능처리 또는 회신관리에서 입력합니다.
+                업체 확인 탭이 열려 있으면 회신 상태를 자동으로 다시 확인합니다. 바로 확인하려면 회신 새로고침을 누르세요. 시간, 장소, 인원 등을 조율해 다시 확인해야 할 때는 선택 재요청을 사용합니다.
               </div>
             </div>
           )}
