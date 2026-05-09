@@ -1,7 +1,7 @@
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse } from 'next/server'
-import { AUTH_COOKIE, expectedSessionToken } from './lib/auth'
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout']
+const PUBLIC_PATHS = ['/login', '/api/auth/logout', '/api/telegram/webhook']
 
 function isPublic(pathname) {
   return PUBLIC_PATHS.some(path => pathname === path || pathname.startsWith(`${path}/`))
@@ -15,9 +15,11 @@ export async function middleware(req) {
   const { pathname } = req.nextUrl
   if (isPublic(pathname) || !isProtected(pathname)) return NextResponse.next()
 
-  const expected = await expectedSessionToken()
-  const actual = req.cookies.get(AUTH_COOKIE)?.value
-  if (expected && actual === expected) return NextResponse.next()
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req, res })
+  const { data: { session } } = await supabase.auth.getSession()
+
+  if (session) return res
 
   if (pathname.startsWith('/api')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

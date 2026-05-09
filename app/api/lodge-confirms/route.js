@@ -1,10 +1,10 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url)
   const no = searchParams.get('reservation_no')
-  let q = supabase.from('lodge_confirms').select('*')
+  let q = supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false')
   if (no) q = q.eq('reservation_no', no)
   const { data, error } = await q
   if (error) return NextResponse.json({ error }, { status: 500 })
@@ -28,7 +28,7 @@ export async function PUT(req) {
 
 export async function DELETE(req) {
   const { id } = await req.json()
-  const { error } = await supabase.from('lodge_confirms').delete().eq('id', id)
+  const { error } = await supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

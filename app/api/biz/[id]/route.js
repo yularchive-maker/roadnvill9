@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function PUT(req, { params }) {
@@ -9,7 +9,10 @@ export async function PUT(req, { params }) {
 }
 
 export async function DELETE(_, { params }) {
-  const { error } = await supabase.from('biz').delete().eq('id', params.id)
+  const { error } = await supabase
+    .from('biz')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq('id', params.id)
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

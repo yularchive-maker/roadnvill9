@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function GET(req) {
@@ -6,7 +6,7 @@ export async function GET(req) {
   const type = searchParams.get('type')
   const month = searchParams.get('month')
 
-  let q = supabase.from('reservations').select('*').order('date', { ascending: false })
+  let q = supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date', { ascending: false })
   if (type)  q = q.eq('type', type)
   if (month) q = q.like('date', `${month}%`)
 
@@ -18,9 +18,9 @@ export async function GET(req) {
 export async function POST(req) {
   const body = await req.json()
 
-  // 예약번호 자동생성
+  // ?덉빟踰덊샇 ?먮룞?앹꽦
   const { data: last } = await supabase
-    .from('reservations').select('no').order('no', { ascending: false }).limit(1)
+    .from('reservations').select('no').or('is_deleted.is.null,is_deleted.eq.false').order('no', { ascending: false }).limit(1)
   const nextNo = last?.length
     ? String(parseInt(last[0].no, 10) + 1).padStart(3, '0')
     : '001'

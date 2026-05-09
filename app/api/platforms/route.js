@@ -1,8 +1,8 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  const { data, error } = await supabase.from('platforms').select('*').order('type').order('name')
+  const { data, error } = await supabase.from('platforms').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('type').order('name')
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }
@@ -24,7 +24,7 @@ export async function PUT(req) {
 
 export async function DELETE(req) {
   const { id } = await req.json()
-  const { error } = await supabase.from('platforms').delete().eq('id', id)
+  const { error } = await supabase.from('platforms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

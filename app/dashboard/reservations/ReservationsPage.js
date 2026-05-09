@@ -6,6 +6,12 @@ import { useSearchParams, useRouter } from 'next/navigation'
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const INFLOW_OPTS  = ['플랫폼','여행사','직접']
 const OP_OPTS      = ['일반','사업비']
+const RESERVATION_LIST_GRID = '60px 78px 94px minmax(150px,1.05fr) minmax(150px,1fr) 74px 64px 104px 112px 72px 72px'
+const VENDOR_CHECK_GRID = '44px minmax(92px, 1fr) minmax(118px, 1fr) 88px 96px 86px minmax(110px, 1.15fr) 88px'
+const CENTER_CELL = { display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', width:'100%' }
+const RIGHT_CELL = { display:'flex', alignItems:'center', justifyContent:'flex-end', textAlign:'right', width:'100%' }
+const NOWRAP_CELL = { overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
+const COMPACT_ACTION_BUTTON = { display:'inline-flex', alignItems:'center', justifyContent:'center', minWidth:'78px', whiteSpace:'nowrap' }
 
 // ── 금액 계산
 function calcTotal(price, pax, discount, pickupFee, burden) {
@@ -53,6 +59,7 @@ function nextDay(ds) {
 }
 
 function ReservationModal({ editData, initDate, onClose, onSaved, zones, packages, platforms, drivers, bizList, lodgeVendors }) {
+  const router = useRouter()
   const isEdit  = !!editData
   const baseDate = initDate || new Date().toISOString().slice(0,10)
 
@@ -62,12 +69,26 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     price:0, discount:0, pickup_fee:0, burden:0, total:0,
     payto:'', inflow:'', platform_name:'', plat_fee:0, agency_name:'', ag_fee:0,
     op:'일반', biz_id:'', settle_status:'unsettled', memo:'',
+    reservation_status:'상담중', payment_status:'미결제', payment_type:'전화예약미결제',
+    lodging_status:'해당없음', pickup_status:'해당없음',
   }
 
   const [tab,    setTab]    = useState(0)
   const [form,   setForm]   = useState(isEdit ? { ...EMPTY, ...editData } : { ...EMPTY })
   const [pickups, setPickups] = useState([])   // reservation_pickup rows
   const [lodges,  setLodges]  = useState([])   // lodge_confirms rows
+  const [vendorConfirms, setVendorConfirms] = useState([])
+  const [packagePrograms, setPackagePrograms] = useState([])
+  const [sameDayEvents, setSameDayEvents] = useState([])
+  const [sameDayReservations, setSameDayReservations] = useState([])
+  const [vendorCheckLoading, setVendorCheckLoading] = useState(false)
+  const [selectedVendorKeys, setSelectedVendorKeys] = useState(new Set())
+  const [readiness, setReadiness] = useState(null)
+  const [readinessLoading, setReadinessLoading] = useState(false)
+  const [bulkConfirming, setBulkConfirming] = useState(false)
+  const [telegramSending, setTelegramSending] = useState(false)
+  const [notice, setNotice] = useState(null)
+  const noticeTimer = useRef(null)
   const [saving,  setSaving]  = useState(false)
 
   // pickup form row
@@ -86,14 +107,58 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (!isEdit) return
     async function loadRelated() {
       const [pkR, lgR] = await Promise.all([
-        supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', editData.no),
-        supabase.from('lodge_confirms').select('*').eq('reservation_no', editData.no),
+        supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', editData.no).or('is_deleted.is.null,is_deleted.eq.false'),
+        supabase.from('lodge_confirms').select('*').eq('reservation_no', editData.no).or('is_deleted.is.null,is_deleted.eq.false'),
       ])
       setPickups(pkR.data || [])
       setLodges(lgR.data || [])
     }
     loadRelated()
   }, [isEdit, editData?.no])
+
+  useEffect(() => {
+    if (!isEdit || !form.no) return
+    refreshReadiness(false)
+  }, [isEdit, form.no])
+
+  useEffect(() => {
+    async function loadVendorChecks() {
+      const pkg = packages.find(p => p.name === form.package_name)
+      if (!pkg?.id) {
+        setPackagePrograms([])
+        setVendorConfirms([])
+        setSameDayEvents([])
+        setSameDayReservations([])
+        return
+      }
+
+      setVendorCheckLoading(true)
+      const [programRes, confirmRes, reservationRes, eventRes] = await Promise.all([
+        supabase
+          .from('package_programs')
+          .select('id, vendor_key, prog_name, sort_order, vendors(key,name,color)')
+          .eq('package_id', pkg.id)
+          .or('is_deleted.is.null,is_deleted.eq.false')
+          .order('sort_order'),
+        isEdit && form.no
+          ? supabase.from('vendor_confirms').select('*').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
+          : Promise.resolve({ data: [], error: null }),
+        form.date
+          ? supabase.from('reservations').select('no,date,customer,package_name,pax,type,reservation_status').eq('date', form.date).or('is_deleted.is.null,is_deleted.eq.false')
+          : Promise.resolve({ data: [], error: null }),
+        form.date
+          ? supabase.from('timetable_events').select('*').eq('date', form.date).or('is_deleted.is.null,is_deleted.eq.false')
+          : Promise.resolve({ data: [], error: null }),
+      ])
+
+      setPackagePrograms(programRes.data || [])
+      setVendorConfirms(confirmRes.data || [])
+      setSameDayReservations((reservationRes.data || []).filter(r => r.no !== form.no))
+      setSameDayEvents(eventRes.data || [])
+      setVendorCheckLoading(false)
+    }
+    loadVendorChecks()
+  }, [form.package_name, form.date, form.no, isEdit, packages])
 
   const inp = (k,v) => setForm(f => {
     const next = { ...f, [k]: v }
@@ -205,6 +270,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       agency_name: form.agency_name, ag_fee: Number(form.ag_fee)||0,
       op: form.op, biz_id: form.biz_id || null,
       settle_status: form.settle_status, memo: form.memo,
+      reservation_status: form.reservation_status || '상담중',
+      payment_status: form.payment_status || '미결제',
+      payment_type: form.payment_type || '전화예약미결제',
+      lodging_status: form.lodging_status || '해당없음',
+      pickup_status: form.pickup_status || '해당없음',
     }
 
     let no = form.no
@@ -238,11 +308,28 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       // 패키지 업체 자동으로 vendor_confirms 생성
       const pkg = packages.find(p => p.name === payload.package_name)
       if (pkg) {
-        const { data: progs } = await supabase.from('package_programs').select('vendor_key').eq('package_id', pkg.id)
+        const { data: progs } = await supabase.from('package_programs').select('vendor_key, prog_name').eq('package_id', pkg.id).or('is_deleted.is.null,is_deleted.eq.false')
         const uniqueKeys = [...new Set((progs||[]).map(pr => pr.vendor_key))]
         if (uniqueKeys.length) {
           await supabase.from('vendor_confirms').insert(
-            uniqueKeys.map(vk => ({ reservation_no: no, vendor_key: vk, status: 'wait' }))
+            uniqueKeys.map(vk => {
+              const names = (progs || []).filter(pr => pr.vendor_key === vk).map(pr => pr.prog_name).filter(Boolean)
+              return {
+                reservation_no: no,
+                vendor_key: vk,
+                vendor_name: null,
+                program_name: names.join(', ') || null,
+                request_date: payload.date,
+                request_people_count: payload.pax,
+                day_confirmed_people_count: dayConfirmedPeople,
+                day_pending_people_count: dayPendingPeople,
+                day_max_expected_people_count: dayMaxExpectedPeople,
+                send_status: '미발송',
+                reply_status: '회신대기',
+                final_decision: '미회신',
+                status: 'wait',
+              }
+            })
           )
         }
       }
@@ -266,10 +353,10 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   // 삭제
   async function del() {
     if (!confirm(`예약 #${form.no} (${form.customer})을 삭제하시겠습니까?`)) return
-    await supabase.from('vendor_confirms').delete().eq('reservation_no', form.no)
-    await supabase.from('lodge_confirms').delete().eq('reservation_no', form.no)
-    await supabase.from('reservation_pickup').delete().eq('reservation_no', form.no)
-    await supabase.from('reservations').delete().eq('no', form.no)
+    await supabase.from('vendor_confirms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('reservation_no', form.no)
+    await supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('reservation_no', form.no)
+    await supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('reservation_no', form.no)
+    await supabase.from('reservations').update({ is_deleted: true, deleted_at: new Date().toISOString(), reservation_status: '취소', type: 'cancelled' }).eq('no', form.no)
     onSaved()
   }
 
@@ -277,7 +364,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   async function addPickup() {
     if (!isEdit) { alert('예약을 먼저 저장하세요.'); return }
     await supabase.from('reservation_pickup').insert({ reservation_no: form.no, pickup_type: pkRow.pickup_type, driver_id: pkRow.driver_id || null, pickup_fee: Number(pkRow.pickup_fee)||0 })
-    const { data } = await supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', form.no)
+    const { data } = await supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
     setPickups(data || [])
     setPkRow({ pickup_type:'픽업', driver_id:'', pickup_fee:0 })
     // 픽업비 합계 업데이트
@@ -286,8 +373,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   }
 
   async function delPickup(id) {
-    await supabase.from('reservation_pickup').delete().eq('id', id)
-    const { data } = await supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', form.no)
+    await supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
+    const { data } = await supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
     setPickups(data || [])
     const total_pickup = (data||[]).reduce((s,r)=>s+(r.pickup_fee||0),0)
     inp('pickup_fee', total_pickup)
@@ -308,7 +395,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
     const error = await insertLodgeRows([lodgePayload(lgRow, form.no)])
     if (error) { alert('객실 저장 실패: ' + error.message); return }
-    const { data, error: loadError } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
+    const { data, error: loadError } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
     if (loadError) { alert('객실 목록 조회 실패: ' + loadError.message); return }
     setLodges(data || [])
     setLgRow(emptyLodgeRow())
@@ -319,9 +406,278 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       setLodges(list => list.filter(l => l.id !== id))
       return
     }
-    await supabase.from('lodge_confirms').delete().eq('id', id)
-    const { data } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no)
+    await supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
+    const { data } = await supabase.from('lodge_confirms').select('*').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
     setLodges(data || [])
+  }
+
+  const dayConfirmedPeople = sameDayReservations
+    .filter(r => r.type === 'confirmed' || r.reservation_status === '예약확정')
+    .reduce((sum, r) => sum + (Number(r.pax) || 0), 0)
+  const dayPendingPeople = sameDayReservations
+    .filter(r => r.type === 'pending' || r.type === 'consult' || ['상담중', '가능여부확인중', '조정필요'].includes(r.reservation_status))
+    .reduce((sum, r) => sum + (Number(r.pax) || 0), 0)
+  const dayMaxExpectedPeople = dayConfirmedPeople + dayPendingPeople + (Number(form.pax) || 0)
+
+  const vendorCheckRows = Object.values(packagePrograms.reduce((map, program) => {
+    const key = program.vendor_key || 'unknown'
+    if (!map[key]) {
+      const confirm = vendorConfirms.find(c => c.vendor_key === key)
+      map[key] = {
+        vendor_key: key,
+        vendor_name: confirm?.vendor_name || program.vendors?.name || key,
+        programs: [],
+        confirm,
+        events: sameDayEvents.filter(ev => ev.vendor_key === key),
+      }
+    }
+    if (program.prog_name && !map[key].programs.includes(program.prog_name)) map[key].programs.push(program.prog_name)
+    return map
+  }, {}))
+
+  useEffect(() => {
+    if (!vendorCheckRows.length) {
+      setSelectedVendorKeys(new Set())
+      return
+    }
+    setSelectedVendorKeys(prev => {
+      const available = new Set(vendorCheckRows.map(row => row.vendor_key))
+      const kept = [...prev].filter(key => available.has(key))
+      return new Set(kept.length ? kept : [...available])
+    })
+  }, [vendorCheckRows.map(row => row.vendor_key).join('|')])
+
+  function vendorReplyLabel(row) {
+    return row.confirm?.reply_status || row.confirm?.status || '회신대기'
+  }
+
+  function vendorSendLabel(row) {
+    return row.confirm?.send_status || '미발송'
+  }
+
+  function vendorDecision(row) {
+    return row.confirm?.final_decision || '미회신'
+  }
+
+  function openVendorConfirmManager() {
+    const qs = form.no ? `?q=${encodeURIComponent(form.no)}` : ''
+    router.push(`/dashboard/vendor-confirms${qs}`)
+  }
+
+  function toggleVendorSelection(key) {
+    setSelectedVendorKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function showNotice(type, title, message) {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    setNotice({ type, title, message })
+    noticeTimer.current = setTimeout(() => setNotice(null), 3600)
+  }
+
+  async function reloadVendorConfirms() {
+    if (!form.no) return
+    const { data } = await supabase
+      .from('vendor_confirms')
+      .select('*')
+      .eq('reservation_no', form.no)
+      .or('is_deleted.is.null,is_deleted.eq.false')
+    setVendorConfirms(data || [])
+    return data || []
+  }
+
+  function confirmPayloadForRow(row, extra = {}) {
+    return {
+      reservation_no: form.no,
+      vendor_key: row.vendor_key,
+      vendor_name: row.vendor_name,
+      program_name: row.programs.join(', ') || null,
+      request_date: form.date || null,
+      request_start_time: row.confirm?.request_start_time || null,
+      request_end_time: row.confirm?.request_end_time || null,
+      request_people_count: Number(form.pax) || null,
+      day_confirmed_people_count: dayConfirmedPeople,
+      day_pending_people_count: dayPendingPeople,
+      day_max_expected_people_count: dayMaxExpectedPeople,
+      same_day_schedule: row.events || [],
+      send_status: row.confirm?.send_status || '미발송',
+      reply_status: row.confirm?.reply_status || '회신대기',
+      final_decision: row.confirm?.final_decision || '미회신',
+      status: row.confirm?.status || 'wait',
+      is_deleted: false,
+      ...extra,
+    }
+  }
+
+  async function bulkMarkVendorsPossible(scope = 'selected') {
+    if (!isEdit || !form.no) {
+      alert('예약을 먼저 저장하세요.')
+      return
+    }
+    const rows = scope === 'all'
+      ? vendorCheckRows
+      : vendorCheckRows.filter(row => selectedVendorKeys.has(row.vendor_key))
+
+    if (!rows.length) {
+      alert('가능 처리할 업체를 선택하세요.')
+      return
+    }
+
+    const replyMethod = prompt('확인 방법을 입력하세요. 예: 전화, 카카오톡, 문자, 대면/현장', '전화')
+    if (replyMethod === null) return
+    const confirmedBy = prompt('확인자를 입력하세요.', '') ?? ''
+    const replyMemo = prompt('공통 메모를 입력하세요.', '') ?? ''
+    const repliedAt = new Date().toISOString()
+
+    setBulkConfirming(true)
+    const payloads = rows.map(row => confirmPayloadForRow(row, {
+      reply_status: '가능',
+      manual_reply: true,
+      reply_method: replyMethod || '전화',
+      confirmed_by: confirmedBy || null,
+      replied_at: repliedAt,
+      reply_memo: replyMemo || null,
+      final_decision: '확정 가능',
+      status: 'ok',
+    }))
+
+    const { error } = await supabase
+      .from('vendor_confirms')
+      .upsert(payloads, { onConflict: 'reservation_no,vendor_key' })
+
+    setBulkConfirming(false)
+    if (error) {
+      alert('업체 일괄 가능 처리 실패: ' + error.message)
+      return
+    }
+
+    await reloadVendorConfirms()
+    await refreshReadiness(true)
+    alert(`${rows.length}개 업체를 수동 가능 처리했습니다.`)
+  }
+
+  const REPLIED_VENDOR_STATUSES = ['가능', '불가능', '시간조정 필요', '인원조정 필요', '보류']
+
+  async function sendTelegramToSelectedVendors({ forceResend = false } = {}) {
+    if (!isEdit || !form.no) {
+      alert('예약을 먼저 저장하세요.')
+      return
+    }
+    const rows = vendorCheckRows.filter(row => selectedVendorKeys.has(row.vendor_key))
+    if (!rows.length) {
+      alert('텔레그램 요청을 보낼 업체를 선택하세요.')
+      return
+    }
+
+    if (forceResend) {
+      const ok = confirm('선택한 업체에 다시 가능 여부를 요청할까요?\n\n기존 회신 상태는 회신대기로 변경되고, 업체가 다시 버튼으로 회신해야 합니다.')
+      if (!ok) return
+    }
+
+    const pendingRows = forceResend
+      ? rows
+      : rows.filter(row => !REPLIED_VENDOR_STATUSES.includes(row.confirm?.reply_status))
+    const skippedCount = forceResend ? 0 : rows.length - pendingRows.length
+
+    if (!pendingRows.length) {
+      showNotice('warning', '발송할 업체가 없습니다', '이미 회신을 받은 업체는 선택 재요청으로 다시 보낼 수 있습니다.')
+      return
+    }
+
+    setTelegramSending(true)
+    const payloads = pendingRows.map(row => confirmPayloadForRow(row, {
+      send_status: forceResend || row.confirm?.send_status === '발송완료' ? '재발송필요' : row.confirm?.send_status || '미발송',
+      reply_status: '회신대기',
+      final_decision: '미회신',
+      status: 'wait',
+      manual_reply: false,
+      reply_method: null,
+      confirmed_by: null,
+      replied_at: null,
+      available_people_count: null,
+      suggested_time: null,
+      unavailable_reason: null,
+      reply_memo: forceResend ? '정보 변경 또는 운영자 판단으로 재요청' : row.confirm?.reply_memo || null,
+    }))
+
+    const { data, error } = await supabase
+      .from('vendor_confirms')
+      .upsert(payloads, { onConflict: 'reservation_no,vendor_key' })
+      .select('id,vendor_key')
+
+    if (error) {
+      setTelegramSending(false)
+      showNotice('error', '텔레그램 요청 준비 실패', error.message)
+      return
+    }
+
+    const ids = (data || []).map(row => row.id).filter(Boolean)
+    const res = await fetch('/api/vendor-confirms/send-telegram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+    const result = await res.json().catch(() => ({}))
+    setTelegramSending(false)
+    await reloadVendorConfirms()
+
+    if (!res.ok) {
+      showNotice('error', '텔레그램 발송 실패', result.error || res.statusText)
+      return
+    }
+
+    const failed = (result.results || []).filter(item => !item.ok)
+    if (failed.length) {
+      showNotice('warning', forceResend ? '일부 업체 재요청 실패' : '일부 업체 발송 실패', `${pendingRows.length - failed.length}개 발송완료 · ${failed.length}개 발송실패${skippedCount ? ` · 회신완료 ${skippedCount}개 제외` : ''}`)
+      return
+    }
+
+    showNotice('success', forceResend ? '텔레그램 재요청 발송완료' : '텔레그램 요청 발송완료', `${pendingRows.length}개 업체에 가능 여부 확인 메시지를 보냈습니다.${skippedCount ? ` 회신완료 ${skippedCount}개는 제외했습니다.` : ''}`)
+  }
+
+  async function refreshReadiness(persist = false) {
+    if (!form.no) return
+    setReadinessLoading(true)
+    const res = await fetch(`/api/reservations/${encodeURIComponent(form.no)}/readiness`, {
+      method: persist ? 'POST' : 'GET',
+    })
+    const data = await res.json().catch(() => ({}))
+    setReadinessLoading(false)
+    if (!res.ok) {
+      alert('확정 조건 확인 실패: ' + (data.error || res.statusText))
+      return
+    }
+    setReadiness(data)
+    if (data.reservation_status) {
+      setForm(f => ({ ...f, reservation_status: data.reservation_status }))
+    }
+  }
+
+  async function confirmReservation() {
+    if (!form.no) return
+    if (!confirm('고객에게 확정 안내 발송을 완료했고, 예약을 최종 확정하시겠습니까?')) return
+    setReadinessLoading(true)
+    const res = await fetch(`/api/reservations/${encodeURIComponent(form.no)}/confirm`, { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    setReadinessLoading(false)
+    if (!res.ok) {
+      alert('예약확정 처리 실패: ' + (data.error || res.statusText))
+      return
+    }
+    setForm(f => ({
+      ...f,
+      reservation_status: data.reservation_status,
+      type: 'confirmed',
+      customer_notice_sent_at: data.customer_notice_sent_at,
+      confirmed_at: data.confirmed_at,
+      confirmed_by: data.confirmed_by,
+    }))
+    await refreshReadiness(false)
+    alert('예약확정 처리되었습니다.')
   }
 
   const filteredPkgs = form.zone_code
@@ -330,16 +686,63 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   return (
     <div className="modal-overlay open" onClick={e => e.target===e.currentTarget && onClose()}>
-      <div className="modal" style={{width:'680px'}}>
+      <div className="modal" style={{width:'820px', maxWidth:'calc(100vw - 32px)'}}>
         <div className="modal-header">
           <div className="modal-title">{isEdit ? `예약 수정 — #${form.no}` : '예약 등록'}</div>
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
 
+        {notice && (
+          <div
+            style={{
+              margin:'12px 20px 0',
+              padding:'12px 14px',
+              borderRadius:'8px',
+              border:`1px solid ${notice.type === 'success' ? 'rgba(92,184,92,.35)' : notice.type === 'warning' ? 'rgba(247,201,72,.38)' : 'rgba(224,92,92,.38)'}`,
+              background: notice.type === 'success' ? 'rgba(92,184,92,.12)' : notice.type === 'warning' ? 'rgba(247,201,72,.12)' : 'rgba(224,92,92,.12)',
+              display:'grid',
+              gridTemplateColumns:'20px 1fr auto',
+              alignItems:'center',
+              gap:'10px',
+            }}
+          >
+            <span
+              style={{
+                width:'20px',
+                height:'20px',
+                borderRadius:'50%',
+                display:'inline-flex',
+                alignItems:'center',
+                justifyContent:'center',
+                fontSize:'12px',
+                fontWeight:800,
+                color:'var(--navy)',
+                background: notice.type === 'success' ? 'var(--green)' : notice.type === 'warning' ? 'var(--amber)' : 'var(--red)',
+              }}
+            >
+              {notice.type === 'success' ? '✓' : '!'}
+            </span>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:'13px', fontWeight:700, color:'var(--text-primary)' }}>{notice.title}</div>
+              <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'2px' }}>{notice.message}</div>
+            </div>
+            <button
+              className="close-btn"
+              style={{ width:'24px', height:'24px', fontSize:'16px' }}
+              onClick={() => setNotice(null)}
+              aria-label="알림 닫기"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* 탭 */}
         <div className="modal-tabs">
           <div className={`modal-tab${tab===0?' active':''}`} onClick={()=>setTab(0)}>기본정보 · 결제</div>
-          <div className={`modal-tab${tab===1?' active':''}`} onClick={()=>setTab(1)}>픽업정보</div>
+          <div className={`modal-tab${tab===1?' active':''}`} onClick={()=>setTab(1)}>업체 확인</div>
+          <div className={`modal-tab${tab===2?' active':''}`} onClick={()=>setTab(2)}>픽업정보</div>
+          <div className={`modal-tab${tab===3?' active':''}`} onClick={()=>setTab(3)}>확정 조건</div>
         </div>
 
         <div className="modal-body">
@@ -364,12 +767,38 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     </select>
                   </div>
                   <div className="form-field">
+                    <label>예약 진행 상태</label>
+                    <select className="form-select" value={form.reservation_status || '상담중'} onChange={e=>inp('reservation_status',e.target.value)}>
+                      {['상담중','가능여부확인중','조정필요','확정가능','예약확정','취소','완료'].map(v => <option key={v}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-field">
                     <label>예약날짜 <span className="req">*</span></label>
                     <input className="form-input" type="date" value={form.date} onChange={e=>inp('date',e.target.value)}/>
                   </div>
                   <div className="form-field">
                     <label>체험종료</label>
                     <input className="form-input" type="date" value={form.end_date||''} onChange={e=>inp('end_date',e.target.value)}/>
+                  </div>
+                </div>
+                <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
+                  <div className="form-field">
+                    <label>결제 상태</label>
+                    <select className="form-select" value={form.payment_status || '미결제'} onChange={e=>inp('payment_status',e.target.value)}>
+                      {['미결제','선결제완료','후결제예정','일부결제','결제완료','환불필요','환불완료'].map(v => <option key={v}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label>숙소 상태</label>
+                    <select className="form-select" value={form.lodging_status || '해당없음'} onChange={e=>inp('lodging_status',e.target.value)}>
+                      {['해당없음','배정필요','배정완료','확정완료'].map(v => <option key={v}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label>픽업 상태</label>
+                    <select className="form-select" value={form.pickup_status || '해당없음'} onChange={e=>inp('pickup_status',e.target.value)}>
+                      {['해당없음','확정필요','확정완료'].map(v => <option key={v}>{v}</option>)}
+                    </select>
                   </div>
                 </div>
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
@@ -583,8 +1012,71 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
             </>
           )}
 
-          {/* ── 탭1: 픽업정보 */}
+
+          {/* 업체 가능 여부 확인 */}
           {tab === 1 && (
+            <div className="form-section">
+              <div className="form-section-label">업체 가능 여부 확인</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr auto', alignItems:'center', marginBottom:'12px', gap:'12px' }}>
+                <div style={{ fontSize:'12px', color:'var(--text-muted)', lineHeight:1.5, minWidth:0 }}>
+                  이번 예약 {Number(form.pax)||0}명 · 당일 확정 {dayConfirmedPeople}명 · 상담/대기 {dayPendingPeople}명 · 최대 예상 {dayMaxExpectedPeople}명
+                </div>
+                <div style={{ display:'flex', justifyContent:'flex-end', gap:'6px', flexWrap:'wrap', maxWidth:'430px' }}>
+                  <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={sendTelegramToSelectedVendors} disabled={!isEdit || telegramSending} title="체크한 업체에 텔레그램 가능 여부 요청">
+                    {telegramSending ? '발송중' : '텔레그램 요청'}
+                  </button>
+                  <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={() => sendTelegramToSelectedVendors({ forceResend: true })} disabled={!isEdit || telegramSending} title="시간, 장소, 인원 등 정보 변경 후 체크한 업체에 다시 요청">
+                    선택 재요청
+                  </button>
+                  <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={() => bulkMarkVendorsPossible('selected')} disabled={!isEdit || bulkConfirming} title="체크한 업체를 수동 가능 처리">
+                    선택 가능처리
+                  </button>
+                  <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={() => bulkMarkVendorsPossible('all')} disabled={!isEdit || bulkConfirming} title="전체 업체를 수동 가능 처리">
+                    전체 가능처리
+                  </button>
+                  <button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={openVendorConfirmManager} title="업체 회신관리에서 보기">회신관리</button>
+                </div>
+              </div>
+
+              {!form.package_name ? (
+                <div className="list-box-empty">패키지를 먼저 선택하면 포함 업체가 표시됩니다.</div>
+              ) : vendorCheckLoading ? (
+                <div className="list-box-empty">업체 확인 정보를 불러오는 중입니다.</div>
+              ) : vendorCheckRows.length === 0 ? (
+                <div className="list-box-empty">선택한 패키지에 연결된 업체 프로그램이 없습니다.</div>
+              ) : (
+                <div className="list-box">
+                  <div className="list-box-header" style={{gridTemplateColumns:VENDOR_CHECK_GRID}}>
+                    <span style={CENTER_CELL}>선택</span><span>프로그램</span><span>업체</span><span style={CENTER_CELL}>발송</span><span style={CENTER_CELL}>회신</span><span style={CENTER_CELL}>판단</span><span>당일 업체 일정</span><span style={CENTER_CELL}>관리</span>
+                  </div>
+                  {vendorCheckRows.map(row => (
+                    <div key={row.vendor_key} className="list-box-row" style={{gridTemplateColumns:VENDOR_CHECK_GRID}}>
+                      <span style={CENTER_CELL}>
+                        <input type="checkbox" checked={selectedVendorKeys.has(row.vendor_key)} onChange={() => toggleVendorSelection(row.vendor_key)} />
+                      </span>
+                      <span style={NOWRAP_CELL} title={row.programs.join(', ') || '-'}>{row.programs.join(', ') || '-'}</span>
+                      <span style={NOWRAP_CELL} title={row.vendor_name}>{row.vendor_name}</span>
+                      <span style={CENTER_CELL}><span className="badge pending" style={{ minWidth:'76px', justifyContent:'center' }}>{vendorSendLabel(row)}</span></span>
+                      <span style={CENTER_CELL}><span className="badge consult" style={{ minWidth:'82px', justifyContent:'center' }}>{vendorReplyLabel(row)}</span></span>
+                      <span style={{ ...CENTER_CELL, fontSize:'11px', color:'var(--text-muted)', fontWeight:600 }}>{vendorDecision(row)}</span>
+                      <span style={{ fontSize:'11px', color: row.events.length ? 'var(--amber)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {row.events.length
+                          ? row.events.map(ev => `${ev.start_time || ''}${ev.end_time ? '~' + ev.end_time : ''} ${ev.title || ev.prog_name || ''}`).join(' / ')
+                          : '등록된 일정 없음'}
+                      </span>
+                      <span style={CENTER_CELL}><button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={openVendorConfirmManager}>수동 입력</button></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ marginTop:'10px', fontSize:'11px', color:'var(--text-muted)', lineHeight:1.5 }}>
+                텔레그램 요청은 회신대기 업체에게만 발송됩니다. 시간, 장소, 인원 등을 조율해 다시 확인해야 할 때는 선택 재요청을 사용하세요. 전화/현장 확인은 수동 가능처리 또는 회신관리에서 입력합니다.
+              </div>
+            </div>
+          )}
+          {/* ── 탭1: 픽업정보 */}
+          {tab === 2 && (
             <div className="form-section">
               <div className="form-section-label">픽업 정보</div>
               <div className="form-grid form-grid-3" style={{marginBottom:'8px'}}>
@@ -626,6 +1118,57 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
               <div style={{marginTop:'10px',textAlign:'right',fontSize:'12px',color:'var(--text-muted)'}}>
                 픽업비 합계: <span style={{color:'var(--accent)',fontWeight:700}}>{(form.pickup_fee||0).toLocaleString()}원</span>
               </div>
+            </div>
+          )}
+
+          {tab === 3 && (
+            <div className="form-section">
+              <div className="form-section-label">예약 확정 조건</div>
+              {!isEdit ? (
+                <div className="list-box-empty">예약을 먼저 저장하면 확정 조건을 확인할 수 있습니다.</div>
+              ) : (
+                <>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px', marginBottom:'12px' }}>
+                    <div style={{ fontSize:'12px', color:'var(--text-muted)', lineHeight:1.5 }}>
+                      현재 상태 <b style={{ color:'var(--text-primary)' }}>{form.reservation_status || '-'}</b>
+                      {' · '}결제 상태 <b style={{ color:'var(--text-primary)' }}>{readiness?.payment_status || form.payment_status || '-'}</b>
+                    </div>
+                    <button className="btn-outline btn-sm" onClick={() => refreshReadiness(true)} disabled={readinessLoading}>
+                      {readinessLoading ? '확인 중...' : '확정가능 갱신'}
+                    </button>
+                  </div>
+
+                  {!readiness ? (
+                    <div className="list-box-empty">확정 조건을 불러오는 중입니다.</div>
+                  ) : (
+                    <div className="list-box">
+                      <div className="list-box-header" style={{gridTemplateColumns:'90px 94px 1fr'}}>
+                        <span>조건</span><span>상태</span><span>내용</span>
+                      </div>
+                      {readiness.conditions.map(item => (
+                        <div key={item.key} className="list-box-row" style={{gridTemplateColumns:'90px 94px 1fr'}}>
+                          <span>{item.label}</span>
+                          <span className={`badge ${item.passed ? 'confirmed' : item.status === '조정 필요' || item.status === '확정 불가' ? 'cancelled' : 'pending'}`}>
+                            {item.passed ? '통과' : item.status}
+                          </span>
+                          <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>{item.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ marginTop:'12px', padding:'12px', border:'1px solid var(--border2)', borderRadius:'8px', fontSize:'12px', color:'var(--text-muted)', lineHeight:1.6 }}>
+                    체험 업체가 모두 가능이고, 숙소/픽업 조건이 통과되면 예약 상태가 <b style={{ color:'var(--green)' }}>확정가능</b>으로 갱신됩니다.
+                    고객 안내는 운영자가 문자/전화 등으로 직접 진행하고, 이 화면에서는 완료 여부만 기록합니다.
+                  </div>
+
+                  <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'12px' }}>
+                    <button className="btn-primary" onClick={confirmReservation} disabled={readinessLoading || form.reservation_status !== '확정가능'}>
+                      고객 안내 완료 및 예약확정
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -765,27 +1308,37 @@ export default function ReservationsPage() {
 
       {/* 목록 */}
       <div className="list-card">
-        <div className="list-header" style={{gridTemplateColumns:'60px 80px 90px 1fr 80px 70px 90px 100px 70px 60px'}}>
-          <span>NO</span><span>상태</span><span>날짜</span><span>고객명 / 패키지</span><span>구역</span><span>인원</span><span>총금액</span><span>결제처</span><span>운영</span><span>정산</span>
+        <div className="list-header" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px'}}>
+          <span style={CENTER_CELL}>NO</span>
+          <span style={CENTER_CELL}>상태</span>
+          <span style={CENTER_CELL}>날짜</span>
+          <span>고객명</span>
+          <span>패키지명</span>
+          <span style={CENTER_CELL}>구역</span>
+          <span style={CENTER_CELL}>인원</span>
+          <span style={RIGHT_CELL}>총금액</span>
+          <span style={CENTER_CELL}>결제처</span>
+          <span style={CENTER_CELL}>운영</span>
+          <span style={CENTER_CELL}>정산</span>
         </div>
         {filtered.length === 0 && (
           <div style={{padding:'40px',textAlign:'center',color:'var(--text-muted)',fontSize:'13px'}}>예약 없음</div>
         )}
         {filtered.map(r => (
-          <div key={r.no} className="list-row" style={{gridTemplateColumns:'60px 80px 90px 1fr 80px 70px 90px 100px 70px 60px'}} onClick={()=>openEdit(r)}>
-            <span className="no-col">#{r.no}</span>
-            <span><span className={`badge ${r.type}`}>{STATUS_LABEL[r.type]}</span></span>
-            <span style={{fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
-            <div>
-              <div style={{fontWeight:500}}>{r.customer}</div>
-              <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>{r.package_name||'-'}</div>
-            </div>
-            <span style={{fontSize:'11px',color:'var(--text-muted)'}}>{r.zone_code||'-'}</span>
-            <span style={{fontSize:'13px'}}>{r.pax}명</span>
-            <span style={{fontFamily:'DM Mono,monospace',fontSize:'12px'}}>{(r.total||0).toLocaleString()}</span>
-            <span style={{fontSize:'12px',color:'var(--text-secondary)'}}>{r.payto||'-'}</span>
-            <span style={{fontSize:'11px',padding:'2px 6px',borderRadius:'4px',background: r.op==='사업비'?'rgba(123,104,238,.1)':'rgba(78,205,196,.08)',color: r.op==='사업비'?'var(--purple)':'var(--text-muted)',fontWeight:600}}>{r.op}</span>
-            <span style={{fontSize:'11px',color: r.settle_status==='settled'?'var(--green)':'var(--amber)',fontWeight:600}}>{r.settle_status==='settled'?'완료':'미정산'}</span>
+          <div key={r.no} className="list-row" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px'}} onClick={()=>openEdit(r)}>
+            <span className="no-col" style={CENTER_CELL}>#{r.no}</span>
+            <span style={CENTER_CELL}><span className={`badge ${r.type}`} style={{minWidth:'46px',justifyContent:'center'}}>{STATUS_LABEL[r.type]}</span></span>
+            <span style={{...CENTER_CELL,fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
+            <span style={{...NOWRAP_CELL,fontWeight:600}} title={r.customer}>{r.customer}</span>
+            <span style={{...NOWRAP_CELL,fontSize:'12px',color:'var(--text-secondary)'}} title={r.package_name || '-'}>{r.package_name||'-'}</span>
+            <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)'}}>{r.zone_code||'-'}</span>
+            <span style={{...CENTER_CELL,fontSize:'13px',fontWeight:600}}>{r.pax}명</span>
+            <span style={{...RIGHT_CELL,fontFamily:'DM Mono,monospace',fontSize:'12px',fontWeight:700}}>{(r.total||0).toLocaleString()}</span>
+            <span style={{...CENTER_CELL,fontSize:'12px',color:'var(--text-secondary)', ...NOWRAP_CELL}} title={r.payto || '-'}>{r.payto||'-'}</span>
+            <span style={CENTER_CELL}>
+              <span style={{fontSize:'11px',minWidth:'52px',textAlign:'center',padding:'2px 8px',borderRadius:'4px',background: r.op==='사업비'?'rgba(123,104,238,.1)':'rgba(78,205,196,.08)',color: r.op==='사업비'?'var(--purple)':'var(--text-muted)',fontWeight:600}}>{r.op}</span>
+            </span>
+            <span style={{...CENTER_CELL,fontSize:'11px',color: r.settle_status==='settled'?'var(--green)':'var(--amber)',fontWeight:700}}>{r.settle_status==='settled'?'완료':'미정산'}</span>
           </div>
         ))}
       </div>

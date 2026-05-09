@@ -1,10 +1,11 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
   const { data, error } = await supabase
     .from('vendors')
     .select('*, vendor_programs(*)')
+    .or('is_deleted.is.null,is_deleted.eq.false')
     .order('key')
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
@@ -12,7 +13,7 @@ export async function GET() {
 
 export async function POST(req) {
   const body = await req.json()
-  // key 자동생성: V001, V002, ...
+  // key ?먮룞?앹꽦: V001, V002, ...
   const { data: existing } = await supabase.from('vendors').select('key').like('key', 'V%')
   let nextKey = 'V001'
   const nums = (existing || [])

@@ -110,7 +110,7 @@ function ZonesTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}" 구역을 삭제하시겠습니까?`)) return
-    const { error } = await supabase.from('zones').delete().eq('code', modal.data.code)
+    const { error } = await supabase.from('zones').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('code', modal.data.code)
     if (error) { alert('삭제 실패: 이 구역을 참조하는 패키지나 예약이 있습니다.'); return }
     setModal(null); load()
   }
@@ -159,6 +159,13 @@ function VendorsTab() {
   const [form,     setForm]     = useState({})
   const [programs, setPrograms] = useState([])
   const [progForm, setProgForm] = useState({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
+  const [telegramUpdates, setTelegramUpdates] = useState([])
+  const [telegramLoading, setTelegramLoading] = useState(false)
+  const [telegramError, setTelegramError] = useState('')
+  const [telegramFilter, setTelegramFilter] = useState('all')
+  const [webhookInfo, setWebhookInfo] = useState(null)
+  const [webhookLoading, setWebhookLoading] = useState(false)
+  const [webhookError, setWebhookError] = useState('')
 
   const load = useCallback(async () => {
     const [vendorR, zoneR] = await Promise.all([
@@ -172,14 +179,23 @@ function VendorsTab() {
 
   async function openNew() {
     const key = await genVendorKey()
-    setForm({ key, name: '', contact: '', tel: '', color: '#4ECDC4', note: '' })
+    setForm({ key, name: '', contact: '', tel: '', color: '#4ECDC4', note: '', telegram_chat_id: '', telegram_username: '' })
     setPrograms([])
     setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
     setModal({ mode: 'new' })
   }
 
   function openEdit(v) {
-    setForm({ key: v.key, name: v.name, contact: v.contact || '', tel: v.tel || '', color: v.color || '#4ECDC4', note: v.note || '' })
+    setForm({
+      key: v.key,
+      name: v.name,
+      contact: v.contact || '',
+      tel: v.tel || '',
+      color: v.color || '#4ECDC4',
+      note: v.note || '',
+      telegram_chat_id: v.telegram_chat_id || '',
+      telegram_username: v.telegram_username || '',
+    })
     setPrograms(v.vendor_programs || [])
     setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
     setModal({ mode: 'edit', data: v })
@@ -191,18 +207,36 @@ function VendorsTab() {
       const res = await fetch('/api/vendors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, contact: form.contact, tel: form.tel, color: form.color, note: form.note, key: form.key }),
+        body: JSON.stringify({
+          name: form.name,
+          contact: form.contact,
+          tel: form.tel,
+          color: form.color,
+          note: form.note,
+          key: form.key,
+          telegram_chat_id: form.telegram_chat_id || null,
+          telegram_username: form.telegram_username || null,
+        }),
       })
       if (!res.ok) { alert('저장 실패'); return }
     } else {
-      await supabase.from('vendors').update({ name: form.name, contact: form.contact, tel: form.tel, color: form.color, note: form.note }).eq('key', modal.data.key)
+      await supabase.from('vendors').update({
+        name: form.name,
+        contact: form.contact,
+        tel: form.tel,
+        color: form.color,
+        note: form.note,
+        telegram_chat_id: form.telegram_chat_id || null,
+        telegram_username: form.telegram_username || null,
+        telegram_linked_at: form.telegram_chat_id ? (modal.data.telegram_linked_at || new Date().toISOString()) : null,
+      }).eq('key', modal.data.key)
     }
     setModal(null); load()
   }
 
   async function del() {
     if (!confirm(`"${modal.data.name}" 업체를 삭제하시겠습니까?`)) return
-    await supabase.from('vendors').delete().eq('key', modal.data.key)
+    await supabase.from('vendors').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('key', modal.data.key)
     setModal(null); load()
   }
 
@@ -220,30 +254,156 @@ function VendorsTab() {
   }
 
   async function delProg(id) {
-    await supabase.from('vendor_programs').delete().eq('id', id)
+    await supabase.from('vendor_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
     const vk = modal.mode === 'edit' ? modal.data.key : form.key
     const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).order('code')
     setPrograms(data || [])
     load()
   }
 
+  async function loadTelegramUpdates() {
+    setTelegramLoading(true)
+    setTelegramError('')
+    try {
+      const res = await fetch('/api/telegram/updates', { cache: 'no-store' })
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload.error || '최근 메시지를 불러오지 못했습니다.')
+      setTelegramUpdates(payload.updates || [])
+    } catch (err) {
+      setTelegramUpdates([])
+      setTelegramError(err.message || '최근 메시지를 불러오지 못했습니다.')
+    } finally {
+      setTelegramLoading(false)
+    }
+  }
+
+  async function copyTelegramChatId(chatId) {
+    if (!chatId) return
+    try {
+      await navigator.clipboard.writeText(chatId)
+      alert(`chat_id를 복사했습니다: ${chatId}`)
+    } catch {
+      alert(`chat_id: ${chatId}`)
+    }
+  }
+
+  async function loadWebhookInfo() {
+    setWebhookLoading(true)
+    setWebhookError('')
+    try {
+      const res = await fetch('/api/telegram/webhook-settings', { cache: 'no-store' })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'webhook 상태를 불러오지 못했습니다.')
+      setWebhookInfo(payload.webhook || null)
+    } catch (err) {
+      setWebhookInfo(null)
+      setWebhookError(err.message || 'webhook 상태를 불러오지 못했습니다.')
+    } finally {
+      setWebhookLoading(false)
+    }
+  }
+
+  async function registerWebhook() {
+    if (!confirm('현재 배포 주소 기준으로 Telegram webhook을 등록할까요?')) return
+    setWebhookLoading(true)
+    setWebhookError('')
+    try {
+      const res = await fetch('/api/telegram/webhook-settings', { method: 'POST' })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'webhook 등록에 실패했습니다.')
+      alert(`webhook을 등록했습니다.\n${payload.webhook_url || ''}`)
+      await loadWebhookInfo()
+    } catch (err) {
+      setWebhookError(err.message || 'webhook 등록에 실패했습니다.')
+    } finally {
+      setWebhookLoading(false)
+    }
+  }
+
+  async function deleteWebhook() {
+    if (!confirm('Telegram webhook을 해제할까요? 운영 중에는 업체 버튼 회신이 자동 저장되지 않을 수 있습니다.')) return
+    setWebhookLoading(true)
+    setWebhookError('')
+    try {
+      const res = await fetch('/api/telegram/webhook-settings', { method: 'DELETE' })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'webhook 해제에 실패했습니다.')
+      alert('webhook을 해제했습니다.')
+      await loadWebhookInfo()
+    } catch (err) {
+      setWebhookError(err.message || 'webhook 해제에 실패했습니다.')
+    } finally {
+      setWebhookLoading(false)
+    }
+  }
+
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const connectedVendors = vendors.filter(v => !!v.telegram_chat_id)
+  const disconnectedVendors = vendors.filter(v => !v.telegram_chat_id)
+  const filteredVendors = telegramFilter === 'connected'
+    ? connectedVendors
+    : telegramFilter === 'disconnected'
+      ? disconnectedVendors
+      : vendors
+  const telegramFilterButtons = [
+    { key: 'all', label: '전체', count: vendors.length },
+    { key: 'connected', label: '연결됨', count: connectedVendors.length },
+    { key: 'disconnected', label: '미연결', count: disconnectedVendors.length },
+  ]
 
   return (
     <div>
       <div className="section-header">
-        <div className="section-title">체험 업체 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{vendors.length}개 · 카카오 비즈메시지 발송 대상</span></div>
+        <div className="section-title">체험 업체 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{vendors.length}개 · Telegram/Kakao 발송 대상</span></div>
         <button className="btn-primary" onClick={openNew}>+ 업체 추가</button>
       </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px', marginBottom: '12px' }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px', background: 'rgba(255,255,255,0.02)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>전체 업체</div>
+          <div style={{ fontSize: '22px', fontWeight: 900 }}>{vendors.length}</div>
+        </div>
+        <div style={{ border: '1px solid rgba(78,205,196,0.3)', borderRadius: '8px', padding: '12px 14px', background: 'rgba(78,205,196,0.07)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>Telegram 연결됨</div>
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#4ECDC4' }}>{connectedVendors.length}</div>
+        </div>
+        <div style={{ border: '1px solid rgba(255,193,7,0.28)', borderRadius: '8px', padding: '12px 14px', background: 'rgba(255,193,7,0.06)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>Telegram 미연결</div>
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#ffc107' }}>{disconnectedVendors.length}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          {telegramFilterButtons.map(button => {
+            const active = telegramFilter === button.key
+            return (
+              <button
+                key={button.key}
+                className={active ? 'btn-primary' : 'btn-outline'}
+                onClick={() => setTelegramFilter(button.key)}
+                style={{ height: '32px', padding: '0 12px', fontSize: '12px' }}
+              >
+                {button.label} {button.count}
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+          {filteredVendors.length}개 표시
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
-        {vendors.length === 0 && (
+        {filteredVendors.length === 0 && (
           <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', gridColumn: 'span 3' }}>등록된 업체 없음</div>
         )}
-        {vendors.map((v, i) => {
+        {filteredVendors.map((v, i) => {
           const progs = v.vendor_programs || []
+          const previewPrograms = progs.slice(0, 3)
+          const extraProgramCount = Math.max(progs.length - previewPrograms.length, 0)
           return (
-            <div key={v.key} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border2)', borderRight: i % 3 !== 2 ? '1px solid var(--border2)' : 'none' }}>
+            <div key={v.key} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border2)', borderRight: i % 3 !== 2 ? '1px solid var(--border2)' : 'none', minHeight: '188px', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: v.color, flexShrink: 0 }} />
@@ -255,27 +415,123 @@ function VendorsTab() {
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '8px' }}>
                 <div>👤 {v.contact || '담당자 미입력'}</div>
                 <div style={{ fontFamily: 'DM Mono,monospace' }}>📞 {v.tel || '연락처 미입력'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: v.telegram_chat_id ? '#4ECDC4' : 'var(--text-muted)',
+                    background: v.telegram_chat_id ? 'rgba(78,205,196,0.12)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${v.telegram_chat_id ? 'rgba(78,205,196,0.35)' : 'var(--border2)'}`,
+                    borderRadius: '999px',
+                    padding: '2px 7px',
+                  }}>
+                    {v.telegram_chat_id ? '텔레그램 연결됨' : '텔레그램 미연결'}
+                  </span>
+                  {v.telegram_chat_id && (
+                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      chat {v.telegram_chat_id}
+                    </span>
+                  )}
+                </div>
                 {v.note && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>📝 {v.note}</div>}
               </div>
-              <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '8px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: '4px' }}>정산 단가</div>
-                {progs.length === 0 && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>단가 미등록</div>}
-                {progs.map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'var(--navy3)', borderRadius: '5px', marginTop: '3px' }}>
-                    <div>
-                      <span style={{ fontSize: '12px', fontWeight: 500 }}>{p.prog_name}</span>
-                      {p.code && <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '6px', fontFamily: 'DM Mono,monospace' }}>{p.code}</span>}
+              <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '10px', marginTop: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.5px', textTransform: 'uppercase' }}>체험 · 단가</div>
+                  {extraProgramCount > 0 && (
+                    <button className="btn-outline" onClick={() => openEdit(v)} style={{ height: '24px', padding: '0 8px', fontSize: '10px' }}>
+                      전체보기
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minHeight: '76px' }}>
+                  {previewPrograms.length === 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>등록된 체험 없음</span>
+                  )}
+                  {previewPrograms.map(program => (
+                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', alignItems: 'center', gap: '7px', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
+                      <span style={{ minWidth: 0, fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{program.prog_name || '-'}</span>
+                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)' }}>₩{Number(program.unit_price || 0).toLocaleString()}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(78,205,196,0.08)', padding: '1px 5px', borderRadius: '4px' }}>{program.settle_type === 'fixed' ? '건당' : '1인'}</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--accent)' }}>₩{(p.unit_price || 0).toLocaleString()}</span>
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(78,205,196,0.08)', padding: '1px 5px', borderRadius: '4px' }}>{p.settle_type === 'fixed' ? '건당' : '1인'}</span>
+                  ))}
+                  {extraProgramCount > 0 && (
+                    <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-muted)', paddingTop: '2px' }}>
+                      외 {extraProgramCount}개는 전체보기에서 확인
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
             </div>
           )
         })}
+      </div>
+
+      <div style={{ marginTop: '14px', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border2)' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 800 }}>최근 봇 메시지</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>업체가 봇에 /start를 보낸 뒤 chat_id를 확인해서 업체 수정 화면에 입력합니다.</div>
+          </div>
+          <button className="btn-outline" onClick={loadTelegramUpdates} disabled={telegramLoading}>
+            {telegramLoading ? '확인 중' : '최근 메시지 확인'}
+          </button>
+        </div>
+        {telegramError && (
+          <div style={{ padding: '12px 14px', color: '#ff6b6b', fontSize: '12px', borderBottom: '1px solid var(--border2)' }}>{telegramError}</div>
+        )}
+        {telegramUpdates.length === 0 && !telegramError && (
+          <div style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+            아직 불러온 메시지가 없습니다.
+          </div>
+        )}
+        {telegramUpdates.length > 0 && (
+          <div>
+            <div className="list-box-header" style={{ gridTemplateColumns: '160px 130px 1fr 160px 70px', padding: '8px 14px' }}>
+              <span>chat_id</span><span>사용자</span><span>메시지</span><span>수신시간</span><span>작업</span>
+            </div>
+            {telegramUpdates.map(update => (
+              <div key={update.update_id} className="list-box-row" style={{ gridTemplateColumns: '160px 130px 1fr 160px 70px', padding: '9px 14px' }}>
+                <span style={{ fontFamily: 'DM Mono,monospace', color: 'var(--accent)', fontSize: '11px' }}>{update.chat_id}</span>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {update.username ? `@${update.username}` : [update.first_name, update.last_name].filter(Boolean).join(' ') || '-'}
+                </span>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{update.text || '-'}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                  {update.date ? new Date(update.date).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                </span>
+                <button className="btn-outline" onClick={() => copyTelegramChatId(update.chat_id)} style={{ height: '28px', padding: '0 10px', fontSize: '11px' }}>복사</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '14px', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '12px 14px', borderBottom: '1px solid var(--border2)' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 800 }}>Telegram webhook 운영 상태</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>배포 후 업체 버튼 회신을 자동 저장하려면 webhook이 운영 URL로 등록되어 있어야 합니다.</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button className="btn-outline" onClick={loadWebhookInfo} disabled={webhookLoading} style={{ height: '30px', padding: '0 10px', fontSize: '11px' }}>{webhookLoading ? '확인 중' : '상태 확인'}</button>
+            <button className="btn-primary" onClick={registerWebhook} disabled={webhookLoading} style={{ height: '30px', padding: '0 10px', fontSize: '11px' }}>webhook 등록</button>
+            <button className="btn-outline" onClick={deleteWebhook} disabled={webhookLoading} style={{ height: '30px', padding: '0 10px', fontSize: '11px', color: '#ff6b6b', borderColor: 'rgba(255,107,107,0.35)' }}>해제</button>
+          </div>
+        </div>
+        {webhookError && (
+          <div style={{ padding: '12px 14px', color: '#ff6b6b', fontSize: '12px', borderBottom: '1px solid var(--border2)' }}>{webhookError}</div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '160px minmax(0, 1fr)', gap: '8px 12px', padding: '12px 14px', fontSize: '12px' }}>
+          <span style={{ color: 'var(--text-muted)' }}>등록 상태</span>
+          <span style={{ color: webhookInfo?.url ? '#4ECDC4' : 'var(--text-muted)', fontWeight: 700 }}>{webhookInfo?.url ? '등록됨' : '상태 미확인 또는 미등록'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>Webhook URL</span>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'DM Mono,monospace' }} title={webhookInfo?.url || ''}>{webhookInfo?.url || '-'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>대기 업데이트</span>
+          <span>{webhookInfo?.pending_update_count ?? '-'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>마지막 오류</span>
+          <span style={{ minWidth: 0, color: webhookInfo?.last_error_message ? '#ff6b6b' : 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={webhookInfo?.last_error_message || ''}>{webhookInfo?.last_error_message || '-'}</span>
+        </div>
       </div>
 
       {modal && (
@@ -291,6 +547,14 @@ function VendorsTab() {
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="담당자"><input className="form-input" value={form.contact || ''} onChange={e => inp('contact', e.target.value)} /></Field>
             <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', e.target.value)} placeholder="010-0000-0000" /></Field>
+          </div>
+          <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
+            <Field label="텔레그램 chat_id">
+              <input className="form-input" value={form.telegram_chat_id || ''} onChange={e => inp('telegram_chat_id', e.target.value.trim())} placeholder="8751418592" />
+            </Field>
+            <Field label="텔레그램 username">
+              <input className="form-input" value={form.telegram_username || ''} onChange={e => inp('telegram_username', e.target.value.trim())} placeholder="@vendor_name" />
+            </Field>
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="블록 색상">
@@ -410,7 +674,7 @@ function PackagesTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}" 패키지를 삭제하시겠습니까?`)) return
-    const { error } = await supabase.from('packages').delete().eq('id', modal.data.id)
+    const { error } = await supabase.from('packages').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
     if (error) { alert('삭제 실패: 이 패키지를 참조하는 예약이 있습니다.'); return }
     setModal(null); load()
   }
@@ -455,7 +719,7 @@ function PackagesTab() {
   }
 
   async function delProg(id) {
-    await supabase.from('package_programs').delete().eq('id', id)
+    await supabase.from('package_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
     const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
     setProgs(data || [])
     if (editingProgId === id) cancelProgEdit()
@@ -655,8 +919,8 @@ function LodgesTab() {
 
   async function deleteVendor() {
     if (!confirm(`"${vendorModal.data.name}" 업체를 삭제하시겠습니까?\n하위 공간과 객실도 모두 삭제됩니다.`)) return
-    await supabase.from('lodges').delete().eq('vendor_id', vendorModal.data.id)
-    await supabase.from('lodge_vendors').delete().eq('id', vendorModal.data.id)
+    await supabase.from('lodges').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('vendor_id', vendorModal.data.id)
+    await supabase.from('lodge_vendors').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', vendorModal.data.id)
     if (selVendorId === vendorModal.data.id) { setSelVendorId(null); setSelSpaceId(null) }
     setVendorModal(null); load()
   }
@@ -674,7 +938,7 @@ function LodgesTab() {
 
   async function deleteSpace() {
     if (!confirm(`"${spaceModal.data.name}" 공간을 삭제하시겠습니까?`)) return
-    await supabase.from('lodges').delete().eq('id', spaceModal.data.id)
+    await supabase.from('lodges').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', spaceModal.data.id)
     if (selSpaceId === spaceModal.data.id) setSelSpaceId(null)
     setSpaceModal(null); load()
   }
@@ -879,7 +1143,7 @@ function PlatformsTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}"을 삭제하시겠습니까?`)) return
-    await supabase.from('platforms').delete().eq('id', modal.data.id)
+    await supabase.from('platforms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
     setModal(null); load()
   }
 
@@ -974,7 +1238,7 @@ function DriversTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}"을 삭제하시겠습니까?`)) return
-    await supabase.from('drivers').delete().eq('id', modal.data.id)
+    await supabase.from('drivers').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
     setModal(null); load()
   }
 
@@ -1065,7 +1329,7 @@ function BizTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}" 사업을 삭제하시겠습니까?`)) return
-    await supabase.from('biz').delete().eq('id', modal.data.id)
+    await supabase.from('biz').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
     setModal(null); load()
   }
 
@@ -1080,7 +1344,7 @@ function BizTab() {
   }
 
   async function delPay(id) {
-    await supabase.from('biz_payments').delete().eq('id', id)
+    await supabase.from('biz_payments').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
     const { data } = await supabase.from('biz_payments').select('*').eq('biz_id', modal.data.id)
     setPayments(data || [])
     load()

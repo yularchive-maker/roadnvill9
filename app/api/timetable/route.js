@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function GET(req) {
@@ -9,6 +9,7 @@ export async function GET(req) {
   let q = supabase
     .from('timetable_events')
     .select('*')
+    .or('is_deleted.is.null,is_deleted.eq.false')
     .eq('is_manual', true)
     .order('start_time')
 
@@ -50,7 +51,7 @@ export async function PUT(req) {
 
 export async function DELETE(req) {
   const { id } = await req.json()
-  const { error } = await supabase.from('timetable_events').delete().eq('id', id)
+  const { error } = await supabase.from('timetable_events').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json({ success: true })
 }

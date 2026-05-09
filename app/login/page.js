@@ -1,30 +1,39 @@
 'use client'
 
+import { supabase } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function submit(e) {
     e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    const submittedEmail = String(formData.get('email') || email).trim()
+    const submittedPassword = String(formData.get('password') || password)
+
+    if (!submittedEmail || !submittedPassword) {
+      setError('이메일과 비밀번호를 입력해 주세요.')
+      return
+    }
+
     setError('')
     setLoading(true)
 
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+    const { error: loginError } = await supabase.auth.signInWithPassword({
+      email: submittedEmail,
+      password: submittedPassword,
     })
 
     setLoading(false)
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      setError(body.error || '로그인에 실패했습니다.')
+    if (loginError) {
+      setError(loginError.message || '로그인에 실패했습니다.')
       return
     }
 
@@ -47,23 +56,37 @@ function LoginForm() {
         <form onSubmit={submit} className="login-form">
           <div>
             <h1>관리자 로그인</h1>
-            <p>예약과 정산 정보 보호를 위해 비밀번호를 입력해 주세요.</p>
+            <p>내부 직원 계정으로 로그인해 주세요.</p>
           </div>
+
+          <label className="login-field">
+            <span>이메일</span>
+            <input
+              autoFocus
+              name="email"
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="staff@example.com"
+              autoComplete="email"
+            />
+          </label>
 
           <label className="login-field">
             <span>비밀번호</span>
             <input
-              autoFocus
+              name="password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="관리자 비밀번호"
+              placeholder="비밀번호"
+              autoComplete="current-password"
             />
           </label>
 
           {error && <div className="login-error">{error}</div>}
 
-          <button className="btn-primary login-submit" disabled={loading || !password}>
+          <button className="btn-primary login-submit" disabled={loading}>
             {loading ? '확인 중...' : '로그인'}
           </button>
         </form>
