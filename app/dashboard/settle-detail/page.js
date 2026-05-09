@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { formatDateTyping } from '@/lib/date-input'
 
 const fmt = n => (n || 0).toLocaleString()
 const todayStr = () => new Date().toISOString().slice(0, 10)
@@ -252,12 +253,12 @@ export default function SettleDetailPage() {
       {/* 기간 선택 바 */}
       <div className="settle-period-bar">
         <label>정산 시작일</label>
-        <input type="date" className="form-input" style={{ width: '140px', height: '34px' }}
-          value={startDate} onChange={e => setStartDate(e.target.value)} />
+        <input type="text" inputMode="numeric" maxLength={10} className="form-input" style={{ width: '140px', height: '34px' }}
+          value={startDate} onChange={e => setStartDate(formatDateTyping(e.target.value))} placeholder="2026-05-09" />
         <span style={{ color: 'var(--text-muted)' }}>~</span>
         <label>정산 종료일</label>
-        <input type="date" className="form-input" style={{ width: '140px', height: '34px' }}
-          value={endDate} onChange={e => setEndDate(e.target.value)} />
+        <input type="text" inputMode="numeric" maxLength={10} className="form-input" style={{ width: '140px', height: '34px' }}
+          value={endDate} onChange={e => setEndDate(formatDateTyping(e.target.value))} placeholder="2026-05-09" />
         <button className="btn-primary" style={{ height: '34px' }} onClick={compute}>조회</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>미정산 합계:</span>
@@ -360,9 +361,12 @@ export default function SettleDetailPage() {
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input type="date"
+                      <input type="text"
+                        inputMode="numeric"
+                        maxLength={10}
                         value={dates[g.key] || todayStr()}
-                        onChange={e => setDates(d => ({ ...d, [g.key]: e.target.value }))}
+                        onChange={e => setDates(d => ({ ...d, [g.key]: formatDateTyping(e.target.value) }))}
+                        placeholder="2026-05-09"
                         style={{ height: '30px', background: 'var(--navy3)', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 8px', fontSize: '12px', color: 'var(--text-primary)', outline: 'none' }}
                       />
                       <button

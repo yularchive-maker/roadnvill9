@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { formatDateTyping, formatMonthTyping } from '@/lib/date-input'
 
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const INFLOW_OPTS  = ['플랫폼','여행사','직접']
@@ -794,11 +795,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   </div>
                   <div className="form-field">
                     <label>예약날짜 <span className="req">*</span></label>
-                    <input className="form-input" type="date" value={form.date} onChange={e=>inp('date',e.target.value)}/>
+                    <input className="form-input" type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" value={form.date} onChange={e=>inp('date',formatDateTyping(e.target.value))}/>
                   </div>
                   <div className="form-field">
                     <label>체험종료</label>
-                    <input className="form-input" type="date" value={form.end_date||''} onChange={e=>inp('end_date',e.target.value)}/>
+                    <input className="form-input" type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" value={form.end_date||''} onChange={e=>inp('end_date',formatDateTyping(e.target.value))}/>
                   </div>
                 </div>
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
@@ -1307,7 +1308,7 @@ export default function ReservationsPage() {
           <option value="">전체 상태</option>
           {Object.entries(STATUS_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}
         </select>
-        <input type="month" className="filter-select" value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{width:'140px'}}/>
+        <input type="text" inputMode="numeric" maxLength={7} className="filter-select" value={filterMonth} onChange={e=>setFilterMonth(formatMonthTyping(e.target.value))} placeholder="2026-05" style={{width:'140px'}}/>
         <button className="btn-primary" onClick={openNew}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           예약 등록

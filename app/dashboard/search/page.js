@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { formatDateTyping } from '@/lib/date-input'
 
 const RESERVATION_STATUSES = ['전체', '상담중', '가능여부확인중', '조정필요', '확정가능', '예약확정', '취소', '완료']
 const PAYMENT_STATUSES = ['전체', '미결제', '선결제완료', '후결제예정', '일부결제', '결제완료', '환불필요', '환불완료']
@@ -15,13 +16,6 @@ const NOWRAP = { overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'
 
 function fmtMoney(value) {
   return (Number(value) || 0).toLocaleString()
-}
-
-function formatDateTyping(value) {
-  const digits = String(value || '').replace(/\D/g, '').slice(0, 8)
-  if (digits.length <= 4) return digits
-  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`
-  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`
 }
 
 function statusBadgeStyle(value) {

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { formatDateTyping } from '@/lib/date-input'
 
 const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 
@@ -150,7 +151,15 @@ export default function NoticePage() {
             <div className="modal-body">
               <div className="form-field" style={{ marginBottom:'14px' }}>
                 <label>날짜 <span style={{ color:'var(--red)' }}>*</span></label>
-                <input className="form-input" type="date" value={form.date} onChange={e => setForm(f=>({...f, date:e.target.value}))} />
+                <input
+                  className="form-input"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="2026-05-09"
+                  value={form.date}
+                  onChange={e => setForm(f=>({...f, date:formatDateTyping(e.target.value)}))}
+                />
               </div>
               <div className="form-field" style={{ marginBottom:'14px' }}>
                 <label>내용 <span style={{ color:'var(--red)' }}>*</span></label>

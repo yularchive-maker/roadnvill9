@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { formatDateTyping } from '@/lib/date-input'
 
 const SEND_STATUSES = ['전체', '미발송', '발송완료', '발송실패', '재발송필요']
 const REPLY_STATUSES = ['전체', '회신대기', '가능', '불가능', '시간조정 필요', '인원조정 필요', '보류']
@@ -241,7 +242,7 @@ export default function VendorConfirmsPage() {
 
       <div className="search-bar" style={{ alignItems: 'stretch', flexWrap: 'wrap' }}>
         <input className="search-input" style={{ minWidth: '240px' }} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} placeholder="예약번호, 고객명, 업체명, 프로그램 검색" />
-        <input className="filter-select" type="date" value={filters.date} onChange={e => setFilters(f => ({ ...f, date: e.target.value }))} />
+        <input className="filter-select" type="text" inputMode="numeric" maxLength={10} placeholder="예약일" value={filters.date} onChange={e => setFilters(f => ({ ...f, date: formatDateTyping(e.target.value) }))} />
         <select className="filter-select" value={filters.vendor_key} onChange={e => setFilters(f => ({ ...f, vendor_key: e.target.value }))}>
           <option>전체</option>
           {vendors.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}

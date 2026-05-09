@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { formatMonthTyping } from '@/lib/date-input'
 
 const fmt = n => (n || 0).toLocaleString()
 
@@ -217,11 +218,14 @@ export default function SettleSummaryPage() {
       {/* 월 선택 */}
       <div className="search-bar">
         <input
-          type="month"
+          type="text"
+          inputMode="numeric"
+          maxLength={7}
           className="search-input"
           style={{ maxWidth: '200px' }}
           value={month}
-          onChange={e => setMonth(e.target.value)}
+          onChange={e => setMonth(formatMonthTyping(e.target.value))}
+          placeholder="2026-05"
         />
         <button className="btn-primary" onClick={load}>조회</button>
       </div>

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { formatDateTyping } from '@/lib/date-input'
 
 // ── 상수
 const TT_START = 7
@@ -150,7 +151,7 @@ function EventModal({ open, onClose, onSave, vendors, reservations, defaultDate 
           {/* 날짜/시간 */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
             <div><label style={S.lbl}>날짜 *</label>
-              <input type="date" style={S.inp} value={form.date} onChange={e => set('date', e.target.value)}/></div>
+              <input type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" style={S.inp} value={form.date} onChange={e => set('date', formatDateTyping(e.target.value))}/></div>
             <div><label style={S.lbl}>시작</label>
               <input type="time" style={S.inp} value={form.start_time} onChange={e => set('start_time', e.target.value)}/></div>
             <div><label style={S.lbl}>종료</label>
