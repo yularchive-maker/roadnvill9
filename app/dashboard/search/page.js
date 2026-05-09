@@ -60,7 +60,7 @@ export default function SearchPage() {
       supabase.from('vendor_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
-      supabase.from('settle_history').select('reservation_nos, settle_history_items(reservation_no)'),
+      supabase.from('settle_history').select('settle_history_items(reservation_no)'),
       supabase.from('zones').select('code,name').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     const firstError = resR.error || vcR.error || lcR.error || pkR.error || stR.error || zoneR.error
@@ -86,7 +86,6 @@ export default function SearchPage() {
     const lodges = lodgeConfirms.filter(item => item.reservation_no === row.no)
     const pickupRows = pickups.filter(item => item.reservation_no === row.no)
     const settledRows = settles.filter(item =>
-      (item.reservation_nos || []).includes(row.no) ||
       (item.settle_history_items || []).some(child => child.reservation_no === row.no)
     )
     const vendorTotal = vendors.length
