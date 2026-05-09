@@ -17,6 +17,13 @@ function fmtMoney(value) {
   return (Number(value) || 0).toLocaleString()
 }
 
+function formatDateTyping(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 4) return digits
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`
+}
+
 function statusBadgeStyle(value) {
   if (value === '예약확정' || value === '확정가능' || value === '가능' || value === '완료') return { color:'var(--green)', background:'rgba(92,184,92,.14)' }
   if (value === '조정필요' || value === '시간조정 필요' || value === '인원조정 필요' || value === '후결제예정' || value === '일부결제') return { color:'var(--amber)', background:'rgba(247,201,72,.14)' }
@@ -203,8 +210,24 @@ export default function SearchPage() {
 
       <div className="search-bar" style={{ flexWrap:'wrap', alignItems:'stretch' }}>
         <input className="search-input" style={{ minWidth:'280px' }} placeholder="예약번호, 고객명, 패키지, 구역명, 업체, 프로그램 검색" value={filters.q} onChange={e => setFilters(f => ({ ...f, q:e.target.value }))} />
-        <input className="filter-select" type="date" value={filters.start} onChange={e => setFilters(f => ({ ...f, start:e.target.value }))} />
-        <input className="filter-select" type="date" value={filters.end} onChange={e => setFilters(f => ({ ...f, end:e.target.value }))} />
+        <input
+          className="filter-select"
+          type="text"
+          inputMode="numeric"
+          maxLength={10}
+          placeholder="시작일"
+          value={filters.start}
+          onChange={e => setFilters(f => ({ ...f, start:formatDateTyping(e.target.value) }))}
+        />
+        <input
+          className="filter-select"
+          type="text"
+          inputMode="numeric"
+          maxLength={10}
+          placeholder="종료일"
+          value={filters.end}
+          onChange={e => setFilters(f => ({ ...f, end:formatDateTyping(e.target.value) }))}
+        />
         <select className="filter-select" value={filters.reservation_status} onChange={e => setFilters(f => ({ ...f, reservation_status:e.target.value }))}>
           {RESERVATION_STATUSES.map(v => <option key={v}>{v}</option>)}
         </select>
