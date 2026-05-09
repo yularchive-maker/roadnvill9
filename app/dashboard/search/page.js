@@ -13,11 +13,6 @@ const CENTER = { display:'flex', alignItems:'center', justifyContent:'center', t
 const RIGHT = { display:'flex', alignItems:'center', justifyContent:'flex-end', textAlign:'right', width:'100%' }
 const NOWRAP = { overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
 
-function todayMonthStart() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-}
-
 function fmtMoney(value) {
   return (Number(value) || 0).toLocaleString()
 }
@@ -40,11 +35,12 @@ export default function SearchPage() {
   const [lodgeConfirms, setLodgeConfirms] = useState([])
   const [pickups, setPickups] = useState([])
   const [settles, setSettles] = useState([])
+  const [zones, setZones] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState({
     q: '',
-    start: todayMonthStart(),
+    start: '',
     end: '',
     reservation_status: '전체',
     payment_status: '전체',
@@ -59,14 +55,15 @@ export default function SearchPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [resR, vcR, lcR, pkR, stR] = await Promise.all([
+    const [resR, vcR, lcR, pkR, stR, zoneR] = await Promise.all([
       supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date', { ascending: false }),
       supabase.from('vendor_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('settle_history').select('reservation_nos, settle_history_items(reservation_no)'),
+      supabase.from('zones').select('code,name').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
-    const firstError = resR.error || vcR.error || lcR.error || pkR.error || stR.error
+    const firstError = resR.error || vcR.error || lcR.error || pkR.error || stR.error || zoneR.error
     if (firstError) {
       setError(firstError.message || '검색 데이터를 불러오지 못했습니다.')
       setRows([])
@@ -76,6 +73,7 @@ export default function SearchPage() {
       setLodgeConfirms(lcR.data || [])
       setPickups(pkR.data || [])
       setSettles(stR.data || [])
+      setZones(zoneR.data || [])
     }
     setLoading(false)
   }, [])
@@ -84,6 +82,7 @@ export default function SearchPage() {
 
   const enriched = useMemo(() => rows.map(row => {
     const vendors = vendorConfirms.filter(item => item.reservation_no === row.no)
+    const zone = zones.find(item => item.code === row.zone_code)
     const lodges = lodgeConfirms.filter(item => item.reservation_no === row.no)
     const pickupRows = pickups.filter(item => item.reservation_no === row.no)
     const settledRows = settles.filter(item =>
@@ -112,6 +111,7 @@ export default function SearchPage() {
     return {
       ...row,
       vendors,
+      zone_name: zone?.name || '',
       replySummary,
       reply_status_rollup: vendorImpossible ? '불가능' : vendorAdjust ? '시간조정 필요' : vendorWaiting ? '회신대기' : allVendorsOk ? '가능' : '전체',
       lodgingOk,
@@ -120,7 +120,7 @@ export default function SearchPage() {
       needAction,
       settled,
     }
-  }), [lodgeConfirms, pickups, rows, settles, vendorConfirms])
+  }), [lodgeConfirms, pickups, rows, settles, vendorConfirms, zones])
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase()
@@ -139,7 +139,17 @@ export default function SearchPage() {
       if (filters.ready === '예' && !row.isReady) return false
       if (filters.ready === '아니오' && row.isReady) return false
       if (!q) return true
-      return [row.no, row.customer, row.package_name, row.zone_code, row.payto, row.memo, row.replySummary]
+      return [
+        row.no,
+        row.customer,
+        row.package_name,
+        row.zone_code,
+        row.zone_name,
+        row.payto,
+        row.memo,
+        row.replySummary,
+        ...row.vendors.flatMap(vendor => [vendor.vendor_name, vendor.program_name, vendor.reply_memo]),
+      ]
         .filter(Boolean)
         .some(value => String(value).toLowerCase().includes(q))
     })
@@ -193,7 +203,7 @@ export default function SearchPage() {
       </div>
 
       <div className="search-bar" style={{ flexWrap:'wrap', alignItems:'stretch' }}>
-        <input className="search-input" style={{ minWidth:'280px' }} placeholder="예약번호, 고객명, 패키지, 구역, 결제처 검색" value={filters.q} onChange={e => setFilters(f => ({ ...f, q:e.target.value }))} />
+        <input className="search-input" style={{ minWidth:'280px' }} placeholder="예약번호, 고객명, 패키지, 구역명, 업체, 프로그램 검색" value={filters.q} onChange={e => setFilters(f => ({ ...f, q:e.target.value }))} />
         <input className="filter-select" type="date" value={filters.start} onChange={e => setFilters(f => ({ ...f, start:e.target.value }))} />
         <input className="filter-select" type="date" value={filters.end} onChange={e => setFilters(f => ({ ...f, end:e.target.value }))} />
         <select className="filter-select" value={filters.reservation_status} onChange={e => setFilters(f => ({ ...f, reservation_status:e.target.value }))}>
