@@ -1,6 +1,7 @@
 # Security Rotation Checklist
 
 작성일: 2026-05-09
+갱신일: 2026-05-10
 
 ## 목적
 
@@ -13,8 +14,12 @@
 - `.env.local`은 git 추적 대상 아님
 - `.env.example`에는 실제 값 없이 변수명만 존재
 - Vercel Production 환경변수에 서버 전용 변수 등록 완료
+- Telegram webhook 운영 URL 등록 및 정상 상태 확인 완료
+- 날짜 기준 현재 코드에는 `TELEGRAM_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` 실제 값이 포함되지 않아야 한다.
 
 ## 운영 전 필수 조치
+
+아래 작업은 GitHub, Telegram, Supabase 계정 권한이 필요한 작업이므로 운영자가 직접 처리한다. Codex는 교체 후 코드/환경변수 연결 상태와 동작 테스트를 확인한다.
 
 ### 1. GitHub personal access token revoke
 
