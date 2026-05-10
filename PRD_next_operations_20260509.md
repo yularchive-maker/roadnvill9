@@ -151,7 +151,15 @@
 
 준비된 SQL:
 
-- `supabase_price_snapshot_schema_20260510.sql`
+- `supabase_price_snapshot_schema_20260510.sql`: 테이블/컬럼/RLS만 생성
+- `supabase_price_snapshot_backfill_20260510.sql`: 최초 고객 판매가/업체 정산단가 입력 후 기존 예약 스냅샷 생성
+
+실행 순서:
+
+1. `supabase_price_snapshot_schema_20260510.sql` 실행
+2. 기준정보 화면에서 프로그램별 최초 고객 판매가와 업체 정산단가 입력/검토
+3. `supabase_price_snapshot_backfill_20260510.sql` 실행
+4. 정산 화면을 `reservation_program_snapshots.vendor_settle_total` 기준으로 변경
 
 ### 4.5 Kakao 전환 대비
 
