@@ -33,6 +33,52 @@ function priceTypeLabel(type) {
   return type === 'per_person' ? '인원당' : '객실당'
 }
 
+function StatusQuickPanel({ title, summary, value, options, onChange, hint, disabledOptions = [] }) {
+  const disabled = new Set(disabledOptions)
+  return (
+    <div style={{
+      display:'flex',
+      alignItems:'center',
+      justifyContent:'space-between',
+      gap:'10px',
+      padding:'10px 12px',
+      marginBottom:'10px',
+      border:'1px solid var(--border2)',
+      borderRadius:'8px',
+      background:'rgba(10,31,48,.35)',
+    }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:'12px', fontWeight:700, color:'var(--text-primary)' }}>{title}</div>
+        <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'3px', lineHeight:1.35 }}>{summary}</div>
+        {hint && <div style={{ fontSize:'11px', color:'var(--amber)', marginTop:'4px', lineHeight:1.35 }}>{hint}</div>}
+      </div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', flexWrap:'wrap', gap:'6px' }}>
+        {options.map(option => {
+          const active = value === option
+          const isDisabled = disabled.has(option)
+          return (
+            <button
+              key={option}
+              type="button"
+              className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+              disabled={isDisabled}
+              onClick={() => onChange(option)}
+              style={{
+                minWidth:'74px',
+                height:'30px',
+                opacity:isDisabled ? .45 : 1,
+                whiteSpace:'nowrap',
+              }}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function emptyLodgeRow() {
   return {
     lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'',
@@ -857,6 +903,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
               {/* 객실 배정 */}
               <div className="form-section">
                 <div className="form-section-label">객실 배정</div>
+                <StatusQuickPanel
+                  title="숙소 확정 상태"
+                  summary={`배정 객실 ${lodges.length}개 · 현재 상태 ${form.lodging_status || '해당없음'}`}
+                  value={form.lodging_status || '해당없음'}
+                  options={['해당없음', '배정필요', '배정완료', '확정완료']}
+                  disabledOptions={lodges.length === 0 ? ['배정완료', '확정완료'] : []}
+                  hint={lodges.length === 0 ? '숙박이 없는 예약은 해당없음, 숙박이 있으면 객실 추가 후 배정완료/확정완료를 선택하세요.' : '상태 변경 후 하단 저장 버튼을 눌러야 반영됩니다.'}
+                  onChange={value => inp('lodging_status', value)}
+                />
                 <div className="form-grid form-grid-4" style={{marginBottom:'8px',gap:'8px'}}>
                   <div className="form-field">
                     <label>숙박업체</label>
@@ -1103,6 +1158,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           {tab === 2 && (
             <div className="form-section">
               <div className="form-section-label">픽업 정보</div>
+              <StatusQuickPanel
+                title="픽업 확정 상태"
+                summary={`등록 픽업 ${pickups.length}건 · 픽업비 합계 ${(form.pickup_fee || 0).toLocaleString()}원 · 현재 상태 ${form.pickup_status || '해당없음'}`}
+                value={form.pickup_status || '해당없음'}
+                options={['해당없음', '확정필요', '확정완료']}
+                disabledOptions={pickups.length === 0 ? ['확정완료'] : []}
+                hint={pickups.length === 0 ? '픽업이 없는 예약은 해당없음, 픽업이 있으면 수행자 등록 후 확정완료를 선택하세요.' : '상태 변경 후 하단 저장 버튼을 눌러야 반영됩니다.'}
+                onChange={value => inp('pickup_status', value)}
+              />
               <div className="form-grid form-grid-3" style={{marginBottom:'8px'}}>
                 <div className="form-field">
                   <label>픽업구분</label>
