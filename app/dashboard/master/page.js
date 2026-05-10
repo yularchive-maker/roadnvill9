@@ -158,7 +158,8 @@ function VendorsTab() {
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
   const [programs, setPrograms] = useState([])
-  const [progForm, setProgForm] = useState({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
+  const emptyProgForm = { zone_code: '', prog_name: '', customer_price: '', vendor_settle_price: '', settle_type: 'per_person' }
+  const [progForm, setProgForm] = useState(emptyProgForm)
   const [telegramUpdates, setTelegramUpdates] = useState([])
   const [telegramLoading, setTelegramLoading] = useState(false)
   const [telegramError, setTelegramError] = useState('')
@@ -181,7 +182,7 @@ function VendorsTab() {
     const key = await genVendorKey()
     setForm({ key, name: '', contact: '', tel: '', color: '#4ECDC4', note: '', telegram_chat_id: '', telegram_username: '' })
     setPrograms([])
-    setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
+    setProgForm(emptyProgForm)
     setModal({ mode: 'new' })
   }
 
@@ -197,7 +198,7 @@ function VendorsTab() {
       telegram_username: v.telegram_username || '',
     })
     setPrograms(v.vendor_programs || [])
-    setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
+    setProgForm(emptyProgForm)
     setModal({ mode: 'edit', data: v })
   }
 
@@ -246,8 +247,18 @@ function VendorsTab() {
     const vendorKey = modal.mode === 'edit' ? modal.data.key : form.key
     if (!vendorKey) { alert('업체를 먼저 저장하세요.'); return }
     const code = await genProgCode(progForm.zone_code, vendorKey)
-    await supabase.from('vendor_programs').insert({ code, zone_code: progForm.zone_code, vendor_key: vendorKey, prog_name: progForm.prog_name, unit_price: Number(progForm.unit_price) || 0, settle_type: progForm.settle_type })
-    setProgForm({ zone_code: '', prog_name: '', unit_price: '', settle_type: 'per_person' })
+    const vendorSettlePrice = Number(progForm.vendor_settle_price) || 0
+    await supabase.from('vendor_programs').insert({
+      code,
+      zone_code: progForm.zone_code,
+      vendor_key: vendorKey,
+      prog_name: progForm.prog_name,
+      customer_price: Number(progForm.customer_price) || 0,
+      vendor_settle_price: vendorSettlePrice,
+      unit_price: vendorSettlePrice,
+      settle_type: progForm.settle_type,
+    })
+    setProgForm(emptyProgForm)
     const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vendorKey).order('code')
     setPrograms(data || [])
     load()
@@ -255,6 +266,26 @@ function VendorsTab() {
 
   async function delProg(id) {
     await supabase.from('vendor_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
+    const vk = modal.mode === 'edit' ? modal.data.key : form.key
+    const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).order('code')
+    setPrograms(data || [])
+    load()
+  }
+
+  function updateProgramLocal(id, patch) {
+    setPrograms(list => list.map(program => program.id === id ? { ...program, ...patch } : program))
+  }
+
+  async function saveProgramPrice(program) {
+    const customerPrice = Number(program.customer_price) || 0
+    const vendorSettlePrice = Number(program.vendor_settle_price ?? program.unit_price) || 0
+    const { error } = await supabase.from('vendor_programs').update({
+      customer_price: customerPrice,
+      vendor_settle_price: vendorSettlePrice,
+      unit_price: vendorSettlePrice,
+      settle_type: program.settle_type || 'per_person',
+    }).eq('id', program.id)
+    if (error) { alert('프로그램 금액 저장 실패: ' + error.message); return }
     const vk = modal.mode === 'edit' ? modal.data.key : form.key
     const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).order('code')
     setPrograms(data || [])
@@ -437,7 +468,7 @@ function VendorsTab() {
               </div>
               <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '10px', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.5px', textTransform: 'uppercase' }}>체험 · 단가</div>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.5px', textTransform: 'uppercase' }}>체험 · 판매/정산</div>
                   {extraProgramCount > 0 && (
                     <button className="btn-outline" onClick={() => openEdit(v)} style={{ height: '24px', padding: '0 8px', fontSize: '10px' }}>
                       전체보기
@@ -449,9 +480,10 @@ function VendorsTab() {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>등록된 체험 없음</span>
                   )}
                   {previewPrograms.map(program => (
-                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', alignItems: 'center', gap: '7px', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
+                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto auto', alignItems: 'center', gap: '7px', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
                       <span style={{ minWidth: 0, fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{program.prog_name || '-'}</span>
-                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)' }}>₩{Number(program.unit_price || 0).toLocaleString()}</span>
+                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)' }}>판매 ₩{Number(program.customer_price || 0).toLocaleString()}</span>
+                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>정산 ₩{Number(program.vendor_settle_price ?? program.unit_price ?? 0).toLocaleString()}</span>
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(78,205,196,0.08)', padding: '1px 5px', borderRadius: '4px' }}>{program.settle_type === 'fixed' ? '건당' : '1인'}</span>
                     </div>
                   ))}
@@ -571,7 +603,7 @@ function VendorsTab() {
               <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 프로그램 관리 <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
               </div>
-              <div className="form-grid form-grid-4" style={{ marginBottom: '8px' }}>
+              <div className="form-grid form-grid-3" style={{ marginBottom: '8px' }}>
                 <Field label="구역">
                   <select className="form-select" value={progForm.zone_code} onChange={e => setProgForm(f => ({ ...f, zone_code: e.target.value }))}>
                     <option value="">선택</option>
@@ -579,7 +611,6 @@ function VendorsTab() {
                   </select>
                 </Field>
                 <Field label="프로그램명"><input className="form-input" value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))} /></Field>
-                <Field label="단가(원)"><input className="form-input" type="number" value={progForm.unit_price} onChange={e => setProgForm(f => ({ ...f, unit_price: e.target.value }))} /></Field>
                 <Field label="정산방식">
                   <select className="form-select" value={progForm.settle_type} onChange={e => setProgForm(f => ({ ...f, settle_type: e.target.value }))}>
                     <option value="per_person">인원당</option>
@@ -587,16 +618,32 @@ function VendorsTab() {
                   </select>
                 </Field>
               </div>
+              <div className="form-grid form-grid-2" style={{ marginBottom: '8px' }}>
+                <Field label="고객 판매가">
+                  <input className="form-input" type="number" value={progForm.customer_price} onChange={e => setProgForm(f => ({ ...f, customer_price: e.target.value }))} placeholder="30000" />
+                </Field>
+                <Field label="업체 정산단가">
+                  <input className="form-input" type="number" value={progForm.vendor_settle_price} onChange={e => setProgForm(f => ({ ...f, vendor_settle_price: e.target.value }))} placeholder="20000" />
+                </Field>
+              </div>
+              <div style={{ marginBottom: '8px', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                고객 판매가는 고객에게 받는 체험 판매금이고, 업체 정산단가는 해당 업체에 지급할 금액입니다. 기존 정산 호환을 위해 업체 정산단가가 기존 단가로도 저장됩니다.
+              </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
               <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: '120px 1fr 80px 70px 36px' }}><span>코드</span><span>프로그램명</span><span>단가</span><span>방식</span><span /></div>
+                <div className="list-box-header" style={{ gridTemplateColumns: '120px 1fr 96px 96px 86px 58px 36px' }}><span>코드</span><span>프로그램명</span><span>판매가</span><span>정산단가</span><span>방식</span><span>저장</span><span /></div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '120px 1fr 80px 70px 36px' }}>
+                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: '120px 1fr 96px 96px 86px 58px 36px' }}>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.code || '-'}</span>
                     <span>{p.prog_name}</span>
-                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px' }}>{(p.unit_price || 0).toLocaleString()}</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.settle_type === 'per_person' ? '인원당' : '고정'}</span>
+                    <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} style={{ height: '28px', fontSize: '11px', padding: '0 8px' }} />
+                    <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} style={{ height: '28px', fontSize: '11px', padding: '0 8px' }} />
+                    <select className="form-select" value={p.settle_type || 'per_person'} onChange={e => updateProgramLocal(p.id, { settle_type: e.target.value })} style={{ height: '28px', fontSize: '11px', padding: '0 6px' }}>
+                      <option value="per_person">인원당</option>
+                      <option value="fixed">고정</option>
+                    </select>
+                    <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '28px', fontSize: '11px', padding: '0 8px' }}>저장</button>
                     <button className="icon-btn" onClick={() => delProg(p.id)}>✕</button>
                   </div>
                 ))}
