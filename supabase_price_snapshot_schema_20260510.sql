@@ -103,6 +103,34 @@ CREATE INDEX IF NOT EXISTS reservation_program_snapshots_reservation_program_idx
   ON public.reservation_program_snapshots(reservation_no, vendor_key, prog_name)
   WHERE is_deleted = false;
 
+CREATE TABLE IF NOT EXISTS public.reservation_profit_adjustments (
+  id BIGSERIAL PRIMARY KEY,
+  reservation_no TEXT NOT NULL,
+  adjustment_type TEXT NOT NULL DEFAULT '고객혜택',
+  title TEXT NOT NULL,
+  amount NUMERIC(12, 0) NOT NULL DEFAULT 0,
+  memo TEXT,
+  adjusted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by UUID REFERENCES auth.users(id),
+  is_deleted BOOLEAN NOT NULL DEFAULT false,
+  deleted_at TIMESTAMPTZ,
+  deleted_by UUID REFERENCES auth.users(id),
+  CONSTRAINT reservation_profit_adjustments_type_check
+    CHECK (adjustment_type IN ('고객혜택', '추가할인', '지원사업', '컴플레인보상', '무료제공', '운영조정', '기타')),
+  CONSTRAINT reservation_profit_adjustments_amount_check
+    CHECK (amount >= 0)
+);
+
+COMMENT ON TABLE public.reservation_profit_adjustments IS
+  'Reservation-level profit adjustments such as customer benefits, extra discounts, support, or compensation.';
+COMMENT ON COLUMN public.reservation_profit_adjustments.amount IS
+  'Positive amount deducted from expected profit.';
+
+CREATE INDEX IF NOT EXISTS reservation_profit_adjustments_reservation_idx
+  ON public.reservation_profit_adjustments(reservation_no)
+  WHERE is_deleted = false;
+
 ALTER TABLE public.reservations
   ADD COLUMN IF NOT EXISTS booking_created_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS quote_confirmed_at TIMESTAMPTZ,
@@ -145,6 +173,7 @@ WHERE vendor_settle_price IS NULL;
 -- RLS
 ALTER TABLE public.program_price_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reservation_program_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reservation_profit_adjustments ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "authenticated read program_price_history" ON public.program_price_history;
 DROP POLICY IF EXISTS "authenticated insert program_price_history" ON public.program_price_history;
@@ -187,6 +216,29 @@ CREATE POLICY "authenticated insert reservation_program_snapshots"
 
 CREATE POLICY "authenticated update reservation_program_snapshots"
   ON public.reservation_program_snapshots
+  FOR UPDATE
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "authenticated read reservation_profit_adjustments" ON public.reservation_profit_adjustments;
+DROP POLICY IF EXISTS "authenticated insert reservation_profit_adjustments" ON public.reservation_profit_adjustments;
+DROP POLICY IF EXISTS "authenticated update reservation_profit_adjustments" ON public.reservation_profit_adjustments;
+
+CREATE POLICY "authenticated read reservation_profit_adjustments"
+  ON public.reservation_profit_adjustments
+  FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "authenticated insert reservation_profit_adjustments"
+  ON public.reservation_profit_adjustments
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "authenticated update reservation_profit_adjustments"
+  ON public.reservation_profit_adjustments
   FOR UPDATE
   TO authenticated
   USING (true)
