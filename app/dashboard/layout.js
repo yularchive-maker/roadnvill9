@@ -67,6 +67,11 @@ export default function DashboardLayout({ children }) {
     router.refresh()
   }
 
+  function downloadBackup() {
+    if (!confirm('현재 DB 데이터를 Excel 백업 파일로 다운로드하시겠습니까? 파일에는 고객명, 연락처, 금액 등 운영 데이터가 포함될 수 있습니다.')) return
+    window.location.href = '/api/backup/excel'
+  }
+
   return (
     <div className="app-layout">
       <nav className="sidebar">
@@ -114,6 +119,9 @@ export default function DashboardLayout({ children }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
               <div className="status-dot"></div>연결됨
             </div>
+            <button className="btn-outline" onClick={downloadBackup}>
+              Excel 백업
+            </button>
             <button className="btn-primary" onClick={() => {
               const from = pathname === '/dashboard' ? '&from=dashboard' : ''
               router.push(`/dashboard/reservations?new=1${from}`)
