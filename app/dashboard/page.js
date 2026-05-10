@@ -50,13 +50,20 @@ export default function DashboardPage() {
 
   useEffect(() => { load() }, [load])
 
-  // ── KPI 계산
-  const now       = new Date()
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
-  const thisMonthRes = reservations.filter(r => r.date?.startsWith(thisMonth) && r.type !== 'cancelled')
-  const thisMonthSales = thisMonthRes.reduce((s,r) => s + (r.total||0), 0)
-  const unsettledCount = reservations.filter(r => r.settle_status === 'unsettled' && r.type !== 'cancelled').length
-  const waitVendorCount = vendorConfirms.filter(v => v.status === 'wait').length
+  // ── KPI 계산: 달력에서 보고 있는 년/월 기준
+  const selectedMonth = `${calYear}-${String(calMonth).padStart(2,'0')}`
+  const selectedMonthRes = reservations.filter(r => r.date?.startsWith(selectedMonth) && r.type !== 'cancelled' && r.is_deleted !== true)
+  const selectedMonthNos = new Set(selectedMonthRes.map(r => r.no))
+  const selectedMonthSales = selectedMonthRes.reduce((s,r) => s + (r.total||0), 0)
+  const unsettledCount = selectedMonthRes.filter(r => (r.settle_status || 'unsettled') === 'unsettled').length
+  const waitVendorCount = vendorConfirms.filter(v => {
+    if (v.is_deleted === true) return false
+    const replyStatus = v.reply_status || v.status || '회신대기'
+    const isWaiting = ['회신대기', 'wait', 'pending', '미회신'].includes(replyStatus)
+    const inReservationMonth = selectedMonthNos.has(v.reservation_no)
+    const inRequestMonth = v.request_date?.startsWith(selectedMonth)
+    return isWaiting && (inReservationMonth || inRequestMonth)
+  }).length
 
   // ── 달력 데이터
   const first    = new Date(calYear, calMonth-1, 1).getDay()
@@ -160,13 +167,13 @@ export default function DashboardPage() {
       {/* KPI */}
       <div className="kpi-grid">
         <div className="kpi-card">
-          <div className="kpi-label">이번달 예약</div>
-          <div className="kpi-value">{thisMonthRes.length}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-          <div className="kpi-sub">{thisMonth} 기준</div>
+          <div className="kpi-label">선택월 예약</div>
+          <div className="kpi-value">{selectedMonthRes.length}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
+          <div className="kpi-sub">{selectedMonth} 기준</div>
         </div>
         <div className="kpi-card">
-          <div className="kpi-label">이번달 매출</div>
-          <div className="kpi-value" style={{fontSize:'20px'}}>{fmtMoney(thisMonthSales)}</div>
+          <div className="kpi-label">선택월 매출</div>
+          <div className="kpi-value" style={{fontSize:'20px'}}>{fmtMoney(selectedMonthSales)}</div>
           <div className="kpi-sub">취소 제외</div>
         </div>
         <div className="kpi-card">
