@@ -164,31 +164,25 @@ export default function DashboardPage() {
 
   return (
     <div>
-      {/* KPI */}
+      {/* 예약 상태 현황 */}
       <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-label">선택월 예약</div>
-          <div className="kpi-value">{selectedMonthRes.length}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-          <div className="kpi-sub">{selectedMonth} 기준</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">선택월 매출</div>
-          <div className="kpi-value" style={{fontSize:'20px'}}>{fmtMoney(selectedMonthSales)}</div>
-          <div className="kpi-sub">취소 제외</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">미정산 (체험)</div>
-          <div className="kpi-value" style={{color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)'}}>{unsettledCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-          <div className="kpi-sub">정산 전 예약 건수</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">업체 확인 대기</div>
-          <div className="kpi-value" style={{color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)'}}>{waitVendorCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-          <div className="kpi-sub">응답 대기 중</div>
-        </div>
+        {Object.entries(byStatus).map(([type, count]) => (
+          <div
+            key={type}
+            className="kpi-card"
+            style={{ cursor:'pointer' }}
+            onClick={() => router.push(`/dashboard/reservations?type=${type}`)}
+          >
+            <div className="kpi-label">{STATUS_LABEL[type]}</div>
+            <div className="kpi-value" style={{ color: STATUS_COLOR[type] }}>
+              {count}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span>
+            </div>
+            <div className="kpi-sub">예약 상태별 현황</div>
+          </div>
+        ))}
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 340px', gap:'16px', marginBottom:'24px' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'minmax(520px, .86fr) minmax(380px, 1fr)', gap:'16px', marginBottom:'18px' }}>
         {/* 달력 */}
         <div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
@@ -199,13 +193,12 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="cal-card">
-            <div style={{ display:'flex', alignItems:'center', gap:'12px', marginBottom:'10px', fontSize:'11px', color:'var(--text-muted)', flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px', fontSize:'10px', color:'var(--text-muted)', flexWrap:'wrap' }}>
               <span><span style={{ color:'var(--accent)', fontWeight:600 }}>예약n건</span> 건수</span>
               <span><span style={{ color:'var(--text-muted)', fontWeight:600 }}>n명</span> 총인원</span>
               <span><span style={{ color:'var(--amber)', fontWeight:600 }}>⚠ n명</span> 임계초과</span>
               <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span className="cal-notice-dot" /> 알림</span>
               <span style={{ color:'var(--amber)', fontWeight:600 }}>특일</span>
-              <span style={{ marginLeft:'auto', fontSize:'10px', color:'var(--text-muted)' }}>인원 기준은 기준정보 &gt; 패키지에서 설정</span>
             </div>
             <div className="cal-grid">
               {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
@@ -273,7 +266,7 @@ export default function DashboardPage() {
               </button>
             </div>
           ) : (
-            <div className="list-card" style={{ overflow:'hidden', maxHeight:'520px', overflowY:'auto' }}>
+            <div className="list-card" style={{ overflow:'hidden', maxHeight:'486px', overflowY:'auto' }}>
               {selRes.map(r => {
                 const conf = getConfirmStatus(r)
                 const dot = conf === 'confirmed' ? 'var(--green)' : conf === 'partial' ? 'var(--amber)' : 'var(--text-muted)'
@@ -359,24 +352,30 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 예약 상태 현황 — 페이지 하단 */}
+      {/* 선택월 KPI */}
       <div style={{ marginTop:'8px' }}>
-        <div style={{ fontSize:'13px', fontWeight:700, marginBottom:'10px' }}>예약 상태 현황</div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px' }}>
-          {Object.entries(byStatus).map(([type, count]) => (
-            <div
-              key={type}
-              className="card"
-              style={{ padding:'14px 16px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}
-              onClick={() => router.push(`/dashboard/reservations?type=${type}`)}
-            >
-              <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-                <div style={{ width:'8px', height:'8px', borderRadius:'50%', background: STATUS_COLOR[type] }}/>
-                <span style={{ fontSize:'13px' }}>{STATUS_LABEL[type]}</span>
-              </div>
-              <span style={{ fontFamily:'DM Mono,monospace', fontSize:'15px', fontWeight:700, color: STATUS_COLOR[type] }}>{count}</span>
-            </div>
-          ))}
+        <div style={{ fontSize:'13px', fontWeight:700, marginBottom:'10px' }}>{selectedMonth} 운영 요약</div>
+        <div className="kpi-grid" style={{ marginBottom:0 }}>
+          <div className="kpi-card">
+            <div className="kpi-label">선택월 예약</div>
+            <div className="kpi-value">{selectedMonthRes.length}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
+            <div className="kpi-sub">{selectedMonth} 기준</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label">선택월 매출</div>
+            <div className="kpi-value" style={{fontSize:'20px'}}>{fmtMoney(selectedMonthSales)}</div>
+            <div className="kpi-sub">취소 제외</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label">미정산</div>
+            <div className="kpi-value" style={{color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)'}}>{unsettledCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
+            <div className="kpi-sub">선택월 정산 전 예약</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label">업체 확인 대기</div>
+            <div className="kpi-value" style={{color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)'}}>{waitVendorCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
+            <div className="kpi-sub">선택월 응답 대기</div>
+          </div>
         </div>
       </div>
 
