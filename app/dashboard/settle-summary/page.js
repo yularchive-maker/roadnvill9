@@ -46,6 +46,12 @@ function historyVendorName(h) {
   return h.settle_type
 }
 
+function normalizeSettleType(type, vendorKey) {
+  if (TYPES.some(t => t.key === type)) return type
+  if (vendorKey) return '체험'
+  return type
+}
+
 function settledKey(type, vendorKey, it) {
   return [type || '', vendorKey || '', it.no || it.reservation_no || '', it.detail || '', Number(it.amt) || 0].join('|')
 }
@@ -73,16 +79,16 @@ export default function SettleSummaryPage() {
     setLoading(true)
     const [start, end] = monthBounds(month)
 
-    // 정산 완료 이력 (이 달에 settled_at 기준)
+    // ?뺤궛 ?꾨즺 ?대젰 (???ъ뿉 settled_at 湲곗?)
     const { data: hist } = await supabase
       .from('settle_history')
       .select('*, settle_history_items(*), vendors(name,color)')
       .gte('settled_at', start).lte('settled_at', end)
 
-    // settled 금액 집계: type → vendor → {count, amt, color}
+    // settled 湲덉븸 吏묎퀎: type ??vendor ??{count, amt, color}
     const settledMap = emptyMap()
     for (const h of hist || []) {
-      const type = h.settle_type
+      const type = normalizeSettleType(h.settle_type, h.vendor_key)
       if (!settledMap[type]) continue
       const name = historyVendorName(h)
       if (!settledMap[type][name]) settledMap[type][name] = { vendor: name, color: h.vendors?.color, count: 0, settled: 0, unsettled: 0 }
@@ -98,10 +104,11 @@ export default function SettleSummaryPage() {
     ;(allHist || []).forEach(h => {
       ;(h.settle_history_items || []).forEach(it => {
         settled.add(settledKey(h.settle_type, h.vendor_key, it))
+        settled.add(settledKey(normalizeSettleType(h.settle_type, h.vendor_key), h.vendor_key, it))
       })
     })
 
-    // 미정산 금액 집계 (이 달 reservations, unsettled)
+    // 誘몄젙??湲덉븸 吏묎퀎 (????reservations, unsettled)
     const { data: resv } = await supabase
       .from('reservations').select('*')
       .gte('date', start).lte('date', end)
@@ -111,13 +118,29 @@ export default function SettleSummaryPage() {
 
     if (resv?.length) {
       const nos = resv.map(r => r.no)
-      const [lcRes, rpRes] = await Promise.all([
+      const [lcRes, rpRes, snapRes] = await Promise.all([
         supabase.from('lodge_confirms').select('*').in('reservation_no', nos),
         supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos),
+        supabase.from('reservation_program_snapshots').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
       ])
 
-      // 체험 미정산
+      // 泥댄뿕 誘몄젙??      for (const r of resv) {
+        const snapshots = snapRes.data || []
+        const snapNos = new Set(snapshots.map(s => s.reservation_no))
+        const experienceType = TYPES[0].key
+        for (const snap of snapshots) {
+          const amt = Number(snap.vendor_settle_total) || 0
+          const item = { no: snap.reservation_no, detail: snap.prog_name, amt }
+          if (settled.has(settledKey(experienceType, snap.vendor_key, item))) continue
+          const vendor = vendors.find(v => v.key === snap.vendor_key)
+          const k = snap.vendor_name || vendor?.name || snap.vendor_key
+          if (!unsettledMap[experienceType][k]) unsettledMap[experienceType][k] = { vendor: k, color: vendor?.color, count: 0, settled: 0, unsettled: 0 }
+          unsettledMap[experienceType][k].count += 1
+          unsettledMap[experienceType][k].unsettled += amt
+        }
+
       for (const r of resv) {
+        if (snapNos.has(r.no)) continue
         const pkg = packages.find(p => p.name === pkgName(r))
         if (!pkg) continue
         for (const pp of pkg.package_programs || []) {
@@ -135,7 +158,6 @@ export default function SettleSummaryPage() {
         }
       }
 
-      // 숙박 미정산
       for (const lc of lcRes.data || []) {
         if (!lc.lodge_name || !lc.room_price) continue
         const item = { no: lc.reservation_no, detail: lc.room_name || '', amt: lc.room_price }
@@ -146,7 +168,6 @@ export default function SettleSummaryPage() {
         unsettledMap['숙박'][k].unsettled += lc.room_price
       }
 
-      // 픽업 미정산
       for (const rp of rpRes.data || []) {
         if (!rp.pickup_fee) continue
         const item = { no: rp.reservation_no, detail: rp.pickup_place || '', amt: rp.pickup_fee }
@@ -157,7 +178,6 @@ export default function SettleSummaryPage() {
         unsettledMap['픽업'][k].unsettled += rp.pickup_fee
       }
 
-      // 플랫폼/여행사 미정산
       for (const r of resv) {
         const platformAmt = feeAmount(r.total, r.plat_fee)
         if (r.platform_name) {
@@ -183,7 +203,7 @@ export default function SettleSummaryPage() {
       }
     }
 
-    // 두 맵 병합
+    // ??留?蹂묓빀
     const merged = emptyMap()
     for (const type of TYPES.map(t => t.key)) {
       const names = new Set([...Object.keys(settledMap[type]), ...Object.keys(unsettledMap[type])])
@@ -215,7 +235,7 @@ export default function SettleSummaryPage() {
 
   return (
     <div>
-      {/* 월 선택 */}
+      {/* ???좏깮 */}
       <div className="search-bar">
         <input
           type="text"

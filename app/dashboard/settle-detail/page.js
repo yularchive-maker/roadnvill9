@@ -78,9 +78,10 @@ export default function SettleDetailPage() {
     if (!resv?.length) { setGroups([]); setCheckedItems({}); setLoading(false); return }
 
     const nos = resv.map(r => r.no)
-    const [lcRes, rpRes, settledRes] = await Promise.all([
+    const [lcRes, rpRes, snapRes, settledRes] = await Promise.all([
       supabase.from('lodge_confirms').select('*').in('reservation_no', nos),
       supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos),
+      supabase.from('reservation_program_snapshots').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
       supabase
         .from('settle_history')
         .select('vendor_key, settle_type, settle_history_items(reservation_no, detail, amt)'),
@@ -95,7 +96,25 @@ export default function SettleDetailPage() {
     })
 
     const vMap = {}
+    const snapshots = snapRes.data || []
+    const snapNos = new Set(snapshots.map(s => s.reservation_no))
+    for (const snap of snapshots) {
+      const r = resv.find(x => x.no === snap.reservation_no)
+      if (!r) continue
+      const vendor = vendors.find(v => v.key === snap.vendor_key)
+      const amt = Number(snap.vendor_settle_total) || 0
+      const item = { no: r.no, customer: r.customer, date: r.date, pax: snap.pax || r.pax, detail: snap.prog_name, amt }
+      if (settled.has(settledKey('泥댄뿕', snap.vendor_key, item))) continue
+      if (!vMap[snap.vendor_key]) {
+        vMap[snap.vendor_key] = { key: snap.vendor_key, vendor: snap.vendor_name || vendor?.name || snap.vendor_key, color: vendor?.color, type: '泥댄뿕', totalAmt: 0, items: [], nos: new Set() }
+      }
+      vMap[snap.vendor_key].items.push(item)
+      vMap[snap.vendor_key].totalAmt += amt
+      vMap[snap.vendor_key].nos.add(r.no)
+    }
+
     for (const r of resv) {
+      if (snapNos.has(r.no)) continue
       const pkg = packages.find(p => p.name === pkgName(r))
       if (!pkg) continue
       for (const pp of pkg.package_programs || []) {

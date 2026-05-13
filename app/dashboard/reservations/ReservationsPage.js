@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { formatDateTyping, formatMonthTyping } from '@/lib/date-input'
+import { refreshReservationProgramSnapshots } from '@/lib/price-snapshots'
 
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const INFLOW_OPTS  = ['플랫폼','여행사','직접']
@@ -392,6 +393,18 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       }
       const { error } = await supabase.from('reservations').update(payload).eq('no', no)
       if (error) { alert('수정 실패: ' + error.message); setSaving(false); return }
+    }
+
+    const snapshotResult = await refreshReservationProgramSnapshots(
+      supabase,
+      no,
+      { ...form, ...payload, no },
+      packages
+    )
+    if (!snapshotResult.ok) {
+      alert('가격 스냅샷 저장 실패: ' + snapshotResult.error.message)
+      setSaving(false)
+      return
     }
 
     setSaving(false)
@@ -1308,7 +1321,7 @@ export default function ReservationsPage() {
     const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR] = await Promise.all([
       supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('packages').select('*, package_programs(vendor_key)').order('name'),
+      supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('name'),
       supabase.from('platforms').select('*').order('type').order('name'),
       supabase.from('drivers').select('*').order('name'),
       supabase.from('biz').select('*').order('name'),
