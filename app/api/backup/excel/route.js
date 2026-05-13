@@ -11,6 +11,7 @@ const TABLES = [
   ['reservation_program_snapshots', '예약가격스냅샷'],
   ['reservation_profit_adjustments', '수익조정'],
   ['program_price_history', '가격이력'],
+  ['biz_budget_items', '사업비항목'],
   ['timetable_events', '타임테이블'],
   ['settle_history', '정산이력'],
   ['settle_history_items', '정산상세'],
