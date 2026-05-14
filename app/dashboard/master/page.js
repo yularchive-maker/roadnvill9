@@ -158,6 +158,7 @@ function VendorsTab() {
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
   const [programs, setPrograms] = useState([])
+  const [originalPrograms, setOriginalPrograms] = useState([])
   const emptyProgForm = { zone_code: '', prog_name: '', customer_price: '', vendor_settle_price: '', settle_type: 'per_person' }
   const [progForm, setProgForm] = useState(emptyProgForm)
   const [telegramUpdates, setTelegramUpdates] = useState([])
@@ -182,6 +183,7 @@ function VendorsTab() {
     const key = await genVendorKey()
     setForm({ key, name: '', contact: '', tel: '', color: '#4ECDC4', note: '', telegram_chat_id: '', telegram_username: '' })
     setPrograms([])
+    setOriginalPrograms([])
     setProgForm(emptyProgForm)
     setModal({ mode: 'new' })
   }
@@ -198,8 +200,48 @@ function VendorsTab() {
       telegram_username: v.telegram_username || '',
     })
     setPrograms(v.vendor_programs || [])
+    setOriginalPrograms(v.vendor_programs || [])
     setProgForm(emptyProgForm)
     setModal({ mode: 'edit', data: v })
+  }
+
+  function programSavePayload(program) {
+    const vendorSettlePrice = Number(program.vendor_settle_price ?? program.unit_price) || 0
+    return {
+      customer_price: Number(program.customer_price) || 0,
+      vendor_settle_price: vendorSettlePrice,
+      unit_price: vendorSettlePrice,
+      settle_type: program.settle_type || 'per_person',
+    }
+  }
+
+  function isProgramChanged(program) {
+    const original = originalPrograms.find(item => item.id === program.id)
+    if (!original) return false
+    const currentPayload = programSavePayload(program)
+    const originalPayload = programSavePayload(original)
+    return currentPayload.customer_price !== originalPayload.customer_price
+      || currentPayload.vendor_settle_price !== originalPayload.vendor_settle_price
+      || currentPayload.settle_type !== originalPayload.settle_type
+  }
+
+  async function saveChangedPrograms(vendorKey) {
+    const changedPrograms = programs.filter(program => program.id && isProgramChanged(program))
+    if (changedPrograms.length === 0) return []
+    const savedPrograms = []
+    for (const program of changedPrograms) {
+      const payload = programSavePayload(program)
+      const { data, error } = await supabase.from('vendor_programs').update(payload).eq('id', program.id).select('*').single()
+      if (error) throw new Error(`${program.prog_name || '프로그램'} 금액 저장 실패: ${error.message}`)
+      savedPrograms.push(data || { ...program, ...payload })
+    }
+    setPrograms(list => list.map(item => savedPrograms.find(saved => saved.id === item.id) || item))
+    setOriginalPrograms(list => list.map(item => savedPrograms.find(saved => saved.id === item.id) || item))
+    setVendors(list => list.map(vendor => vendor.key === vendorKey
+      ? { ...vendor, vendor_programs: (vendor.vendor_programs || []).map(item => savedPrograms.find(saved => saved.id === item.id) || item) }
+      : vendor
+    ))
+    return savedPrograms
   }
 
   async function save() {
@@ -232,6 +274,12 @@ function VendorsTab() {
         telegram_linked_at: form.telegram_chat_id ? (modal.data.telegram_linked_at || new Date().toISOString()) : null,
       }).eq('key', modal.data.key)
     }
+    try {
+      await saveChangedPrograms(modal.mode === 'edit' ? modal.data.key : form.key)
+    } catch (error) {
+      alert(error.message)
+      return
+    }
     setModal(null); load()
   }
 
@@ -261,6 +309,7 @@ function VendorsTab() {
     setProgForm(emptyProgForm)
     const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vendorKey).order('code')
     setPrograms(data || [])
+    setOriginalPrograms(data || [])
     load()
   }
 
@@ -269,6 +318,7 @@ function VendorsTab() {
     const vk = modal.mode === 'edit' ? modal.data.key : form.key
     const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).order('code')
     setPrograms(data || [])
+    setOriginalPrograms(data || [])
     load()
   }
 
@@ -279,18 +329,13 @@ function VendorsTab() {
   async function saveProgramPrice(programId) {
     const program = programs.find(item => item.id === programId)
     if (!program) return
-    const customerPrice = Number(program.customer_price) || 0
-    const vendorSettlePrice = Number(program.vendor_settle_price ?? program.unit_price) || 0
-    const { data, error } = await supabase.from('vendor_programs').update({
-      customer_price: customerPrice,
-      vendor_settle_price: vendorSettlePrice,
-      unit_price: vendorSettlePrice,
-      settle_type: program.settle_type || 'per_person',
-    }).eq('id', programId).select('*').single()
+    const payload = programSavePayload(program)
+    const { data, error } = await supabase.from('vendor_programs').update(payload).eq('id', programId).select('*').single()
     if (error) { alert('프로그램 금액 저장 실패: ' + error.message); return }
     const vk = modal.mode === 'edit' ? modal.data.key : form.key
-    const savedProgram = data || { ...program, customer_price: customerPrice, vendor_settle_price: vendorSettlePrice, unit_price: vendorSettlePrice }
+    const savedProgram = data || { ...program, ...payload }
     setPrograms(list => list.map(item => item.id === programId ? savedProgram : item))
+    setOriginalPrograms(list => list.map(item => item.id === programId ? savedProgram : item))
     setVendors(list => list.map(vendor => vendor.key === vk
       ? { ...vendor, vendor_programs: (vendor.vendor_programs || []).map(item => item.id === programId ? savedProgram : item) }
       : vendor
