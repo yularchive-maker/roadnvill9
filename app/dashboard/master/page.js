@@ -630,24 +630,24 @@ function VendorsTab() {
                 고객 판매가는 고객에게 받는 체험 판매금이고, 업체 정산단가는 해당 업체에 지급할 금액입니다. 기존 정산 호환을 위해 업체 정산단가가 기존 단가로도 저장됩니다.
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
-              <div className="list-box" style={{ overflowX: 'auto', width: 'max-content', maxWidth: '100%' }}>
-                <div className="list-box-header" style={{ minWidth: '478px', gridTemplateColumns: '160px 112px 112px 86px 72px', alignItems: 'center', gap: '8px' }}>
+              <div className="list-box" style={{ overflowX: 'hidden', width: '100%', maxWidth: '100%' }}>
+                <div className="list-box-header" style={{ gridTemplateColumns: 'minmax(112px, 1fr) 86px 94px 70px 72px', alignItems: 'center', gap: '6px' }}>
                   <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>작업</span>
                 </div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ minWidth: '478px', gridTemplateColumns: '160px 112px 112px 86px 72px', alignItems: 'center', gap: '8px' }}>
+                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: 'minmax(112px, 1fr) 86px 94px 70px 72px', alignItems: 'center', gap: '6px' }}>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.prog_name}</span>
                       <span style={{ display: 'block', fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.code || '-'}</span>
                     </span>
-                    <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
-                    <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
+                    <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 6px', minWidth: 0 }} />
+                    <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 6px', minWidth: 0 }} />
                     <select className="form-select" value={p.settle_type || 'per_person'} onChange={e => updateProgramLocal(p.id, { settle_type: e.target.value })} style={{ height: '30px', fontSize: '11px', padding: '0 4px', minWidth: 0 }}>
                       <option value="per_person">인원당</option>
                       <option value="fixed">고정</option>
                     </select>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
                       <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '30px', fontSize: '11px', padding: '0 6px', whiteSpace: 'nowrap', flex: '1 1 auto' }}>저장</button>
                       <button className="icon-btn" onClick={() => delProg(p.id)} style={{ width: '30px', height: '30px', flex: '0 0 30px' }}>✕</button>
                     </span>
