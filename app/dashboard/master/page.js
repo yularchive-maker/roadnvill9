@@ -534,7 +534,7 @@ function VendorsTab() {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>등록된 체험 없음</span>
                   )}
                   {previewPrograms.map(program => (
-                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 140px) auto auto auto', justifyContent: 'start', alignItems: 'center', gap: '7px', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
+                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 140px) auto auto auto', justifyContent: 'start', alignItems: 'center', gap: '7px', width: 'fit-content', maxWidth: '100%', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
                       <span style={{ minWidth: 0, fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{program.prog_name || '-'}</span>
                       <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)' }}>판매 ₩{Number(program.customer_price || 0).toLocaleString()}</span>
                       <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>정산 ₩{Number(program.vendor_settle_price ?? program.unit_price ?? 0).toLocaleString()}</span>
