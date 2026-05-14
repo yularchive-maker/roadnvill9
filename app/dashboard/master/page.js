@@ -276,20 +276,29 @@ function VendorsTab() {
     setPrograms(list => list.map(program => program.id === id ? { ...program, ...patch } : program))
   }
 
-  async function saveProgramPrice(program) {
+  async function saveProgramPrice(programId) {
+    const program = programs.find(item => item.id === programId)
+    if (!program) return
     const customerPrice = Number(program.customer_price) || 0
     const vendorSettlePrice = Number(program.vendor_settle_price ?? program.unit_price) || 0
-    const { error } = await supabase.from('vendor_programs').update({
+    const { data, error } = await supabase.from('vendor_programs').update({
       customer_price: customerPrice,
       vendor_settle_price: vendorSettlePrice,
       unit_price: vendorSettlePrice,
       settle_type: program.settle_type || 'per_person',
-    }).eq('id', program.id)
+    }).eq('id', programId).select('*').single()
     if (error) { alert('프로그램 금액 저장 실패: ' + error.message); return }
     const vk = modal.mode === 'edit' ? modal.data.key : form.key
-    const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).order('code')
-    setPrograms(data || [])
-    load()
+    const savedProgram = data || { ...program, customer_price: customerPrice, vendor_settle_price: vendorSettlePrice, unit_price: vendorSettlePrice }
+    setPrograms(list => list.map(item => item.id === programId ? savedProgram : item))
+    setVendors(list => list.map(vendor => vendor.key === vk
+      ? { ...vendor, vendor_programs: (vendor.vendor_programs || []).map(item => item.id === programId ? savedProgram : item) }
+      : vendor
+    ))
+    setModal(current => current?.mode === 'edit' && current.data.key === vk
+      ? { ...current, data: { ...current.data, vendor_programs: (current.data.vendor_programs || []).map(item => item.id === programId ? savedProgram : item) } }
+      : current
+    )
   }
 
   async function loadTelegramUpdates() {
@@ -480,7 +489,7 @@ function VendorsTab() {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>등록된 체험 없음</span>
                   )}
                   {previewPrograms.map(program => (
-                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto auto', alignItems: 'center', gap: '7px', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
+                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 140px) auto auto auto', justifyContent: 'start', alignItems: 'center', gap: '7px', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
                       <span style={{ minWidth: 0, fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{program.prog_name || '-'}</span>
                       <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)' }}>판매 ₩{Number(program.customer_price || 0).toLocaleString()}</span>
                       <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>정산 ₩{Number(program.vendor_settle_price ?? program.unit_price ?? 0).toLocaleString()}</span>
@@ -648,7 +657,7 @@ function VendorsTab() {
                       <option value="fixed">고정</option>
                     </select>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
-                      <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '30px', fontSize: '11px', padding: '0 6px', whiteSpace: 'nowrap', flex: '1 1 auto' }}>저장</button>
+                      <button className="btn-outline" onClick={() => saveProgramPrice(p.id)} style={{ height: '30px', fontSize: '11px', padding: '0 6px', whiteSpace: 'nowrap', flex: '1 1 auto' }}>저장</button>
                       <button className="icon-btn" onClick={() => delProg(p.id)} style={{ width: '30px', height: '30px', flex: '0 0 30px' }}>✕</button>
                     </span>
                   </div>
