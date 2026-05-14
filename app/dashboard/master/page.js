@@ -631,12 +631,12 @@ function VendorsTab() {
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
               <div className="list-box" style={{ overflowX: 'auto' }}>
-                <div className="list-box-header" style={{ minWidth: '570px', gridTemplateColumns: '220px 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
+                <div className="list-box-header" style={{ minWidth: '510px', gridTemplateColumns: '160px 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
                   <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>저장</span><span />
                 </div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ minWidth: '570px', gridTemplateColumns: '220px 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
+                  <div key={p.id} className="list-box-row" style={{ minWidth: '510px', gridTemplateColumns: '160px 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.prog_name}</span>
                       <span style={{ display: 'block', fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.code || '-'}</span>
