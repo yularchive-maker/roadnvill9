@@ -83,7 +83,7 @@ INSERT INTO public.reservation_program_snapshots (
 SELECT
   r.no,
   p.id::text,
-  coalesce(r.package_name, r.pkg, p.name),
+  coalesce(r.package_name, p.name),
   vp.id::text,
   pp.vendor_key,
   v.name,
@@ -111,7 +111,7 @@ SELECT
   'Legacy snapshot generated from package_programs and reviewed initial price history.'
 FROM public.reservations r
 JOIN public.packages p
-  ON p.name = coalesce(r.package_name, r.pkg)
+  ON p.name = r.package_name
  AND coalesce(p.is_deleted, false) = false
 JOIN public.package_programs pp
   ON pp.package_id = p.id

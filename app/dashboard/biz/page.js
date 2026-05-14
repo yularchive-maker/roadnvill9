@@ -29,10 +29,46 @@ function isCancelled(reservation) {
 }
 
 function categoryLabel(category) {
-  return category === 'product_operation' ? '상품운영비' : (category || '상품운영비')
+  if (category === 'product_operation') return '상품운영비'
+  if (category === 'promotion_discount') return '홍보마케팅 할인지원'
+  return category || '상품운영비'
 }
 
-function buildUsage(item, reservations, snapshots) {
+function usageTypeForItem(item) {
+  return item.category === 'promotion_discount' ? 'promotion_discount' : 'product_operation'
+}
+
+function buildUsage(item, reservations, snapshots, budgetUsages = []) {
+  const explicitUsages = budgetUsages.filter(usage =>
+    String(usage.budget_item_id) === String(item.id) &&
+    usage.usage_type === usageTypeForItem(item)
+  )
+  if (explicitUsages.length > 0) {
+    const details = explicitUsages
+      .map(usage => {
+        const reservation = reservations.find(r => r.no === usage.reservation_no)
+        if (!reservation || isCancelled(reservation)) return null
+        const pax = Number(usage.people_count) || 0
+        const amount = Number(usage.used_amount) || pax * (Number(usage.unit_amount) || 0)
+        return {
+          no: reservation.no,
+          date: reservation.date,
+          customer: reservation.customer,
+          package_name: reservation.package_name,
+          pax,
+          amount,
+        }
+      })
+      .filter(Boolean)
+    const usedPeople = details.reduce((sum, row) => sum + row.pax, 0)
+    const usedAmount = details.reduce((sum, row) => sum + row.amount, 0)
+    return { usedPeople, usedAmount, details }
+  }
+
+  if (item.category === 'promotion_discount') {
+    return { usedPeople: 0, usedAmount: 0, details: [] }
+  }
+
   const targetPackage = item.match_package_name || item.item_name
   const targetProgram = item.match_program_name
   const details = []
@@ -75,13 +111,14 @@ export default function BizPage() {
   const [items, setItems] = useState([])
   const [reservations, setReservations] = useState([])
   const [snapshots, setSnapshots] = useState([])
+  const [budgetUsages, setBudgetUsages] = useState([])
   const [loading, setLoading] = useState(true)
   const [schemaMissing, setSchemaMissing] = useState(false)
   const [open, setOpen] = useState({})
 
   async function load() {
     setLoading(true)
-    const [itemRes, reservationRes, snapshotRes] = await Promise.all([
+    const [itemRes, reservationRes, snapshotRes, usageRes] = await Promise.all([
       supabase
         .from('biz_budget_items')
         .select('*')
@@ -96,12 +133,17 @@ export default function BizPage() {
         .from('reservation_program_snapshots')
         .select('reservation_no,package_name,prog_name,is_deleted')
         .or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase
+        .from('reservation_budget_usages')
+        .select('reservation_no,budget_item_id,usage_type,people_count,unit_amount,used_amount,is_deleted')
+        .or('is_deleted.is.null,is_deleted.eq.false'),
     ])
 
     setSchemaMissing(!!itemRes.error)
     setItems(itemRes.error ? DEFAULT_BUDGET_ITEMS : (itemRes.data || []))
     setReservations(reservationRes.data || [])
     setSnapshots(snapshotRes.data || [])
+    setBudgetUsages(usageRes.error ? [] : (usageRes.data || []))
     setLoading(false)
   }
 
@@ -111,7 +153,7 @@ export default function BizPage() {
     return items
       .filter(item => item.is_active !== false)
       .map(item => {
-        const usage = buildUsage(item, reservations, snapshots)
+        const usage = buildUsage(item, reservations, snapshots, budgetUsages)
         const budget = Number(item.total_budget_amount) || 0
         const remain = budget - usage.usedAmount
         const plannedPeople = Number(item.planned_people_count) || 0
@@ -120,7 +162,7 @@ export default function BizPage() {
         return { ...item, ...usage, budget, remain, plannedPeople, peopleRate, budgetRate }
       })
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-  }, [items, reservations, snapshots])
+  }, [items, reservations, snapshots, budgetUsages])
 
   const totalBudget = rows.reduce((sum, row) => sum + row.budget, 0)
   const totalUsed = rows.reduce((sum, row) => sum + row.usedAmount, 0)
