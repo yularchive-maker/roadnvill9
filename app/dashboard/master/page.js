@@ -567,7 +567,7 @@ function VendorsTab() {
       </div>
 
       {modal && (
-        <Modal title={modal.mode === 'new' ? '업체 추가' : '업체 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="760px">
+        <Modal title={modal.mode === 'new' ? '업체 추가' : '업체 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="560px">
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="업체 KEY" auto>
               <input className="form-input auto-fill" value={form.key || ''} readOnly />
