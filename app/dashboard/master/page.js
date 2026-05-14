@@ -5,10 +5,10 @@ import { supabase } from '@/lib/supabase'
 const TABS = ['구역', '체험업체', '패키지', '숙소·객실', '플랫폼·여행사', '픽업수행자', '사업명']
 
 // ── 공통 모달 래퍼
-function Modal({ title, onClose, onSave, onDelete, children }) {
+function Modal({ title, onClose, onSave, onDelete, children, maxWidth = '480px' }) {
   return (
     <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: '480px' }}>
+      <div className="modal" style={{ width: 'min(92vw, 760px)', maxWidth }}>
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="close-btn" onClick={onClose}>✕</button>
@@ -567,7 +567,7 @@ function VendorsTab() {
       </div>
 
       {modal && (
-        <Modal title={modal.mode === 'new' ? '업체 추가' : '업체 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null}>
+        <Modal title={modal.mode === 'new' ? '업체 추가' : '업체 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="760px">
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="업체 KEY" auto>
               <input className="form-input auto-fill" value={form.key || ''} readOnly />
@@ -630,24 +630,24 @@ function VendorsTab() {
                 고객 판매가는 고객에게 받는 체험 판매금이고, 업체 정산단가는 해당 업체에 지급할 금액입니다. 기존 정산 호환을 위해 업체 정산단가가 기존 단가로도 저장됩니다.
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
-              <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: 'minmax(150px, 1fr) minmax(96px, .6fr) minmax(96px, .6fr) 86px 74px 36px', alignItems: 'center' }}>
+              <div className="list-box" style={{ overflowX: 'auto' }}>
+                <div className="list-box-header" style={{ minWidth: '650px', gridTemplateColumns: 'minmax(150px, 1fr) 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
                   <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>저장</span><span />
                 </div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: 'minmax(150px, 1fr) minmax(96px, .6fr) minmax(96px, .6fr) 86px 74px 36px', alignItems: 'center', gap: '10px' }}>
+                  <div key={p.id} className="list-box-row" style={{ minWidth: '650px', gridTemplateColumns: 'minmax(150px, 1fr) 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.prog_name}</span>
                       <span style={{ display: 'block', fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.code || '-'}</span>
                     </span>
                     <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
                     <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
-                    <select className="form-select" value={p.settle_type || 'per_person'} onChange={e => updateProgramLocal(p.id, { settle_type: e.target.value })} style={{ height: '28px', fontSize: '11px', padding: '0 6px' }}>
+                    <select className="form-select" value={p.settle_type || 'per_person'} onChange={e => updateProgramLocal(p.id, { settle_type: e.target.value })} style={{ height: '30px', fontSize: '11px', padding: '0 4px', minWidth: 0 }}>
                       <option value="per_person">인원당</option>
                       <option value="fixed">고정</option>
                     </select>
-                    <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '30px', fontSize: '11px', padding: '0 10px', whiteSpace: 'nowrap' }}>저장</button>
+                    <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '30px', fontSize: '11px', padding: '0 6px', whiteSpace: 'nowrap' }}>저장</button>
                     <button className="icon-btn" onClick={() => delProg(p.id)}>✕</button>
                   </div>
                 ))}
