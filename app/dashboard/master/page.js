@@ -631,12 +631,12 @@ function VendorsTab() {
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
               <div className="list-box" style={{ overflowX: 'auto' }}>
-                <div className="list-box-header" style={{ minWidth: '510px', gridTemplateColumns: '160px 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
-                  <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>저장</span><span />
+                <div className="list-box-header" style={{ minWidth: '478px', gridTemplateColumns: '160px 112px 112px 86px 72px', alignItems: 'center', gap: '8px' }}>
+                  <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>작업</span>
                 </div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ minWidth: '510px', gridTemplateColumns: '160px 112px 112px 86px 64px 32px', alignItems: 'center', gap: '8px' }}>
+                  <div key={p.id} className="list-box-row" style={{ minWidth: '478px', gridTemplateColumns: '160px 112px 112px 86px 72px', alignItems: 'center', gap: '8px' }}>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.prog_name}</span>
                       <span style={{ display: 'block', fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.code || '-'}</span>
@@ -647,8 +647,10 @@ function VendorsTab() {
                       <option value="per_person">인원당</option>
                       <option value="fixed">고정</option>
                     </select>
-                    <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '30px', fontSize: '11px', padding: '0 6px', whiteSpace: 'nowrap' }}>저장</button>
-                    <button className="icon-btn" onClick={() => delProg(p.id)}>✕</button>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button className="btn-outline" onClick={() => saveProgramPrice(p)} style={{ height: '30px', fontSize: '11px', padding: '0 6px', whiteSpace: 'nowrap', flex: '1 1 auto' }}>저장</button>
+                      <button className="icon-btn" onClick={() => delProg(p.id)} style={{ width: '30px', height: '30px', flex: '0 0 30px' }}>✕</button>
+                    </span>
                   </div>
                 ))}
               </div>
