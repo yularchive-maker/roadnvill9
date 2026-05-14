@@ -630,7 +630,7 @@ function VendorsTab() {
                 고객 판매가는 고객에게 받는 체험 판매금이고, 업체 정산단가는 해당 업체에 지급할 금액입니다. 기존 정산 호환을 위해 업체 정산단가가 기존 단가로도 저장됩니다.
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
-              <div className="list-box" style={{ overflowX: 'auto' }}>
+              <div className="list-box" style={{ overflowX: 'auto', width: 'max-content', maxWidth: '100%' }}>
                 <div className="list-box-header" style={{ minWidth: '478px', gridTemplateColumns: '160px 112px 112px 86px 72px', alignItems: 'center', gap: '8px' }}>
                   <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>작업</span>
                 </div>
