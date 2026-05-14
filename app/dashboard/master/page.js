@@ -479,16 +479,16 @@ function VendorsTab() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 360px))', justifyContent: 'start', gap: '10px' }}>
         {filteredVendors.length === 0 && (
-          <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', gridColumn: 'span 3' }}>등록된 업체 없음</div>
+          <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', gridColumn: '1 / -1', border: '1px solid var(--border)', borderRadius: '10px' }}>등록된 업체 없음</div>
         )}
-        {filteredVendors.map((v, i) => {
+        {filteredVendors.map(v => {
           const progs = v.vendor_programs || []
           const previewPrograms = progs.slice(0, 3)
           const extraProgramCount = Math.max(progs.length - previewPrograms.length, 0)
           return (
-            <div key={v.key} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border2)', borderRight: i % 3 !== 2 ? '1px solid var(--border2)' : 'none', minHeight: '188px', display: 'flex', flexDirection: 'column' }}>
+            <div key={v.key} style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: '10px', background: 'rgba(255,255,255,0.015)', minHeight: '188px', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: v.color, flexShrink: 0 }} />
@@ -534,11 +534,11 @@ function VendorsTab() {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>등록된 체험 없음</span>
                   )}
                   {previewPrograms.map(program => (
-                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 140px) auto auto auto', justifyContent: 'start', alignItems: 'center', gap: '7px', width: 'fit-content', maxWidth: '100%', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
+                    <div key={program.id || `${v.key}-${program.prog_name}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 118px) auto auto auto', justifyContent: 'start', alignItems: 'center', gap: '7px', width: 'fit-content', maxWidth: '100%', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '6px', padding: '5px 7px' }}>
                       <span style={{ minWidth: 0, fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{program.prog_name || '-'}</span>
-                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)' }}>판매 ₩{Number(program.customer_price || 0).toLocaleString()}</span>
-                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>정산 ₩{Number(program.vendor_settle_price ?? program.unit_price ?? 0).toLocaleString()}</span>
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(78,205,196,0.08)', padding: '1px 5px', borderRadius: '4px' }}>{program.settle_type === 'fixed' ? '건당' : '1인'}</span>
+                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--accent)', whiteSpace: 'nowrap' }}>판매 ₩{Number(program.customer_price || 0).toLocaleString()}</span>
+                      <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)', whiteSpace: 'nowrap' }}>정산 ₩{Number(program.vendor_settle_price ?? program.unit_price ?? 0).toLocaleString()}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(78,205,196,0.08)', padding: '1px 5px', borderRadius: '4px', whiteSpace: 'nowrap' }}>{program.settle_type === 'fixed' ? '건당' : '1인'}</span>
                     </div>
                   ))}
                   {extraProgramCount > 0 && (
