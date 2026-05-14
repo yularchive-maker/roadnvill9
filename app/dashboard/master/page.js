@@ -631,20 +631,18 @@ function VendorsTab() {
               </div>
               <button className="btn-add-row" onClick={addProg} style={{ marginBottom: '8px' }}>+ 프로그램 추가</button>
               <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: 'minmax(150px, 1fr) minmax(210px, 1.2fr) 86px 74px 36px', alignItems: 'center' }}>
-                  <span>프로그램</span><span>판매가 / 정산단가</span><span>방식</span><span>저장</span><span />
+                <div className="list-box-header" style={{ gridTemplateColumns: 'minmax(150px, 1fr) minmax(96px, .6fr) minmax(96px, .6fr) 86px 74px 36px', alignItems: 'center' }}>
+                  <span>프로그램</span><span>판매가</span><span>정산단가</span><span>방식</span><span>저장</span><span />
                 </div>
                 {programs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {programs.map(p => (
-                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: 'minmax(150px, 1fr) minmax(210px, 1.2fr) 86px 74px 36px', alignItems: 'center', gap: '10px' }}>
+                  <div key={p.id} className="list-box-row" style={{ gridTemplateColumns: 'minmax(150px, 1fr) minmax(96px, .6fr) minmax(96px, .6fr) 86px 74px 36px', alignItems: 'center', gap: '10px' }}>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.prog_name}</span>
                       <span style={{ display: 'block', fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.code || '-'}</span>
                     </span>
-                    <span style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', minWidth: 0 }}>
-                      <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
-                      <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
-                    </span>
+                    <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
+                    <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 8px', minWidth: 0 }} />
                     <select className="form-select" value={p.settle_type || 'per_person'} onChange={e => updateProgramLocal(p.id, { settle_type: e.target.value })} style={{ height: '28px', fontSize: '11px', padding: '0 6px' }}>
                       <option value="per_person">인원당</option>
                       <option value="fixed">고정</option>
