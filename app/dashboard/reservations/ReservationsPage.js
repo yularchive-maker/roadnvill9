@@ -100,6 +100,25 @@ function lodgePayload(row, reservationNo) {
   }
 }
 
+function componentSummaryForReservation(reservation, usages) {
+  const rows = usages.filter(row =>
+    row.reservation_no === reservation.no &&
+    row.usage_type === 'product_operation' &&
+    row.is_deleted !== true
+  )
+  if (!rows.length) {
+    return {
+      zoneCount: reservation.zone_code ? 1 : 0,
+      packageCount: reservation.package_name ? 1 : 0,
+    }
+  }
+  const zones = new Set(rows.map(row => row.zone_code || row.zone_name || '').filter(Boolean))
+  return {
+    zoneCount: zones.size,
+    packageCount: rows.length,
+  }
+}
+
 // ══════════════════════════════════════════════════════
 // 예약 모달
 // ══════════════════════════════════════════════════════
@@ -182,11 +201,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       const usages = usageR.data || []
       const productUsages = usages.filter(u => u.usage_type === 'product_operation')
       const rows = productUsages.map(u => {
-        const promo = usages.find(x =>
+        const rowDiscountRate = Number(u.discount_rate) || 0
+        const promo = rowDiscountRate > 0 ? usages.find(x =>
           x.usage_type === 'promotion_discount' &&
           x.package_name === u.package_name &&
-          String(x.biz_id || '') === String(u.biz_id || '')
-        )
+          String(x.biz_id || '') === String(u.biz_id || '') &&
+          Number(x.discount_rate) === rowDiscountRate
+        ) : null
         return makeComponentRow({
           id: `saved-${u.id}`,
           operation_type: u.operation_type || 'business',
@@ -194,7 +215,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           zone_code: u.zone_code || '',
           package_name: u.package_name || '',
           people_count: Number(u.people_count) || Number(form.pax) || 1,
-          discount_rate: Number(promo?.discount_rate) || 0,
+          discount_rate: rowDiscountRate,
           reimbursement_target: promo?.reimbursement_target || '',
           reimbursed_amount: Number(promo?.reimbursed_amount) || 0,
           reimbursement_memo: promo?.reimbursement_memo || promo?.memo || '',
@@ -1206,7 +1227,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>인원 <span className="req">*</span></label>
+                    <label>전체 인원 <span className="req">*</span></label>
                     <input className="form-input" type="number" min="1" value={form.pax} onChange={e=>onPaxChange(e.target.value)} placeholder="명"/>
                   </div>
                 </div>
@@ -1228,7 +1249,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   <button type="button" className="btn-outline btn-sm" onClick={addComponentRow}>+ 구성 추가</button>
                 </div>
                 <div style={{fontSize:'12px',color:'var(--text-secondary)',marginBottom:'10px',lineHeight:1.55}}>
-                  기본정보의 인원은 예약 전체 대표 인원입니다. 구성 패키지 인원은 각 체험/할인 조건별 실제 이용 인원이라 다르게 나눌 수 있습니다.
+                  기본정보의 전체 인원은 예약의 기준 인원입니다. 구성 패키지 인원은 각 패키지/요금 조건별 실제 체험 인원으로 나눠 입력합니다.
                 </div>
                 {componentRows.length === 0 ? (
                   <div style={{border:'1px dashed var(--border)',borderRadius:'8px',padding:'16px',color:'var(--text-muted)',textAlign:'center'}}>
@@ -1711,6 +1732,7 @@ export default function ReservationsPage() {
   const [drivers,   setDrivers]   = useState([])
   const [bizList,   setBizList]   = useState([])
   const [lodgeVendors, setLodgeVendors] = useState([])
+  const [budgetUsages, setBudgetUsages] = useState([])
   const [loading,   setLoading]   = useState(true)
 
   const [search,    setSearch]    = useState('')
@@ -1728,7 +1750,7 @@ export default function ReservationsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR] = await Promise.all([
+    const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, usageR] = await Promise.all([
       supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('name'),
@@ -1736,6 +1758,7 @@ export default function ReservationsPage() {
       supabase.from('drivers').select('*').order('name'),
       supabase.from('biz').select('*').order('name'),
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setZones(zoneR.data || [])
@@ -1744,6 +1767,7 @@ export default function ReservationsPage() {
     setDrivers(drvR.data || [])
     setBizList(bizR.data || [])
     setLodgeVendors(lodgeR.data || [])
+    setBudgetUsages(usageR.data || [])
     setLoading(false)
   }, [])
 
@@ -1826,7 +1850,7 @@ export default function ReservationsPage() {
           <span>고객명</span>
           <span>패키지명</span>
           <span style={CENTER_CELL}>구역</span>
-          <span style={CENTER_CELL}>인원</span>
+          <span style={CENTER_CELL}>구성</span>
           <span style={RIGHT_CELL}>총금액</span>
           <span style={CENTER_CELL}>결제처</span>
           <span style={CENTER_CELL}>운영</span>
@@ -1835,23 +1859,29 @@ export default function ReservationsPage() {
         {filtered.length === 0 && (
           <div style={{padding:'40px',textAlign:'center',color:'var(--text-muted)',fontSize:'13px'}}>예약 없음</div>
         )}
-        {filtered.map(r => (
-          <div key={r.no} className="list-row" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px'}} onClick={()=>openEdit(r)}>
-            <span className="no-col" style={CENTER_CELL}>#{r.no}</span>
-            <span style={CENTER_CELL}><span className={`badge ${r.type}`} style={{minWidth:'46px',justifyContent:'center'}}>{STATUS_LABEL[r.type]}</span></span>
-            <span style={{...CENTER_CELL,fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
-            <span style={{...NOWRAP_CELL,fontWeight:600}} title={r.customer}>{r.customer}</span>
-            <span style={{...NOWRAP_CELL,fontSize:'12px',color:'var(--text-secondary)'}} title={r.package_name || '-'}>{r.package_name||'-'}</span>
-            <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)'}}>{r.zone_code||'-'}</span>
-            <span style={{...CENTER_CELL,fontSize:'13px',fontWeight:600}}>{r.pax}명</span>
-            <span style={{...RIGHT_CELL,fontFamily:'DM Mono,monospace',fontSize:'12px',fontWeight:700}}>{(r.total||0).toLocaleString()}</span>
-            <span style={{...CENTER_CELL,fontSize:'12px',color:'var(--text-secondary)', ...NOWRAP_CELL}} title={r.payto || '-'}>{r.payto||'-'}</span>
-            <span style={CENTER_CELL}>
-              <span style={{fontSize:'11px',minWidth:'52px',textAlign:'center',padding:'2px 8px',borderRadius:'4px',background: r.op==='사업비'?'rgba(123,104,238,.1)':'rgba(78,205,196,.08)',color: r.op==='사업비'?'var(--purple)':'var(--text-muted)',fontWeight:600}}>{r.op}</span>
-            </span>
-            <span style={{...CENTER_CELL,fontSize:'11px',color: r.settle_status==='settled'?'var(--green)':'var(--amber)',fontWeight:700}}>{r.settle_status==='settled'?'완료':'미정산'}</span>
-          </div>
-        ))}
+        {filtered.map(r => {
+          const summary = componentSummaryForReservation(r, budgetUsages)
+          return (
+            <div key={r.no} className="list-row" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px'}} onClick={()=>openEdit(r)}>
+              <span className="no-col" style={CENTER_CELL}>#{r.no}</span>
+              <span style={CENTER_CELL}><span className={`badge ${r.type}`} style={{minWidth:'46px',justifyContent:'center'}}>{STATUS_LABEL[r.type]}</span></span>
+              <span style={{...CENTER_CELL,fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
+              <span style={{...NOWRAP_CELL,fontWeight:600}} title={r.customer}>{r.customer}</span>
+              <span style={{...NOWRAP_CELL,fontSize:'12px',color:'var(--text-secondary)'}} title={r.package_name || '-'}>{r.package_name||'-'}</span>
+              <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)'}}>{r.zone_code||'-'}</span>
+              <span style={{...CENTER_CELL,flexDirection:'column',gap:'2px',fontSize:'11px',fontWeight:700,lineHeight:1.15}}>
+                <span>{summary.zoneCount}구역</span>
+                <span style={{color:'var(--accent)'}}>패키지 {summary.packageCount}건</span>
+              </span>
+              <span style={{...RIGHT_CELL,fontFamily:'DM Mono,monospace',fontSize:'12px',fontWeight:700}}>{(r.total||0).toLocaleString()}</span>
+              <span style={{...CENTER_CELL,fontSize:'12px',color:'var(--text-secondary)', ...NOWRAP_CELL}} title={r.payto || '-'}>{r.payto||'-'}</span>
+              <span style={CENTER_CELL}>
+                <span style={{fontSize:'11px',minWidth:'52px',textAlign:'center',padding:'2px 8px',borderRadius:'4px',background: r.op==='사업비'?'rgba(123,104,238,.1)':'rgba(78,205,196,.08)',color: r.op==='사업비'?'var(--purple)':'var(--text-muted)',fontWeight:600}}>{r.op}</span>
+              </span>
+              <span style={{...CENTER_CELL,fontSize:'11px',color: r.settle_status==='settled'?'var(--green)':'var(--amber)',fontWeight:700}}>{r.settle_status==='settled'?'완료':'미정산'}</span>
+            </div>
+          )
+        })}
       </div>
 
       {/* 모달 */}

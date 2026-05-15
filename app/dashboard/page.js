@@ -14,6 +14,25 @@ function fmtMoney(n) {
   return n.toLocaleString('ko-KR') + '원'
 }
 
+function componentSummaryForReservation(reservation, usages) {
+  const rows = usages.filter(row =>
+    row.reservation_no === reservation.no &&
+    row.usage_type === 'product_operation' &&
+    row.is_deleted !== true
+  )
+  if (!rows.length) {
+    return {
+      zoneCount: reservation.zone_code ? 1 : 0,
+      packageCount: reservation.package_name ? 1 : 0,
+    }
+  }
+  const zones = new Set(rows.map(row => row.zone_code || row.zone_name || '').filter(Boolean))
+  return {
+    zoneCount: zones.size,
+    packageCount: rows.length,
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [reservations, setReservations] = useState([])
@@ -22,6 +41,7 @@ export default function DashboardPage() {
   const [vendorConfirms, setVendorConfirms] = useState([])
   const [lodgeConfirms,  setLodgeConfirms]  = useState([])
   const [pickups,        setPickups]        = useState([])
+  const [budgetUsages,   setBudgetUsages]   = useState([])
   const [calYear,  setCalYear]  = useState(new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(new Date().getMonth() + 1)
   const [selectedDate, setSelectedDate] = useState(todayStr())
@@ -31,13 +51,14 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [resR, pkgR, notR, vcR, lcR, pkR] = await Promise.all([
+    const [resR, pkgR, notR, vcR, lcR, pkR, usageR] = await Promise.all([
       supabase.from('reservations').select('*').order('date', { ascending: false }),
       supabase.from('packages').select('*, package_programs(vendor_key, prog_name, vendors(key,name,color))'),
       supabase.from('notices').select('*').order('date'),
       supabase.from('vendor_confirms').select('*'),
       supabase.from('lodge_confirms').select('*'),
       supabase.from('reservation_pickup').select('*, drivers(name)'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setPackages(pkgR.data || [])
@@ -45,6 +66,7 @@ export default function DashboardPage() {
     setVendorConfirms(vcR.data || [])
     setLodgeConfirms(lcR.data || [])
     setPickups(pkR.data || [])
+    setBudgetUsages(usageR.data || [])
     setLoading(false)
   }, [])
 
@@ -269,6 +291,7 @@ export default function DashboardPage() {
             <div className="list-card" style={{ overflow:'hidden', maxHeight:'486px', overflowY:'auto' }}>
               {selRes.map(r => {
                 const conf = getConfirmStatus(r)
+                const componentSummary = componentSummaryForReservation(r, budgetUsages)
                 const dot = conf === 'confirmed' ? 'var(--green)' : conf === 'partial' ? 'var(--amber)' : 'var(--text-muted)'
                 const lodges = getLodges(r.no)
                 const pickupRows = getPickups(r.no)
@@ -286,7 +309,7 @@ export default function DashboardPage() {
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontWeight:600, fontSize:'13px' }}>
                               {r.customer}
-                              <span style={{ fontWeight:400, fontSize:'11px', color:'var(--text-muted)', marginLeft:'4px' }}>{r.pax}명</span>
+                              <span style={{ fontWeight:400, fontSize:'11px', color:'var(--text-muted)', marginLeft:'4px' }}>{componentSummary.zoneCount}구역 · 패키지 {componentSummary.packageCount}건</span>
                             </div>
                             <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' }}>
                               {r.package_name || r.pkg || '-'} · <span className={`badge ${r.type}`} style={{ fontSize:'10px', padding:'1px 6px' }}>{STATUS_LABEL[r.type]}</span>
@@ -308,7 +331,7 @@ export default function DashboardPage() {
                           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px', marginBottom:'10px' }}>
                             {infoItem('고객명', r.customer)}
                             {infoItem('패키지', r.package_name || r.pkg)}
-                            {infoItem('인원', `${r.pax || 0}명`)}
+                            {infoItem('구성', `${componentSummary.zoneCount}구역 / 패키지 ${componentSummary.packageCount}건`)}
                             {infoItem('연락처', r.tel)}
                             {infoItem('날짜', `${r.date}${r.end_date && r.end_date !== r.date ? ` ~ ${r.end_date.slice(5)}` : ''}`)}
                             {infoItem('결제처', r.payto)}
