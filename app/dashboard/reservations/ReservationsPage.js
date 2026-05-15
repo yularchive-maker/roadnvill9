@@ -270,7 +270,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   })
 
   function onPaxChange(value) {
+    const nextPax = Number(value) || 1
+    const prevPax = Number(form.pax) || 1
     inp('pax', value)
+    setComponentRows(rows => rows.map(row => (
+      !Number(row.people_count) || Number(row.people_count) === prevPax
+        ? { ...row, people_count: nextPax }
+        : row
+    )))
     setLgRow(r => {
       if (r.price_type !== 'per_person' || !r.room_name) return r
       const room = lodgeRooms.find(x => x.name === r.room_name)
@@ -281,6 +288,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   // 패키지 선택 → 1인 판매가 자동입력
   function onPkgChange(pkgName) {
     const pkg = packages.find(p => p.name === pkgName)
+    const prevPackageName = form.package_name
     setForm(f => {
       const next = { ...f, package_name: pkgName }
       if (pkg) {
@@ -289,6 +297,34 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       }
       next.total = calcTotal(next.price, next.pax, next.discount, next.pickup_fee, next.burden)
       return next
+    })
+    if (!pkgName) return
+    setComponentRows(rows => {
+      const defaultRow = makeComponentRow({
+        operation_type: 'general',
+        biz_id: '',
+        zone_code: pkg?.zone_code || form.zone_code || '',
+        package_name: pkgName,
+        people_count: Number(form.pax) || 1,
+      })
+      if (!rows.length) return [defaultRow]
+      if (
+        rows.length === 1 &&
+        rows[0].operation_type === 'general' &&
+        (!rows[0].package_name || rows[0].package_name === prevPackageName)
+      ) {
+        return [{
+          ...rows[0],
+          operation_type: 'general',
+          biz_id: '',
+          zone_code: pkg?.zone_code || rows[0].zone_code || form.zone_code || '',
+          package_name: pkgName,
+          people_count: Number(form.pax) || Number(rows[0].people_count) || 1,
+          discount_rate: 0,
+          reimbursement_target: '',
+        }]
+      }
+      return rows
     })
   }
 
@@ -352,10 +388,10 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     setComponentRows(rows => [
       ...rows,
       makeComponentRow({
-        operation_type: form.op === '사업비' ? 'business' : 'general',
-        biz_id: form.op === '사업비' ? (form.biz_id || '') : '',
+        operation_type: 'general',
+        biz_id: '',
         zone_code: form.zone_code || '',
-        package_name: form.package_name || '',
+        package_name: rows.length ? '' : (form.package_name || ''),
         people_count: Number(form.pax) || 1,
       }),
     ])
@@ -539,6 +575,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (!form.date)      { alert('예약날짜를 입력하세요.'); return }
     setSaving(true)
 
+    const activeComponents = componentRows.filter(row => row.package_name && Number(row.people_count) > 0)
+    const businessComponent = activeComponents.find(row => row.operation_type === 'business')
+    const derivedOp = businessComponent ? '사업비' : '일반'
+    const derivedBizId = businessComponent?.biz_id || null
+
     const payload = {
       type: form.type, date: form.date, end_date: form.end_date || form.date,
       zone_code: form.zone_code || null, package_name: form.package_name || null,
@@ -549,7 +590,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       payto: form.payto, inflow: form.inflow,
       platform_name: form.platform_name, plat_fee: Number(form.plat_fee)||0,
       agency_name: form.agency_name, ag_fee: Number(form.ag_fee)||0,
-      op: form.op, biz_id: form.biz_id || null,
+      op: derivedOp, biz_id: derivedBizId,
       settle_status: form.settle_status, memo: form.memo,
       reservation_status: form.reservation_status || '상담중',
       payment_status: form.payment_status || '미결제',
@@ -1159,11 +1200,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   <button type="button" className="btn-outline btn-sm" onClick={addComponentRow}>+ 구성 추가</button>
                 </div>
                 <div style={{fontSize:'12px',color:'var(--text-secondary)',marginBottom:'10px',lineHeight:1.55}}>
-                  예약에서는 정해진 구성만 선택합니다. 사업비의 할인율, 기준단가, 선지급 단가는 기준정보의 사업비 항목에서 불러와 자동 계산됩니다.
+                  일반 패키지는 위 패키지명 선택 시 자동으로 구성됩니다. 사업비 또는 복합 구성만 + 구성 추가로 더해 주세요.
                 </div>
                 {componentRows.length === 0 ? (
                   <div style={{border:'1px dashed var(--border)',borderRadius:'8px',padding:'16px',color:'var(--text-muted)',textAlign:'center'}}>
-                    구성 패키지가 없습니다. 현재 선택한 패키지를 기준으로 추가하려면 + 구성 추가를 눌러주세요.
+                    패키지명을 선택하면 일반 구성 패키지가 자동으로 추가됩니다.
                   </div>
                 ) : (
                   <div style={{display:'grid',gap:'10px'}}>
@@ -1183,7 +1224,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             </div>
                             <button type="button" className="icon-btn" onClick={()=>removeComponentRow(row.id)}>×</button>
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:'110px minmax(150px,1fr) minmax(200px,1.4fr) 92px',gap:'10px',alignItems:'end'}}>
+                          <div style={{display:'grid',gridTemplateColumns:'106px minmax(130px,.8fr) minmax(190px,1.4fr) 88px',gap:'8px',alignItems:'end'}}>
                             <div className="form-field">
                               <label>운영구분</label>
                               <select className="form-select" value={row.operation_type} onChange={e=>updateComponentRow(row.id,{operation_type:e.target.value})}>
@@ -1226,7 +1267,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               <input className="form-input" value={row.reimbursement_target||''} onChange={e=>updateComponentRow(row.id,{reimbursement_target:e.target.value})} placeholder="사업비 패키지 기준에서 자동 입력"/>
                             </div>
                           )}
-                          <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'repeat(5,minmax(0,1fr))' : 'repeat(3,minmax(0,1fr))',gap:'8px',fontSize:'12px'}}>
+                          <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'repeat(5,minmax(0,1fr))' : 'repeat(3,minmax(0,1fr))',gap:'6px',fontSize:'12px'}}>
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>기준가 <b style={{display:'block',color:'var(--text-primary)'}}>{amounts.normalUnit.toLocaleString()}원</b></div>
                             {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>할인율 <b style={{display:'block',color:'var(--accent)'}}>{amounts.discountRate}%</b></div>}
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>고객가 <b style={{display:'block',color:'var(--accent)'}}>{amounts.customerUnit.toLocaleString()}원</b></div>
@@ -1405,24 +1446,12 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     <input className="form-input fee-input" type="number" value={form.ag_fee||0} onChange={e=>inp('ag_fee',e.target.value)}/>
                   </div>
                 </div>
-                <div className="form-grid form-grid-2" style={{marginBottom:'10px'}}>
-                  <div className="form-field">
-                    <label>운영구분 <span className="req">*</span></label>
-                    <select className="form-select" value={form.op} onChange={e=>inp('op',e.target.value)}>
-                      {OP_OPTS.map(o=><option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>사업명</label>
-                    <select className="form-select" value={form.biz_id||''} onChange={e=>inp('biz_id',e.target.value)} disabled={form.op!=='사업비'}>
-                      <option value="">선택</option>
-                      {bizList.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                  </div>
-                </div>
                 <div className="form-field" style={{marginBottom:'10px'}}>
                   <label>총 결제금액 <span className="auto">자동계산</span></label>
                   <input className="form-input total" value={(form.total||0).toLocaleString()+'원'} readOnly/>
+                </div>
+                <div style={{fontSize:'12px',color:'var(--text-secondary)',lineHeight:1.5,marginBottom:'10px'}}>
+                  운영구분과 사업명은 위 구성 패키지에 사업비 항목이 포함되어 있으면 저장 시 자동 반영됩니다.
                 </div>
                 <div className="form-field">
                   <label>비고</label>
