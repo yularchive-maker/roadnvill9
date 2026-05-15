@@ -242,9 +242,13 @@ export default function BizPage() {
 
   const cards = useMemo(() => {
     return productItems.map(product => {
-      const promo = promotionItems.find(item => matchesName(item.item_name, product.item_name))
+      const promo = promotionItems.find(item =>
+        matchesName(item.item_name, product.item_name) &&
+        String(item.biz_id || '') === String(product.biz_id || '')
+      )
       const pkg = packages.find(p => matchesName(p.name, packageTarget(product)))
-      const zoneCode = pkg?.zone_code || ''
+      const biz = bizList.find(item => String(item.id) === String(product.biz_id))
+      const zoneCode = product.zone_code || pkg?.zone_code || ''
       const productUsage = buildProductUsage(product, reservations, snapshots, budgetUsages)
       const promoUsage = promo ? buildPromotionUsage(promo, reservations, budgetUsages) : { usedPeople: 0, usedAmount: 0, reimbursedAmount: 0, unpaidAmount: 0, details: [] }
       const plannedPeople = Number(product.planned_people_count) || 0
@@ -263,6 +267,8 @@ export default function BizPage() {
         product,
         promo,
         pkg,
+        bizId: product.biz_id || '',
+        bizName: biz?.name || product.biz_name || '사업비 미지정',
         zoneCode,
         zoneName: zoneMap[zoneCode] || zoneCode || '구역 미지정',
         plannedPeople,
@@ -283,7 +289,7 @@ export default function BizPage() {
         vendorRows,
       }
     })
-  }, [productItems, promotionItems, packages, reservations, snapshots, budgetUsages, zoneMap])
+  }, [productItems, promotionItems, packages, reservations, snapshots, budgetUsages, zoneMap, bizList])
 
   const availableZones = useMemo(() => {
     const codes = [...new Set(cards.map(card => card.zoneCode).filter(Boolean))]
@@ -303,6 +309,34 @@ export default function BizPage() {
       grouped.get(key).cards.push(card)
     }
     return [...grouped.values()]
+  }, [visibleCards])
+
+  const groupedByBiz = useMemo(() => {
+    const grouped = new Map()
+    for (const card of visibleCards) {
+      const bizKey = card.bizId || 'none'
+      if (!grouped.has(bizKey)) {
+        grouped.set(bizKey, {
+          id: card.bizId,
+          name: card.bizName,
+          cards: [],
+          zoneMap: new Map(),
+        })
+      }
+      const bizGroup = grouped.get(bizKey)
+      bizGroup.cards.push(card)
+      const zoneKey = card.zoneCode || 'none'
+      if (!bizGroup.zoneMap.has(zoneKey)) {
+        bizGroup.zoneMap.set(zoneKey, { code: card.zoneCode, name: card.zoneName, cards: [] })
+      }
+      bizGroup.zoneMap.get(zoneKey).cards.push(card)
+    }
+
+    return [...grouped.values()].map(group => ({
+      ...group,
+      zones: [...group.zoneMap.values()],
+      zoneMap: undefined,
+    }))
   }, [visibleCards])
 
   const totals = useMemo(() => {
@@ -435,100 +469,107 @@ export default function BizPage() {
             </div>
           </div>
 
-          {groupedByZone.length === 0 ? (
+          {groupedByBiz.length === 0 ? (
             <div className="list-card" style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>표시할 사업비 패키지가 없습니다.</div>
-          ) : groupedByZone.map(group => (
-            <div key={group.code || 'none'} style={{ marginBottom: '18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          ) : groupedByBiz.map(bizGroup => (
+            <div key={bizGroup.id || 'none'} style={{ marginBottom: '22px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div>
-                  <div style={{ fontSize: '16px', fontWeight: 900 }}>{group.name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{group.cards.length}개 패키지</div>
+                  <div style={{ fontSize: '17px', fontWeight: 900 }}>{bizGroup.name}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {bizGroup.zones.length}개 구역 · {bizGroup.cards.length}개 사업비 패키지
+                  </div>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '12px' }}>
-                {group.cards.map(card => {
-                  const opened = !!open[card.id]
-                  const progress = pctVal(card.totalUsedPeople, card.plannedPeople)
-                  return (
-                    <div key={card.id} className="list-card" style={{ padding: '14px', borderColor: opened ? 'rgba(78,205,196,.45)' : 'var(--border)' }}>
-                      <button
-                        type="button"
-                        onClick={() => setOpen(prev => ({ ...prev, [card.id]: !prev[card.id] }))}
-                        style={{ width: '100%', border: 0, background: 'transparent', color: 'inherit', padding: 0, textAlign: 'left', cursor: 'pointer' }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: '15px', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.product.item_name}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>{card.zoneName}</div>
-                          </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <div style={{ fontSize: '15px', fontWeight: 900 }}>총 {fmt(card.totalUsedPeople)} / {fmt(card.plannedPeople)}명</div>
-                            <div style={{ fontSize: '11px', color: pctColor(progress), marginTop: '3px' }}>진행률 {progress}%</div>
-                          </div>
-                        </div>
+              {bizGroup.zones.map(group => (
+                <div key={`${bizGroup.id || 'none'}-${group.code || 'none'}`} style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 900, marginBottom: '8px', color: 'var(--accent)' }}>{group.name}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '12px' }}>
+                    {group.cards.map(card => {
+                      const opened = !!open[card.id]
+                      const progress = pctVal(card.totalUsedPeople, card.plannedPeople)
+                      return (
+                        <div key={card.id} className="list-card" style={{ padding: '14px', borderColor: opened ? 'rgba(78,205,196,.45)' : 'var(--border)' }}>
+                          <button
+                            type="button"
+                            onClick={() => setOpen(prev => ({ ...prev, [card.id]: !prev[card.id] }))}
+                            style={{ width: '100%', border: 0, background: 'transparent', color: 'inherit', padding: 0, textAlign: 'left', cursor: 'pointer' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: '15px', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.product.item_name}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>{card.zoneName}</div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <div style={{ fontSize: '15px', fontWeight: 900 }}>총 {fmt(card.totalUsedPeople)} / {fmt(card.plannedPeople)}명</div>
+                                <div style={{ fontSize: '11px', color: pctColor(progress), marginTop: '3px' }}>진행률 {progress}%</div>
+                              </div>
+                            </div>
 
-                        <div style={{ display: 'grid', gap: '7px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr', gap: '8px', alignItems: 'center', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '7px', padding: '8px 10px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>할인 없음</span>
-                            <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(card.normalUsedPeople)} / {fmt(card.normalPlanPeople)}명</span>
-                            <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--accent)' }}>고객가 {money(card.normalUnit)}</span>
-                          </div>
-                          {card.promo && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr auto', gap: '8px', alignItems: 'center', background: 'rgba(247,201,72,.08)', border: '1px solid rgba(247,201,72,.22)', borderRadius: '7px', padding: '8px 10px' }}>
-                              <span style={{ fontSize: '11px', fontWeight: 900, color: 'var(--amber)' }}>{Number(card.discountRate)}% 할인</span>
-                              <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(card.discountUsedPeople)} / {fmt(card.discountPlanPeople)}명</span>
-                              <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px' }}>고객가 {money(card.discountCustomerUnit)}</span>
-                              <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--amber)', whiteSpace: 'nowrap' }}>선지급 {money(card.prepaidTotal)}</span>
+                            <div style={{ display: 'grid', gap: '7px' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr', gap: '8px', alignItems: 'center', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '7px', padding: '8px 10px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>할인 없음</span>
+                                <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(card.normalUsedPeople)} / {fmt(card.normalPlanPeople)}명</span>
+                                <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--accent)' }}>고객가 {money(card.normalUnit)}</span>
+                              </div>
+                              {card.promo && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr auto', gap: '8px', alignItems: 'center', background: 'rgba(247,201,72,.08)', border: '1px solid rgba(247,201,72,.22)', borderRadius: '7px', padding: '8px 10px' }}>
+                                  <span style={{ fontSize: '11px', fontWeight: 900, color: 'var(--amber)' }}>{Number(card.discountRate)}% 할인</span>
+                                  <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(card.discountUsedPeople)} / {fmt(card.discountPlanPeople)}명</span>
+                                  <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px' }}>고객가 {money(card.discountCustomerUnit)}</span>
+                                  <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--amber)', whiteSpace: 'nowrap' }}>선지급 {money(card.prepaidTotal)}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', fontSize: '11px' }}>
+                              <span style={{ color: 'var(--amber)' }}>선지급 {money(card.prepaidTotal)}</span>
+                              <span style={{ color: card.unpaidAmount > 0 ? 'var(--red)' : 'var(--green)' }}>미정산 {money(card.unpaidAmount)}</span>
+                              <span style={{ color: 'var(--green)' }}>정산완료 {money(card.reimbursedAmount)}</span>
+                            </div>
+                          </button>
+
+                          {opened && (
+                            <div style={{ marginTop: '14px', borderTop: '1px solid var(--border2)', paddingTop: '12px' }}>
+                              <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>패키지 구성 프로그램</div>
+                              <div className="list-box" style={{ marginBottom: '12px' }}>
+                                <div className="list-box-header" style={{ gridTemplateColumns: '1fr 1fr 80px 110px' }}>
+                                  <span>업체</span><span>프로그램</span><span>이용</span><span>업체 정산액</span>
+                                </div>
+                                {card.vendorRows.length === 0 ? (
+                                  <div className="list-box-empty">정산 스냅샷이 없습니다.</div>
+                                ) : card.vendorRows.map(row => (
+                                  <div key={`${row.vendor_key}-${row.prog_name}`} className="list-box-row" style={{ gridTemplateColumns: '1fr 1fr 80px 110px' }}>
+                                    <span>{row.vendor_name}</span>
+                                    <span>{row.prog_name}</span>
+                                    <span>{fmt(row.people)}명</span>
+                                    <span style={{ fontFamily: 'DM Mono,monospace', color: 'var(--amber)' }}>{money(row.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>선지급·재정산</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
+                                {[
+                                  ['선지급 단가', money(card.prepaidUnit)],
+                                  ['선지급 총액', money(card.prepaidTotal)],
+                                  ['정산완료액', money(card.reimbursedAmount)],
+                                  ['미정산액', money(card.unpaidAmount)],
+                                ].map(([label, value]) => (
+                                  <div key={label} style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', background: 'rgba(255,255,255,.02)' }}>
+                                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '5px' }}>{label}</div>
+                                    <div style={{ fontFamily: 'DM Mono,monospace', fontSize: '13px', fontWeight: 900 }}>{value}</div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
-
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', fontSize: '11px' }}>
-                          <span style={{ color: 'var(--amber)' }}>선지급 {money(card.prepaidTotal)}</span>
-                          <span style={{ color: card.unpaidAmount > 0 ? 'var(--red)' : 'var(--green)' }}>미정산 {money(card.unpaidAmount)}</span>
-                          <span style={{ color: 'var(--green)' }}>정산완료 {money(card.reimbursedAmount)}</span>
-                        </div>
-                      </button>
-
-                      {opened && (
-                        <div style={{ marginTop: '14px', borderTop: '1px solid var(--border2)', paddingTop: '12px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>패키지 구성 프로그램</div>
-                          <div className="list-box" style={{ marginBottom: '12px' }}>
-                            <div className="list-box-header" style={{ gridTemplateColumns: '1fr 1fr 80px 110px' }}>
-                              <span>업체</span><span>프로그램</span><span>이용</span><span>업체 정산액</span>
-                            </div>
-                            {card.vendorRows.length === 0 ? (
-                              <div className="list-box-empty">정산 스냅샷이 없습니다.</div>
-                            ) : card.vendorRows.map(row => (
-                              <div key={`${row.vendor_key}-${row.prog_name}`} className="list-box-row" style={{ gridTemplateColumns: '1fr 1fr 80px 110px' }}>
-                                <span>{row.vendor_name}</span>
-                                <span>{row.prog_name}</span>
-                                <span>{fmt(row.people)}명</span>
-                                <span style={{ fontFamily: 'DM Mono,monospace', color: 'var(--amber)' }}>{money(row.amount)}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>선지급·재정산</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
-                            {[
-                              ['선지급 단가', money(card.prepaidUnit)],
-                              ['선지급 총액', money(card.prepaidTotal)],
-                              ['정산완료액', money(card.reimbursedAmount)],
-                              ['미정산액', money(card.unpaidAmount)],
-                            ].map(([label, value]) => (
-                              <div key={label} style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', background: 'rgba(255,255,255,.02)' }}>
-                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '5px' }}>{label}</div>
-                                <div style={{ fontFamily: 'DM Mono,monospace', fontSize: '13px', fontWeight: 900 }}>{value}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </>
