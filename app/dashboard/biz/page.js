@@ -386,6 +386,24 @@ export default function BizPage() {
     setSelectedZones(prev => prev.includes(code) ? prev.filter(item => item !== code) : [...prev, code])
   }
 
+  async function updateReimbursement(row, mode) {
+    const paidAmount = mode === 'complete' ? row.prepaid : 0
+    const { error } = await supabase
+      .from('reservation_budget_usages')
+      .update({
+        reimbursed_amount: paidAmount,
+        reimbursement_status: mode === 'complete' ? '정산완료' : '미정산',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+
+    if (error) {
+      alert('선지급 정산 상태 변경 실패: ' + error.message)
+      return
+    }
+    await load()
+  }
+
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>조회 중...</div>
   }
@@ -596,13 +614,13 @@ export default function BizPage() {
           </div>
 
           <div className="list-card" style={{ overflow: 'hidden' }}>
-            <div className="list-header" style={{ gridTemplateColumns: '86px 104px 1fr 1fr 1fr 90px 110px 110px 110px 86px' }}>
-              <span>예약번호</span><span>예약일</span><span>재정산 받을 곳</span><span>사업비</span><span>패키지</span><span>인원</span><span>선지급</span><span>정산완료</span><span>미정산</span><span>상태</span>
+            <div className="list-header" style={{ gridTemplateColumns: '80px 96px 1fr 1fr 1fr 76px 104px 104px 104px 82px 92px' }}>
+              <span>예약번호</span><span>예약일</span><span>재정산 받을 곳</span><span>사업비</span><span>패키지</span><span>인원</span><span>선지급</span><span>정산완료</span><span>미정산</span><span>상태</span><span>작업</span>
             </div>
             {reimbursementRows.length === 0 ? (
               <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>선지급 정산 내역이 없습니다.</div>
             ) : reimbursementRows.map(row => (
-              <div key={row.id} className="list-row" style={{ gridTemplateColumns: '86px 104px 1fr 1fr 1fr 90px 110px 110px 110px 86px' }}>
+              <div key={row.id} className="list-row" style={{ gridTemplateColumns: '80px 96px 1fr 1fr 1fr 76px 104px 104px 104px 82px 92px' }}>
                 <span>#{row.reservation_no}</span>
                 <span>{row.date || '-'}</span>
                 <span>{row.target}</span>
@@ -613,6 +631,13 @@ export default function BizPage() {
                 <span style={{ fontFamily: 'DM Mono,monospace', color: 'var(--green)' }}>{money(row.reimbursed)}</span>
                 <span style={{ fontFamily: 'DM Mono,monospace', color: row.unpaid > 0 ? 'var(--red)' : 'var(--text-muted)' }}>{money(row.unpaid)}</span>
                 <span>{row.status}</span>
+                <span style={{ display: 'flex', justifyContent: 'center' }}>
+                  {row.status === '정산완료' ? (
+                    <button className="btn-outline btn-sm" style={{ minWidth: '70px' }} onClick={() => updateReimbursement(row, 'reset')}>미정산</button>
+                  ) : (
+                    <button className="btn-primary btn-sm" style={{ minWidth: '70px' }} onClick={() => updateReimbursement(row, 'complete')}>완료</button>
+                  )}
+                </span>
               </div>
             ))}
           </div>
