@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
-const TABS = ['구역', '체험업체', '패키지', '숙소·객실', '플랫폼·여행사', '픽업수행자', '사업명']
+const TABS = ['구역', '체험업체', '일반 패키지', '숙소·객실', '플랫폼·여행사', '픽업수행자', '사업비 패키지']
 
 // ── 공통 모달 래퍼
 function Modal({ title, onClose, onSave, onDelete, children, maxWidth = '480px' }) {
@@ -1394,7 +1394,7 @@ function DriversTab() {
 // ══════════════════════════════════════════════════════
 // 사업명 탭
 // ══════════════════════════════════════════════════════
-function BizTab() {
+function OldBizTab() {
   const [list,     setList]     = useState([])
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
@@ -1538,6 +1538,212 @@ function BizTab() {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function BizTab() {
+  const [bizList, setBizList] = useState([])
+  const [items, setItems] = useState([])
+  const [zones, setZones] = useState([])
+  const [modal, setModal] = useState(null)
+  const [form, setForm] = useState({})
+
+  const load = useCallback(async () => {
+    const [bizR, itemR, zoneR] = await Promise.all([
+      supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+      supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
+      supabase.from('zones').select('*').order('code'),
+    ])
+    setBizList(bizR.data || [])
+    setItems(itemR.data || [])
+    setZones(zoneR.data || [])
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const products = items.filter(item => item.category === 'product_operation' && item.is_active !== false)
+  const findPromo = name => items.find(item => item.category === 'promotion_discount' && item.item_name === name && item.is_active !== false)
+  const money = value => `₩${Number(value || 0).toLocaleString()}`
+  const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const normalUnit = Number(form.support_unit_amount) || 0
+  const plannedPeople = Number(form.planned_people_count) || 0
+  const discountRate = Number(form.discount_rate) || 0
+  const discountPeople = Number(form.discount_people_count) || 0
+  const prepaidUnit = Math.round(normalUnit * discountRate / 100)
+  const productBudget = plannedPeople * normalUnit
+  const promoBudget = discountPeople * prepaidUnit
+
+  function blankForm() {
+    return {
+      biz_id: '',
+      zone_code: '',
+      item_name: '',
+      planned_people_count: 0,
+      support_unit_amount: 0,
+      discount_rate: 0,
+      discount_people_count: 0,
+      default_reimbursement_target: '',
+      memo: '',
+    }
+  }
+
+  function openNew() {
+    setForm(blankForm())
+    setModal({ mode: 'new' })
+  }
+
+  function openEdit(product) {
+    const promo = findPromo(product.item_name)
+    setForm({
+      product_id: product.id,
+      promo_id: promo?.id || null,
+      biz_id: product.biz_id || '',
+      zone_code: product.zone_code || '',
+      item_name: product.item_name || '',
+      planned_people_count: Number(product.planned_people_count) || 0,
+      support_unit_amount: Number(product.support_unit_amount) || 0,
+      discount_rate: Number(promo?.support_rate) || 0,
+      discount_people_count: Number(promo?.planned_people_count) || 0,
+      default_reimbursement_target: promo?.default_reimbursement_target || product.default_reimbursement_target || '',
+      memo: product.memo || '',
+    })
+    setModal({ mode: 'edit', data: product })
+  }
+
+  async function save() {
+    if (!form.item_name) { alert('사업비 패키지명을 입력하세요.'); return }
+    const itemName = form.item_name.trim()
+    const base = {
+      biz_id: form.biz_id || null,
+      zone_code: form.zone_code || null,
+      item_name: itemName,
+      match_package_name: itemName,
+      default_reimbursement_target: form.default_reimbursement_target || null,
+      memo: form.memo || null,
+      is_active: true,
+      is_deleted: false,
+      deleted_at: null,
+      updated_at: new Date().toISOString(),
+    }
+    const productPayload = {
+      ...base,
+      category: 'product_operation',
+      support_rate: 0,
+      planned_people_count: plannedPeople,
+      support_unit_amount: normalUnit,
+      total_budget_amount: productBudget,
+      sort_order: Number(form.product_id) || 100,
+    }
+    const promoPayload = {
+      ...base,
+      category: 'promotion_discount',
+      support_rate: discountRate,
+      planned_people_count: discountPeople,
+      support_unit_amount: prepaidUnit,
+      total_budget_amount: promoBudget,
+      sort_order: (Number(form.product_id) || 100) + 100,
+    }
+
+    if (form.product_id) {
+      const { error } = await supabase.from('biz_budget_items').update(productPayload).eq('id', form.product_id)
+      if (error) { alert('상품운영비 저장 실패: ' + error.message); return }
+    } else {
+      const { error } = await supabase.from('biz_budget_items').insert(productPayload)
+      if (error) { alert('상품운영비 저장 실패: ' + error.message); return }
+    }
+
+    if (discountRate > 0 && discountPeople > 0) {
+      if (form.promo_id) {
+        const { error } = await supabase.from('biz_budget_items').update(promoPayload).eq('id', form.promo_id)
+        if (error) { alert('할인지원 저장 실패: ' + error.message); return }
+      } else {
+        const { error } = await supabase.from('biz_budget_items').insert(promoPayload)
+        if (error) { alert('할인지원 저장 실패: ' + error.message); return }
+      }
+    } else if (form.promo_id) {
+      await supabase.from('biz_budget_items').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', form.promo_id)
+    }
+
+    setModal(null)
+    load()
+  }
+
+  async function del() {
+    if (!confirm(`"${form.item_name}" 사업비 패키지를 삭제하시겠습니까?`)) return
+    const now = new Date().toISOString()
+    if (form.product_id) await supabase.from('biz_budget_items').update({ is_deleted: true, is_active: false, deleted_at: now }).eq('id', form.product_id)
+    if (form.promo_id) await supabase.from('biz_budget_items').update({ is_deleted: true, is_active: false, deleted_at: now }).eq('id', form.promo_id)
+    setModal(null)
+    load()
+  }
+
+  return (
+    <div>
+      <div className="section-header">
+        <div>
+          <div className="section-title">사업비 패키지 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>고객 할인 지원과 선지급 재정산 기준을 패키지 단위로 관리합니다.</div>
+        </div>
+        <button className="btn-primary" onClick={openNew}>+ 사업비 패키지 추가</button>
+      </div>
+      <div className="list-card">
+        <div className="list-header" style={{ gridTemplateColumns: '1.2fr .8fr .9fr .8fr .8fr .8fr .8fr 36px', gap: '10px' }}>
+          <span>패키지명</span><span>사업명</span><span>구역</span><span>기준가</span><span>계획</span><span>할인</span><span>선지급예산</span><span />
+        </div>
+        {products.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 사업비 패키지 없음</div>}
+        {products.map(product => {
+          const promo = findPromo(product.item_name)
+          const biz = bizList.find(b => String(b.id) === String(product.biz_id))
+          const zone = zones.find(z => z.code === product.zone_code)
+          return (
+            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '1.2fr .8fr .9fr .8fr .8fr .8fr .8fr 36px', gap: '10px', cursor: 'default' }}>
+              <span style={{ fontWeight: 700 }}>{product.item_name}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{biz?.name || '-'}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{zone?.name || product.zone_code || '-'}</span>
+              <span className="mono" style={{ fontSize: '12px' }}>{money(product.support_unit_amount)}</span>
+              <span style={{ fontSize: '12px' }}>{Number(product.planned_people_count || 0).toLocaleString()}명</span>
+              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}% · ${promo.planned_people_count}명` : '없음'}</span>
+              <span className="mono" style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{money(promo?.total_budget_amount || 0)}</span>
+              <button className="icon-btn" onClick={() => openEdit(product)}>✎</button>
+            </div>
+          )
+        })}
+      </div>
+      {modal && (
+        <Modal title={modal.mode === 'new' ? '사업비 패키지 추가' : '사업비 패키지 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="760px">
+          <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
+            <Field label="사업명">
+              <select className="form-select" value={form.biz_id || ''} onChange={e => inp('biz_id', e.target.value)}>
+                <option value="">선택 안 함</option>
+                {bizList.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </Field>
+            <Field label="구역">
+              <select className="form-select" value={form.zone_code || ''} onChange={e => inp('zone_code', e.target.value)}>
+                <option value="">선택 안 함</option>
+                {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
+            <Field label="사업비 패키지명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder="금양연화" /></Field>
+            <Field label="재정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
+          </div>
+          <div className="form-grid form-grid-4" style={{ marginBottom: '12px' }}>
+            <Field label="정상 기준가"><input className="form-input" type="number" value={form.support_unit_amount || 0} onChange={e => inp('support_unit_amount', e.target.value)} /></Field>
+            <Field label="전체 계획 인원"><input className="form-input" type="number" value={form.planned_people_count || 0} onChange={e => inp('planned_people_count', e.target.value)} /></Field>
+            <Field label="할인율(%)"><input className="form-input" type="number" value={form.discount_rate || 0} onChange={e => inp('discount_rate', e.target.value)} /></Field>
+            <Field label="할인 적용 인원"><input className="form-input" type="number" value={form.discount_people_count || 0} onChange={e => inp('discount_people_count', e.target.value)} /></Field>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: '8px', marginBottom: '12px' }}>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>상품운영비 예산<b style={{ display: 'block', marginTop: '4px' }}>{money(productBudget)}</b></div>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>고객 결제가<b style={{ display: 'block', marginTop: '4px', color: 'var(--accent)' }}>{money(normalUnit - prepaidUnit)}</b></div>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>인당 선지급금<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(prepaidUnit)}</b></div>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>할인지원 예산<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(promoBudget)}</b></div>
+          </div>
+          <Field label="메모"><input className="form-input" value={form.memo || ''} onChange={e => inp('memo', e.target.value)} placeholder="운영 기준, 내부 참고사항" /></Field>
         </Modal>
       )}
     </div>
