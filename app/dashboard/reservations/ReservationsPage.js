@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { formatDateTyping, formatMonthTyping } from '@/lib/date-input'
 import { refreshReservationProgramSnapshots } from '@/lib/price-snapshots'
+import { numberInputValue, numberInputChange } from '@/lib/number-format'
 
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const INFLOW_OPTS  = ['플랫폼','여행사','직접']
@@ -1305,13 +1306,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   </div>
                   <div className="form-field">
                     <label>객실금액 ({priceTypeLabel(lgRow.price_type)})</label>
-                    <input className="form-input auto-fill" type="number" value={lgRow.room_price||0} onChange={e=>setLgRow(r=>({...r,room_price:e.target.value}))}/>
+                    <input className="form-input auto-fill" inputMode="numeric" value={numberInputValue(lgRow.room_price)} onChange={e=>setLgRow(r=>({...r,room_price:numberInputChange(e.target.value)}))}/>
                   </div>
                 </div>
                 <div className="form-grid form-grid-2" style={{marginBottom:'8px',gap:'8px'}}>
                   <div className="form-field">
                     <label>숙박지원금</label>
-                    <input className="form-input" type="number" value={lgRow.support_amt||0} onChange={e=>setLgRow(r=>({...r,support_amt:e.target.value}))}/>
+                    <input className="form-input" inputMode="numeric" value={numberInputValue(lgRow.support_amt)} onChange={e=>setLgRow(r=>({...r,support_amt:numberInputChange(e.target.value)}))}/>
                   </div>
                   <div className="form-field">
                     <label>비고</label>
@@ -1343,15 +1344,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
                   <div className="form-field">
                     <label>1인 판매가 <span className="req">*</span></label>
-                    <input className="form-input" type="number" value={form.price} onChange={e=>inp('price',e.target.value)} placeholder="원"/>
+                    <input className="form-input" inputMode="numeric" value={numberInputValue(form.price)} onChange={e=>inp('price',numberInputChange(e.target.value))} placeholder="원"/>
                   </div>
                   <div className="form-field">
                     <label>할인금액</label>
-                    <input className="form-input" type="number" value={form.discount} onChange={e=>inp('discount',e.target.value)}/>
+                    <input className="form-input" inputMode="numeric" value={numberInputValue(form.discount)} onChange={e=>inp('discount',numberInputChange(e.target.value))}/>
                   </div>
                   <div className="form-field">
                     <label>픽업비 <span className="auto">합산</span></label>
-                    <input className="form-input auto-fill" type="number" value={form.pickup_fee} onChange={e=>inp('pickup_fee',e.target.value)}/>
+                    <input className="form-input auto-fill" inputMode="numeric" value={numberInputValue(form.pickup_fee)} onChange={e=>inp('pickup_fee',numberInputChange(e.target.value))}/>
                   </div>
                 </div>
                 <div className="form-grid form-grid-2" style={{marginBottom:'10px'}}>
@@ -1528,7 +1529,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
                 <div className="form-field">
                   <label>픽업비(원)</label>
-                  <input className="form-input" type="number" value={pkRow.pickup_fee||0} onChange={e=>setPkRow(r=>({...r,pickup_fee:e.target.value}))}/>
+                  <input className="form-input" inputMode="numeric" value={numberInputValue(pkRow.pickup_fee)} onChange={e=>setPkRow(r=>({...r,pickup_fee:numberInputChange(e.target.value)}))}/>
                 </div>
               </div>
               <button className="btn-add-row" onClick={addPickup} style={{marginBottom:'8px'}}>+ 추가</button>

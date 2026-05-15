@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { numberInputValue, numberInputChange } from '@/lib/number-format'
 
 const TABS = ['구역', '체험업체', '일반 패키지', '숙소·객실', '플랫폼·여행사', '픽업수행자', '사업비 패키지']
 
@@ -674,10 +675,10 @@ function VendorsTab() {
               </div>
               <div className="form-grid form-grid-2" style={{ marginBottom: '8px' }}>
                 <Field label="고객 판매가">
-                  <input className="form-input" type="number" value={progForm.customer_price} onChange={e => setProgForm(f => ({ ...f, customer_price: e.target.value }))} placeholder="30000" />
+                  <input className="form-input" inputMode="numeric" value={numberInputValue(progForm.customer_price)} onChange={e => setProgForm(f => ({ ...f, customer_price: numberInputChange(e.target.value) }))} placeholder="30,000" />
                 </Field>
                 <Field label="업체 정산단가">
-                  <input className="form-input" type="number" value={progForm.vendor_settle_price} onChange={e => setProgForm(f => ({ ...f, vendor_settle_price: e.target.value }))} placeholder="20000" />
+                  <input className="form-input" inputMode="numeric" value={numberInputValue(progForm.vendor_settle_price)} onChange={e => setProgForm(f => ({ ...f, vendor_settle_price: numberInputChange(e.target.value) }))} placeholder="20,000" />
                 </Field>
               </div>
               <div style={{ marginBottom: '8px', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -695,8 +696,8 @@ function VendorsTab() {
                       <span style={{ display: 'block', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.prog_name}</span>
                       <span style={{ display: 'block', fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.code || '-'}</span>
                     </span>
-                    <input className="form-input" type="number" value={p.customer_price || ''} onChange={e => updateProgramLocal(p.id, { customer_price: e.target.value })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 6px', minWidth: 0 }} />
-                    <input className="form-input" type="number" value={p.vendor_settle_price ?? p.unit_price ?? ''} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: e.target.value })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 6px', minWidth: 0 }} />
+                    <input className="form-input" inputMode="numeric" value={numberInputValue(p.customer_price || '')} onChange={e => updateProgramLocal(p.id, { customer_price: numberInputChange(e.target.value) })} placeholder="판매가" style={{ height: '30px', fontSize: '11px', padding: '0 6px', minWidth: 0 }} />
+                    <input className="form-input" inputMode="numeric" value={numberInputValue(p.vendor_settle_price ?? p.unit_price ?? '')} onChange={e => updateProgramLocal(p.id, { vendor_settle_price: numberInputChange(e.target.value) })} placeholder="정산단가" style={{ height: '30px', fontSize: '11px', padding: '0 6px', minWidth: 0 }} />
                     <select className="form-select" value={p.settle_type || 'per_person'} onChange={e => updateProgramLocal(p.id, { settle_type: e.target.value })} style={{ height: '30px', fontSize: '11px', padding: '0 4px', minWidth: 0 }}>
                       <option value="per_person">인원당</option>
                       <option value="fixed">고정</option>
@@ -920,7 +921,7 @@ function PackagesTab() {
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="총 금액(원)">
-              <input className="form-input" type="number" value={form.total_price || 0} onChange={e => inp('total_price', e.target.value)} />
+              <input className="form-input" inputMode="numeric" value={numberInputValue(form.total_price)} onChange={e => inp('total_price', numberInputChange(e.target.value))} />
             </Field>
           </div>
 
@@ -1204,7 +1205,7 @@ function LodgesTab() {
               <input className="form-input" value={roomForm.name || ''} onChange={e => setRoomForm(f => ({ ...f, name: e.target.value }))} placeholder="디럭스룸" />
             </Field>
             <Field label="금액(원)">
-              <input className="form-input" type="number" value={roomForm.price || ''} onChange={e => setRoomForm(f => ({ ...f, price: e.target.value }))} placeholder="150000" />
+              <input className="form-input" inputMode="numeric" value={numberInputValue(roomForm.price)} onChange={e => setRoomForm(f => ({ ...f, price: numberInputChange(e.target.value) }))} placeholder="150,000" />
             </Field>
             <Field label="요금 유형">
               <select className="form-select" value={roomForm.price_type || 'per_room'} onChange={e => setRoomForm(f => ({ ...f, price_type: e.target.value }))}>
@@ -1515,7 +1516,7 @@ function OldBizTab() {
                     <option value="post">후지급</option>
                   </select>
                 </Field>
-                <Field label="금액(원)"><input className="form-input" type="number" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} /></Field>
+                <Field label="금액(원)"><input className="form-input" inputMode="numeric" value={numberInputValue(payForm.amount)} onChange={e => setPayForm(f => ({ ...f, amount: numberInputChange(e.target.value) }))} /></Field>
                 <Field label="비고"><input className="form-input" value={payForm.note} onChange={e => setPayForm(f => ({ ...f, note: e.target.value }))} /></Field>
               </div>
               <button className="btn-add-row" onClick={addPay} style={{ marginBottom: '8px' }}>+ 추가</button>
@@ -1689,8 +1690,8 @@ function BizTab() {
         <button className="btn-primary" onClick={openNew}>+ 사업비 패키지 추가</button>
       </div>
       <div className="list-card">
-        <div className="list-header" style={{ gridTemplateColumns: '1.2fr .8fr .9fr .8fr .8fr .8fr .8fr 36px', gap: '10px' }}>
-          <span>패키지명</span><span>사업명</span><span>구역</span><span>기준가</span><span>계획</span><span>할인</span><span>선지급예산</span><span />
+        <div className="list-header" style={{ gridTemplateColumns: '.9fr 1.1fr .9fr .8fr .7fr .7fr .65fr .9fr 36px', gap: '10px' }}>
+          <span>사업명</span><span>패키지명</span><span>구역명</span><span>기준가</span><span>계획인원</span><span>할인인원</span><span>할인율</span><span>선지급 예산</span><span />
         </div>
         {products.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 사업비 패키지 없음</div>}
         {products.map(product => {
@@ -1698,13 +1699,14 @@ function BizTab() {
           const biz = bizList.find(b => String(b.id) === String(product.biz_id))
           const zone = zones.find(z => z.code === product.zone_code)
           return (
-            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '1.2fr .8fr .9fr .8fr .8fr .8fr .8fr 36px', gap: '10px', cursor: 'default' }}>
-              <span style={{ fontWeight: 700 }}>{product.item_name}</span>
+            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '.9fr 1.1fr .9fr .8fr .7fr .7fr .65fr .9fr 36px', gap: '10px', cursor: 'default' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{biz?.name || '-'}</span>
+              <span style={{ fontWeight: 700 }}>{product.item_name}</span>
               <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{zone?.name || product.zone_code || '-'}</span>
               <span className="mono" style={{ fontSize: '12px' }}>{money(product.support_unit_amount)}</span>
               <span style={{ fontSize: '12px' }}>{Number(product.planned_people_count || 0).toLocaleString()}명</span>
-              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}% · ${promo.planned_people_count}명` : '없음'}</span>
+              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${Number(promo.planned_people_count || 0).toLocaleString()}명` : '-'}</span>
+              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}%` : '-'}</span>
               <span className="mono" style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{money(promo?.total_budget_amount || 0)}</span>
               <button className="icon-btn" onClick={() => openEdit(product)}>✎</button>
             </div>
@@ -1732,7 +1734,7 @@ function BizTab() {
             <Field label="재정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
           </div>
           <div className="form-grid form-grid-4" style={{ marginBottom: '12px' }}>
-            <Field label="정상 기준가"><input className="form-input" type="number" value={form.support_unit_amount || 0} onChange={e => inp('support_unit_amount', e.target.value)} /></Field>
+            <Field label="정상 기준가"><input className="form-input" inputMode="numeric" value={numberInputValue(form.support_unit_amount)} onChange={e => inp('support_unit_amount', numberInputChange(e.target.value))} /></Field>
             <Field label="전체 계획 인원"><input className="form-input" type="number" value={form.planned_people_count || 0} onChange={e => inp('planned_people_count', e.target.value)} /></Field>
             <Field label="할인율(%)"><input className="form-input" type="number" value={form.discount_rate || 0} onChange={e => inp('discount_rate', e.target.value)} /></Field>
             <Field label="할인 적용 인원"><input className="form-input" type="number" value={form.discount_people_count || 0} onChange={e => inp('discount_people_count', e.target.value)} /></Field>
