@@ -1550,7 +1550,9 @@ function BizTab() {
   const [items, setItems] = useState([])
   const [zones, setZones] = useState([])
   const [modal, setModal] = useState(null)
+  const [bizModal, setBizModal] = useState(null)
   const [form, setForm] = useState({})
+  const [bizForm, setBizForm] = useState({})
 
   const load = useCallback(async () => {
     const [bizR, itemR, zoneR] = await Promise.all([
@@ -1568,6 +1570,7 @@ function BizTab() {
   const findPromo = name => items.find(item => item.category === 'promotion_discount' && item.item_name === name && item.is_active !== false)
   const money = value => `₩${Number(value || 0).toLocaleString()}`
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const bizInp = (k, v) => setBizForm(f => ({ ...f, [k]: v }))
   const normalUnit = Number(form.support_unit_amount) || 0
   const plannedPeople = Number(form.planned_people_count) || 0
   const discountRate = Number(form.discount_rate) || 0
@@ -1593,6 +1596,25 @@ function BizTab() {
   function openNew() {
     setForm(blankForm())
     setModal({ mode: 'new' })
+  }
+
+  function openNewBiz() {
+    const now = new Date()
+    setBizForm({
+      name: '',
+      start_year: now.getFullYear(),
+      start_month: 1,
+      start_day: 1,
+      end_year: now.getFullYear(),
+      end_month: 12,
+      end_day: 31,
+    })
+    setBizModal({ mode: 'new' })
+  }
+
+  function openEditBiz(biz) {
+    setBizForm({ ...biz })
+    setBizModal({ mode: 'edit', data: biz })
   }
 
   function openEdit(product) {
@@ -1680,6 +1702,42 @@ function BizTab() {
     load()
   }
 
+  async function saveBiz() {
+    if (!bizForm.name) { alert('사업명을 입력하세요.'); return }
+    const payload = {
+      name: bizForm.name,
+      start_year: Number(bizForm.start_year) || new Date().getFullYear(),
+      start_month: Number(bizForm.start_month) || 1,
+      start_day: Number(bizForm.start_day) || 1,
+      end_year: Number(bizForm.end_year) || new Date().getFullYear(),
+      end_month: Number(bizForm.end_month) || 12,
+      end_day: Number(bizForm.end_day) || 31,
+      is_deleted: false,
+      deleted_at: null,
+    }
+
+    if (bizModal.mode === 'new') {
+      const { error } = await supabase.from('biz').insert(payload)
+      if (error) { alert('사업명 저장 실패: ' + error.message); return }
+    } else {
+      const { error } = await supabase.from('biz').update(payload).eq('id', bizForm.id)
+      if (error) { alert('사업명 저장 실패: ' + error.message); return }
+    }
+    setBizModal(null)
+    load()
+  }
+
+  async function deleteBiz() {
+    if (!confirm(`"${bizForm.name}" 사업명을 삭제하시겠습니까? 연결된 사업비 패키지는 사업명 미지정으로 보일 수 있습니다.`)) return
+    const { error } = await supabase
+      .from('biz')
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .eq('id', bizForm.id)
+    if (error) { alert('사업명 삭제 실패: ' + error.message); return }
+    setBizModal(null)
+    load()
+  }
+
   return (
     <div>
       <div className="section-header">
@@ -1688,6 +1746,33 @@ function BizTab() {
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>고객 할인 지원과 선지급 재정산 기준을 패키지 단위로 관리합니다.</div>
         </div>
         <button className="btn-primary" onClick={openNew}>+ 사업비 패키지 추가</button>
+      </div>
+      <div className="list-card" style={{ padding: '14px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>사업명 관리</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>예: 로컬크리에이트. 먼저 사업명을 만들고 아래 사업비 패키지에 연결합니다.</div>
+          </div>
+          <button className="btn-outline btn-sm" onClick={openNewBiz}>+ 사업명 추가</button>
+        </div>
+        {bizList.length === 0 ? (
+          <div style={{ border: '1px dashed var(--border)', borderRadius: '8px', padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+            등록된 사업명이 없습니다. + 사업명 추가로 로컬크리에이트를 먼저 등록하세요.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {bizList.map(biz => (
+              <button
+                key={biz.id}
+                className="btn-outline btn-sm"
+                onClick={() => openEditBiz(biz)}
+                style={{ height: '32px', padding: '0 12px' }}
+              >
+                {biz.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="list-card">
         <div className="list-header" style={{ gridTemplateColumns: '.9fr 1.1fr .9fr .8fr .7fr .7fr .65fr .9fr 36px', gap: '10px' }}>
@@ -1746,6 +1831,24 @@ function BizTab() {
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>할인지원 예산<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(promoBudget)}</b></div>
           </div>
           <Field label="메모"><input className="form-input" value={form.memo || ''} onChange={e => inp('memo', e.target.value)} placeholder="운영 기준, 내부 참고사항" /></Field>
+        </Modal>
+      )}
+      {bizModal && (
+        <Modal title={bizModal.mode === 'new' ? '사업명 추가' : '사업명 수정'} onClose={() => setBizModal(null)} onSave={saveBiz} onDelete={bizModal.mode === 'edit' ? deleteBiz : null} maxWidth="520px">
+          <Field label="사업명" required>
+            <input className="form-input" value={bizForm.name || ''} onChange={e => bizInp('name', e.target.value)} placeholder="로컬크리에이트" />
+          </Field>
+          <div style={{ height: '12px' }} />
+          <div className="form-grid form-grid-3" style={{ marginBottom: '12px' }}>
+            <Field label="시작 연도"><input className="form-input" type="number" value={bizForm.start_year || ''} onChange={e => bizInp('start_year', e.target.value)} /></Field>
+            <Field label="시작 월"><input className="form-input" type="number" min="1" max="12" value={bizForm.start_month || ''} onChange={e => bizInp('start_month', e.target.value)} /></Field>
+            <Field label="시작 일"><input className="form-input" type="number" min="1" max="31" value={bizForm.start_day || ''} onChange={e => bizInp('start_day', e.target.value)} /></Field>
+          </div>
+          <div className="form-grid form-grid-3">
+            <Field label="종료 연도"><input className="form-input" type="number" value={bizForm.end_year || ''} onChange={e => bizInp('end_year', e.target.value)} /></Field>
+            <Field label="종료 월"><input className="form-input" type="number" min="1" max="12" value={bizForm.end_month || ''} onChange={e => bizInp('end_month', e.target.value)} /></Field>
+            <Field label="종료 일"><input className="form-input" type="number" min="1" max="31" value={bizForm.end_day || ''} onChange={e => bizInp('end_day', e.target.value)} /></Field>
+          </div>
         </Modal>
       )}
     </div>
