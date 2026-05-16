@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { formatDateTyping, formatMonthTyping } from '@/lib/date-input'
@@ -68,6 +68,10 @@ function StatusQuickPanel({ title, summary, value, options, onChange, hint, disa
               style={{
                 minWidth:'74px',
                 height:'30px',
+                display:'flex',
+                alignItems:'center',
+                justifyContent:'center',
+                textAlign:'center',
                 opacity:isDisabled ? .45 : 1,
                 whiteSpace:'nowrap',
               }}
@@ -501,10 +505,10 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         operation_type: 'general',
         sale_type: 'package',
         biz_id: '',
-        zone_code: form.zone_code || '',
+        zone_code: '',
         package_id: '',
-        item_name: rows.length ? '' : (form.package_name || ''),
-        package_name: rows.length ? '' : (form.package_name || ''),
+        item_name: '',
+        package_name: '',
         people_count: Number(form.pax) || 1,
       }),
     ])
@@ -776,15 +780,24 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (!form.date)      { alert('예약날짜를 입력하세요.'); return }
     setSaving(true)
 
-    const activeComponents = componentRows.filter(row => row.package_name && Number(row.people_count) > 0)
+    const activeComponents = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
     const businessComponent = activeComponents.find(row => row.operation_type === 'business')
     const derivedOp = businessComponent ? '사업비' : '일반'
     const derivedBizId = businessComponent?.biz_id || null
+    const derivedPackageName = activeComponents.length === 1
+      ? (activeComponents[0].item_name || activeComponents[0].package_name || null)
+      : activeComponents.length > 1
+        ? `${activeComponents.length}개 상품 구성`
+        : (form.package_name || null)
+    const derivedPax = activeComponents.length
+      ? Math.max(...activeComponents.map(row => Number(row.people_count) || 0), 1)
+      : Number(form.pax) || 1
 
     const payload = {
       type: form.type, date: form.date, end_date: form.end_date || form.date,
-      zone_code: form.zone_code || null, package_name: form.package_name || null,
-      customer: form.customer, tel: form.tel, pax: Number(form.pax)||1,
+      zone_code: activeComponents.length ? null : (form.zone_code || null),
+      package_name: derivedPackageName,
+      customer: form.customer, tel: form.tel, pax: derivedPax,
       price: Number(form.price)||0, discount: Number(form.discount)||0,
       pickup_fee: Number(form.pickup_fee)||0, burden: Number(form.burden)||0,
       total: Number(form.total)||0,
@@ -1242,9 +1255,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     alert('예약확정 처리되었습니다.')
   }
 
-  const filteredPkgs = form.zone_code
-    ? packages.filter(p => p.zone_code === form.zone_code)
-    : packages
+  const componentDraftSummary = useMemo(() => {
+    const rows = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
+    const zoneCount = new Set(rows.map(row => row.zone_code).filter(Boolean)).size
+    const maxPeople = rows.length ? Math.max(...rows.map(row => Number(row.people_count) || 0), 0) : 0
+    return {
+      zoneCount,
+      itemCount: rows.length,
+      maxPeople,
+    }
+  }, [componentRows, form.pax])
 
   return (
     <div className="modal-overlay open" onClick={e => e.target===e.currentTarget && onClose()}>
@@ -1365,26 +1385,6 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     </select>
                   </div>
                 </div>
-                <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
-                  <div className="form-field">
-                    <label>구역</label>
-                    <select className="form-select" value={form.zone_code||''} onChange={e=>inp('zone_code',e.target.value)}>
-                      <option value="">선택</option>
-                      {zones.map(z=><option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>대표 패키지</label>
-                    <select className="form-select" value={form.package_name||''} onChange={e=>onPkgChange(e.target.value)}>
-                      <option value="">선택</option>
-                      {filteredPkgs.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>대표 인원 <span className="req">*</span></label>
-                    <input className="form-input" type="number" min="1" value={form.pax} onChange={e=>onPaxChange(e.target.value)} placeholder="명"/>
-                  </div>
-                </div>
                 <div className="form-grid form-grid-2">
                   <div className="form-field">
                     <label>고객명 <span className="req">*</span></label>
@@ -1395,19 +1395,31 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     <input className="form-input" value={form.tel} onChange={e=>inp('tel',e.target.value)} placeholder="010-0000-0000"/>
                   </div>
                 </div>
+                <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'8px'}}>
+                  {[
+                    ['구성 구역', `${componentDraftSummary.zoneCount}구역`],
+                    ['구성 상품', `${componentDraftSummary.itemCount}건`],
+                    ['요약 인원', `${componentDraftSummary.maxPeople || 0}명`],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{border:'1px solid var(--border2)',borderRadius:'8px',padding:'9px 10px',background:'rgba(255,255,255,.025)'}}>
+                      <div style={{fontSize:'10px',color:'var(--text-muted)',marginBottom:'4px'}}>{label}</div>
+                      <div style={{fontSize:'13px',fontWeight:800,color:'var(--text-primary)'}}>{value}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="form-section">
                 <div className="form-section-label" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px'}}>
                   <span>예약 상품 구성</span>
-                  <button type="button" className="btn-outline btn-sm" onClick={addComponentRow}>+ 구성 추가</button>
+                  <button type="button" className="btn-outline btn-sm" onClick={addComponentRow}>+ 상품 담기</button>
                 </div>
                 <div style={{fontSize:'12px',color:'var(--text-secondary)',marginBottom:'10px',lineHeight:1.55}}>
-                  기준정보에서 만든 일반/사업비 단품·패키지를 선택합니다. 대표 인원은 목록 요약용이고, 실제 정산과 업체 확인은 아래 상품별 인원을 기준으로 계산합니다.
+                  상품 하나가 카드 하나로 담깁니다. 조건을 선택한 뒤 다음 상품 담기를 눌러 일반/사업비 단품·패키지를 여러 개 구성할 수 있습니다.
                 </div>
                 {componentRows.length === 0 ? (
                   <div style={{border:'1px dashed var(--border)',borderRadius:'8px',padding:'16px',color:'var(--text-muted)',textAlign:'center'}}>
-                    기준정보에서 만든 상품을 구성 추가로 담아주세요.
+                    기준정보에서 만든 상품을 상품 담기로 추가해주세요.
                   </div>
                 ) : (
                   <div style={{display:'grid',gap:'10px'}}>
@@ -1419,6 +1431,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                         ? componentBudgetPackageOptions(row)
                         : generalItemOptions(row)
                       const saleTypeLabel = (row.sale_type || 'package') === 'single' ? '단품' : '패키지'
+                      const rowComplete = !!(row.item_name || row.package_name) && Number(row.people_count) > 0
                       return (
                         <div key={row.id} style={{border:'1px solid var(--border)',borderRadius:'8px',background:'rgba(15,35,52,.45)',padding:'12px'}}>
                           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginBottom:'10px'}}>
@@ -1452,7 +1465,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                       type="button"
                                       className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                       onClick={() => updateComponentRow(row.id,{operation_type:value})}
-                                      style={{height:'36px',padding:'0 8px'}}
+                                      style={{height:'36px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
                                       {label}
                                     </button>
@@ -1474,7 +1487,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                       type="button"
                                       className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                       onClick={() => updateComponentRow(row.id,{sale_type:value})}
-                                      style={{height:'36px',padding:'0 8px'}}
+                                      style={{height:'36px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
                                       {label}
                                     </button>
@@ -1542,6 +1555,20 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                           <div className="form-field" style={{marginTop:'8px'}}>
                             <label>선지급/재정산 메모</label>
                             <input className="form-input" value={row.reimbursement_memo||''} onChange={e=>updateComponentRow(row.id,{reimbursement_memo:e.target.value})} placeholder={(row.item_name || pkg?.name) ? `${row.item_name || pkg.name} 관련 메모` : '메모'}/>
+                          </div>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginTop:'10px',paddingTop:'10px',borderTop:'1px solid var(--border2)'}}>
+                            <div style={{fontSize:'12px',color:rowComplete ? 'var(--accent)' : 'var(--text-muted)',fontWeight:700}}>
+                              {rowComplete ? '담긴 상품입니다. 저장하면 이 예약 구성에 포함됩니다.' : '상품과 인원을 선택하면 예약 구성에 담깁니다.'}
+                            </div>
+                            <button
+                              type="button"
+                              className="btn-outline btn-sm"
+                              onClick={addComponentRow}
+                              disabled={!rowComplete}
+                              style={{minWidth:'122px',opacity:rowComplete ? 1 : .45}}
+                            >
+                              + 다음 상품 담기
+                            </button>
                           </div>
                         </div>
                       )
