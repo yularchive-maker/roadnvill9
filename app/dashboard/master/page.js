@@ -727,7 +727,8 @@ function PackagesTab() {
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
   const [progs,    setProgs]    = useState([])
-  const [progForm, setProgForm] = useState({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+  const emptyPackageProgForm = { vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0, vendor_settle_price: '', settle_type: 'per_person', price_note: '' }
+  const [progForm, setProgForm] = useState(emptyPackageProgForm)
   const [editingProgId, setEditingProgId] = useState(null)
   const [expanded, setExpanded] = useState({})
 
@@ -735,7 +736,7 @@ function PackagesTab() {
     const [pkgR, zoneR, vendorR] = await Promise.all([
       supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name)').order('key'),
+      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type)').order('key'),
     ])
     setPackages(pkgR.data || [])
     setZones(zoneR.data || [])
@@ -746,7 +747,7 @@ function PackagesTab() {
   async function openNew() {
     setForm({ code: '', zone_code: '', name: '', pax_limit: 0, total_price: 0 })
     setProgs([])
-    setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
     setModal({ mode: 'new' })
   }
@@ -754,7 +755,7 @@ function PackagesTab() {
   function openEdit(p) {
     setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || '', name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0 })
     setProgs(p.package_programs || [])
-    setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
     setModal({ mode: 'edit', data: p })
   }
@@ -794,6 +795,9 @@ function PackagesTab() {
       ...progForm,
       package_id: modal.data.id,
       sort_order: Number(progForm.sort_order) || 0,
+      vendor_settle_price: Number(progForm.vendor_settle_price) || 0,
+      settle_type: progForm.settle_type || 'per_person',
+      price_note: progForm.price_note || null,
     }
     if (editingProgId) {
       const { error } = await supabase.from('package_programs').update(payload).eq('id', editingProgId)
@@ -805,7 +809,7 @@ function PackagesTab() {
     }
     const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
     setProgs(data || [])
-    setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
     load()
   }
@@ -818,12 +822,15 @@ function PackagesTab() {
       default_start: p.default_start?.slice(0, 5) || '09:00',
       default_end: p.default_end?.slice(0, 5) || '10:00',
       sort_order: p.sort_order || 0,
+      vendor_settle_price: packageProgramSettlePrice(p) || '',
+      settle_type: p.settle_type || 'per_person',
+      price_note: p.price_note || '',
     })
   }
 
   function cancelProgEdit() {
     setEditingProgId(null)
-    setProgForm({ vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0 })
+    setProgForm(emptyPackageProgForm)
   }
 
   async function delProg(id) {
@@ -836,6 +843,29 @@ function PackagesTab() {
 
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const toggle = id => setExpanded(e => ({ ...e, [id]: !e[id] }))
+  const vendorProgramOptions = vendorKey => vendors.find(v => v.key === vendorKey)?.vendor_programs || []
+  const findVendorProgram = (vendorKey, progName) => vendorProgramOptions(vendorKey).find(p => p.prog_name === progName)
+  const vendorProgramSettlePrice = (vendorKey, progName) => {
+    const vendorProgram = findVendorProgram(vendorKey, progName)
+    return Number(vendorProgram?.vendor_settle_price ?? vendorProgram?.unit_price ?? 0) || 0
+  }
+  const packageProgramSettlePrice = packageProgram => {
+    const storedPrice = Number(packageProgram?.vendor_settle_price) || 0
+    return storedPrice || vendorProgramSettlePrice(packageProgram?.vendor_key, packageProgram?.prog_name)
+  }
+  const applyVendorProgramDefaults = (vendorKey, progName) => {
+    const vendorProgram = findVendorProgram(vendorKey, progName)
+    return {
+      vendor_settle_price: vendorProgram ? Number(vendorProgram.vendor_settle_price ?? vendorProgram.unit_price ?? 0) : '',
+      settle_type: vendorProgram?.settle_type || 'per_person',
+    }
+  }
+  const handleProgVendorChange = vendorKey => {
+    setProgForm(f => ({ ...f, vendor_key: vendorKey, prog_name: '', vendor_settle_price: '', settle_type: 'per_person' }))
+  }
+  const handleProgNameChange = progName => {
+    setProgForm(f => ({ ...f, prog_name: progName, ...applyVendorProgramDefaults(f.vendor_key, progName) }))
+  }
 
   return (
     <div>
@@ -859,6 +889,7 @@ function PackagesTab() {
                     {p.zone_code && <span className="no-col">{p.zone_code}</span>}
                     {p.code && <span style={{ fontSize: '10px', fontFamily: 'DM Mono,monospace', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '4px', padding: '1px 6px', color: 'var(--text-muted)' }}>{p.code}</span>}
                     <span style={{ fontWeight: 600, fontSize: '13px' }}>{p.name}</span>
+                    {Number(p.total_price) > 0 && <span style={{ fontSize: '10px', background: 'rgba(78,205,196,0.1)', color: 'var(--accent)', padding: '1px 7px', borderRadius: '10px', fontWeight: 700 }}>판매 ₩{Number(p.total_price).toLocaleString()}</span>}
                     {p.pax_limit > 0 && <span style={{ fontSize: '10px', background: 'rgba(247,201,72,0.12)', color: 'var(--amber)', padding: '1px 7px', borderRadius: '10px', fontWeight: 600 }}>⚠ {p.pax_limit}명 알림</span>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
@@ -880,8 +911,16 @@ function PackagesTab() {
                     return (
                       <div key={pr.id} style={{ display: 'flex', alignItems: 'center', padding: '9px 14px 9px 36px', borderTop: '1px solid var(--border2)' }}>
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: v?.color || '#4ECDC4', flexShrink: 0, marginRight: '10px' }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>{pr.prog_name}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{pr.prog_name}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--amber)', fontFamily: 'DM Mono,monospace', whiteSpace: 'nowrap' }}>
+                              정산 ₩{packageProgramSettlePrice(pr).toLocaleString()}
+                            </span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(78,205,196,0.08)', borderRadius: '4px', padding: '1px 5px' }}>
+                              {pr.settle_type === 'fixed' ? '고정' : '1인당'}
+                            </span>
+                          </div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
                             {pr.code && `${pr.code} · `}
                             {v?.name || pr.vendor_key}
@@ -920,7 +959,7 @@ function PackagesTab() {
             </Field>
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-            <Field label="총 금액(원)">
+            <Field label="패키지 판매가(원)">
               <input className="form-input" inputMode="numeric" value={numberInputValue(form.total_price)} onChange={e => inp('total_price', numberInputChange(e.target.value))} />
             </Field>
           </div>
@@ -932,16 +971,16 @@ function PackagesTab() {
               </div>
               <div className="form-grid form-grid-3" style={{ marginBottom: '8px', gap: '8px' }}>
                 <Field label="업체">
-                  <select className="form-select" value={progForm.vendor_key} onChange={e => setProgForm(f => ({ ...f, vendor_key: e.target.value, prog_name: '' }))}>
+                  <select className="form-select" value={progForm.vendor_key} onChange={e => handleProgVendorChange(e.target.value)}>
                     <option value="">선택</option>
                     {vendors.map(v => <option key={v.key} value={v.key}>{v.key} · {v.name.replace(/\s*\(.*\)/, '')}</option>)}
                   </select>
                 </Field>
                 <Field label="프로그램명">
                   {(() => {
-                    const vProgs = vendors.find(v => v.key === progForm.vendor_key)?.vendor_programs || []
+                    const vProgs = vendorProgramOptions(progForm.vendor_key)
                     return vProgs.length > 0 ? (
-                      <select className="form-select" value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))}>
+                      <select className="form-select" value={progForm.prog_name} onChange={e => handleProgNameChange(e.target.value)}>
                         <option value="">선택</option>
                         {vProgs.map(p => <option key={p.prog_name} value={p.prog_name}>{p.prog_name}</option>)}
                       </select>
@@ -956,21 +995,39 @@ function PackagesTab() {
                 <Field label="기본 시작시간"><input className="form-input" type="time" value={progForm.default_start} onChange={e => setProgForm(f => ({ ...f, default_start: e.target.value }))} /></Field>
                 <Field label="기본 종료시간"><input className="form-input" type="time" value={progForm.default_end} onChange={e => setProgForm(f => ({ ...f, default_end: e.target.value }))} /></Field>
               </div>
+              <div className="form-grid form-grid-3" style={{ marginBottom: '8px', gap: '8px' }}>
+                <Field label="업체 정산단가">
+                  <input className="form-input" inputMode="numeric" value={numberInputValue(progForm.vendor_settle_price)} onChange={e => setProgForm(f => ({ ...f, vendor_settle_price: numberInputChange(e.target.value) }))} placeholder="20,000" />
+                </Field>
+                <Field label="정산방식">
+                  <select className="form-select" value={progForm.settle_type} onChange={e => setProgForm(f => ({ ...f, settle_type: e.target.value }))}>
+                    <option value="per_person">인원당</option>
+                    <option value="fixed">고정금액</option>
+                  </select>
+                </Field>
+                <Field label="가격 메모">
+                  <input className="form-input" value={progForm.price_note || ''} onChange={e => setProgForm(f => ({ ...f, price_note: e.target.value }))} placeholder="패키지 특별단가 등" />
+                </Field>
+              </div>
+              <div style={{ marginBottom: '8px', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                일반 패키지는 고객에게 패키지 판매가로 받고, 구성 프로그램별 업체 정산단가만 따로 저장합니다.
+              </div>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                 <button className="btn-add-row" onClick={addProg} style={{ flex: 1 }}>{editingProgId ? '수정 저장' : '+ 추가'}</button>
                 {editingProgId && <button className="btn-outline" onClick={cancelProgEdit} style={{ height: '34px' }}>취소</button>}
               </div>
               <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px' }}><span>순</span><span>업체</span><span>코드</span><span>프로그램</span><span>시작</span><span>종료</span><span /></div>
+                <div className="list-box-header" style={{ gridTemplateColumns: '30px 58px 104px minmax(120px,1fr) 82px 58px 54px 30px' }}><span>순</span><span>업체</span><span>코드</span><span>프로그램</span><span>정산단가</span><span>방식</span><span>시간</span><span /></div>
                 {progs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
                 {progs.map(p => (
-                  <div key={p.id} className="list-box-row" onClick={() => editProg(p)} style={{ gridTemplateColumns: '30px 70px 120px 1fr 60px 60px 30px', cursor: 'pointer', background: editingProgId === p.id ? 'rgba(78,205,196,0.08)' : undefined }}>
+                  <div key={p.id} className="list-box-row" onClick={() => editProg(p)} style={{ gridTemplateColumns: '30px 58px 104px minmax(120px,1fr) 82px 58px 54px 30px', cursor: 'pointer', background: editingProgId === p.id ? 'rgba(78,205,196,0.08)' : undefined }}>
                     <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{p.sort_order}</span>
                     <span className="no-col">{p.vendor_key}</span>
                     <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.code || '-'}</span>
                     <span style={{ fontSize: '12px' }}>{p.prog_name}</span>
-                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_start?.slice(0, 5)}</span>
-                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_end?.slice(0, 5)}</span>
+                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>₩{packageProgramSettlePrice(p).toLocaleString()}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.settle_type === 'fixed' ? '고정' : '1인'}</span>
+                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_start?.slice(0, 5)}~{p.default_end?.slice(0, 5)}</span>
                     <button className="icon-btn" onClick={e => { e.stopPropagation(); delProg(p.id) }}>✕</button>
                   </div>
                 ))}
