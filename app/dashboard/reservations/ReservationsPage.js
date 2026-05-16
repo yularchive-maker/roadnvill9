@@ -397,6 +397,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     return budgetItems
       .filter(item => item.is_active !== false && item.category === 'product_operation')
       .filter(item => !row.biz_id || !item.biz_id || String(item.biz_id) === String(row.biz_id))
+      .filter(item => !row.zone_code || !item.zone_code || item.zone_code === row.zone_code)
+      .filter(item => (item.sale_type || 'package') === (row.sale_type || 'package'))
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .map(item => ({
         id: String(item.id),
@@ -407,19 +409,21 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   }
 
   function generalItemOptions(row) {
-    const packageOptions = (row.zone_code ? packages.filter(p => p.zone_code === row.zone_code) : packages).map(pkg => ({
+    const showPackages = (row.sale_type || 'package') === 'package'
+    const showSingles = row.sale_type === 'single'
+    const packageOptions = showPackages ? (row.zone_code ? packages.filter(p => p.zone_code === row.zone_code) : packages).map(pkg => ({
       key: `package:${pkg.id}`,
       sale_type: 'package',
       label: `패키지 · ${pkg.name}`,
       item: pkg,
-    }))
-    const singleOptions = vendors.flatMap(vendor => (vendor.vendor_programs || []).map(program => ({
+    })) : []
+    const singleOptions = showSingles ? vendors.flatMap(vendor => (vendor.vendor_programs || []).map(program => ({
       key: `single:${vendor.key}:${program.prog_name}`,
       sale_type: 'single',
       label: `단품 · ${vendor.name} · ${program.prog_name}`,
       vendor,
       program,
-    })))
+    }))) : []
     return [...packageOptions, ...singleOptions]
   }
 
@@ -568,7 +572,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       if ('operation_type' in patch) {
         next.biz_id = ''
         next.budget_item_id = ''
-        next.sale_type = 'package'
+        next.item_name = ''
+        next.package_id = ''
+        next.package_name = ''
+        next.vendor_key = ''
+        next.prog_name = ''
+        next.discount_rate = 0
+        next.reimbursement_target = ''
+      }
+      if ('sale_type' in patch) {
+        next.budget_item_id = ''
         next.item_name = ''
         next.package_id = ''
         next.package_name = ''
@@ -1235,7 +1248,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   return (
     <div className="modal-overlay open" onClick={e => e.target===e.currentTarget && onClose()}>
-      <div className="modal" style={{width:'980px', maxWidth:'calc(100vw - 32px)'}}>
+      <div className="modal" style={{width:'760px', maxWidth:'calc(100vw - 32px)'}}>
         <div className="modal-header">
           <div className="modal-title">{isEdit ? `예약 수정 — #${form.no}` : '예약 등록'}</div>
           <button className="close-btn" onClick={onClose}>✕</button>
@@ -1301,7 +1314,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
               {/* 기본 정보 */}
               <div className="form-section">
                 <div className="form-section-label">기본 정보</div>
-                <div className="form-grid form-grid-4" style={{marginBottom:'10px'}}>
+                <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
                   <div className="form-field">
                     <label>NO <span className="auto">자동</span></label>
                     <input className="form-input auto-fill" value={form.no || '자동생성'} readOnly/>
@@ -1321,6 +1334,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       {['상담중','가능여부확인중','조정필요','확정가능','예약확정','취소','완료'].map(v => <option key={v}>{v}</option>)}
                     </select>
                   </div>
+                </div>
+                <div className="form-grid form-grid-2" style={{marginBottom:'10px'}}>
                   <div className="form-field">
                     <label>예약날짜 <span className="req">*</span></label>
                     <input className="form-input" type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" value={form.date} onChange={e=>inp('date',formatDateTyping(e.target.value))}/>
@@ -1415,15 +1430,59 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             </div>
                             <button type="button" className="icon-btn" onClick={()=>removeComponentRow(row.id)}>×</button>
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? '96px minmax(120px,.75fr) minmax(220px,1.35fr) minmax(150px,.9fr) 82px' : '106px minmax(130px,.8fr) minmax(260px,1.65fr) 88px',gap:'8px',alignItems:'end'}}>
+                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(130px,.9fr) 140px 140px minmax(130px,.9fr)' : 'minmax(130px,1fr) 140px 140px',gap:'8px',alignItems:'end'}}>
                             <div className="form-field">
-                              <label>운영구분</label>
-                              <select className="form-select" value={row.operation_type} onChange={e=>updateComponentRow(row.id,{operation_type:e.target.value})}>
-                                <option value="general">일반</option>
-                                <option value="business">사업비</option>
+                              <label>구역</label>
+                              <select className="form-select" value={row.zone_code||''} onChange={e=>updateComponentRow(row.id,{zone_code:e.target.value,selection:''})}>
+                                <option value="">전체</option>
+                                {zones.map(z=><option key={z.code} value={z.code}>{z.name}</option>)}
                               </select>
                             </div>
-                            {row.operation_type === 'business' ? (
+                            <div className="form-field">
+                              <label>운영구분</label>
+                              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}}>
+                                {[
+                                  ['general', '일반'],
+                                  ['business', '사업비'],
+                                ].map(([value, label]) => {
+                                  const active = row.operation_type === value
+                                  return (
+                                    <button
+                                      key={value}
+                                      type="button"
+                                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                                      onClick={() => updateComponentRow(row.id,{operation_type:value})}
+                                      style={{height:'36px',padding:'0 8px'}}
+                                    >
+                                      {label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                            <div className="form-field">
+                              <label>판매형태</label>
+                              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}}>
+                                {[
+                                  ['single', '단품'],
+                                  ['package', '패키지'],
+                                ].map(([value, label]) => {
+                                  const active = (row.sale_type || 'package') === value
+                                  return (
+                                    <button
+                                      key={value}
+                                      type="button"
+                                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                                      onClick={() => updateComponentRow(row.id,{sale_type:value})}
+                                      style={{height:'36px',padding:'0 8px'}}
+                                    >
+                                      {label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                            {row.operation_type === 'business' && (
                               <div className="form-field">
                                 <label>사업명</label>
                                 <select className="form-select" value={row.biz_id||''} onChange={e=>updateComponentRow(row.id,{biz_id:e.target.value,selection:''})}>
@@ -1431,15 +1490,9 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                   {bizList.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                                 </select>
                               </div>
-                            ) : (
-                              <div className="form-field">
-                                <label>구역</label>
-                                <select className="form-select" value={row.zone_code||''} onChange={e=>updateComponentRow(row.id,{zone_code:e.target.value,selection:''})}>
-                                  <option value="">전체</option>
-                                  {zones.map(z=><option key={z.code} value={z.code}>{z.name}</option>)}
-                                </select>
-                              </div>
                             )}
+                          </div>
+                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(220px,1fr) minmax(140px,.55fr) 82px' : 'minmax(220px,1fr) 82px',gap:'8px',alignItems:'end',marginTop:'8px'}}>
                             <div className="form-field">
                               <label>상품 선택</label>
                               <select className="form-select" value={rowSelectionValue(row)} onChange={e=>updateComponentRow(row.id,{selection:e.target.value})}>
