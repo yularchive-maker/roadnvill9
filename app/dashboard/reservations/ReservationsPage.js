@@ -415,7 +415,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   function generalItemOptions(row) {
     const showPackages = (row.sale_type || 'package') === 'package'
     const showSingles = row.sale_type === 'single'
-    const packageOptions = showPackages ? (row.zone_code ? packages.filter(p => p.zone_code === row.zone_code) : packages).map(pkg => ({
+    const generalPackages = packages.filter(pkg => (pkg.package_type || 'general') === 'general')
+    const packageOptions = showPackages ? (row.zone_code ? generalPackages.filter(p => p.zone_code === row.zone_code) : generalPackages).map(pkg => ({
       key: `package:${pkg.id}`,
       sale_type: 'package',
       label: `패키지 · ${pkg.name}`,

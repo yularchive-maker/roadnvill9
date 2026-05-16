@@ -720,7 +720,7 @@ function VendorsTab() {
 // ══════════════════════════════════════════════════════
 // 패키지 탭 — 아코디언
 // ══════════════════════════════════════════════════════
-function PackagesTab() {
+function PackagesTab({ packageType = 'general', title = '패키지 목록', addLabel = '+ 패키지 추가', emptyText = '등록된 패키지 없음' } = {}) {
   const [packages, setPackages] = useState([])
   const [zones,    setZones]    = useState([])
   const [vendors,  setVendors]  = useState([])
@@ -738,14 +738,14 @@ function PackagesTab() {
       supabase.from('zones').select('*').order('code'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type)').order('key'),
     ])
-    setPackages(pkgR.data || [])
+    setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType))
     setZones(zoneR.data || [])
     setVendors(vendorR.data || [])
-  }, [])
+  }, [packageType])
   useEffect(() => { load() }, [load])
 
   async function openNew() {
-    setForm({ code: '', zone_code: '', name: '', pax_limit: 0, total_price: 0 })
+    setForm({ code: '', zone_code: '', name: '', pax_limit: 0, total_price: 0, package_type: packageType })
     setProgs([])
     setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
@@ -753,7 +753,7 @@ function PackagesTab() {
   }
 
   function openEdit(p) {
-    setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || '', name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0 })
+    setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || '', name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0, package_type: p.package_type || packageType })
     setProgs(p.package_programs || [])
     setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
@@ -771,7 +771,7 @@ function PackagesTab() {
 
   async function save() {
     if (!form.name) { alert('패키지명을 입력하세요.'); return }
-    const payload = { code: form.code || null, zone_code: form.zone_code || null, name: form.name, pax_limit: Number(form.pax_limit) || 0, total_price: Number(form.total_price) || 0 }
+    const payload = { code: form.code || null, zone_code: form.zone_code || null, name: form.name, pax_limit: Number(form.pax_limit) || 0, total_price: Number(form.total_price) || 0, package_type: packageType }
     if (modal.mode === 'new') {
       const { error } = await supabase.from('packages').insert(payload)
       if (error) { alert('저장 실패: ' + error.message); return }
@@ -870,12 +870,12 @@ function PackagesTab() {
   return (
     <div>
       <div className="section-header">
-        <div className="section-title">패키지 목록 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{packages.length}개</span></div>
-        <button className="btn-primary" onClick={openNew}>+ 패키지 추가</button>
+        <div className="section-title">{title} <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{packages.length}개</span></div>
+        <button className="btn-primary" onClick={openNew}>{addLabel}</button>
       </div>
 
       <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
-        {packages.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 패키지 없음</div>}
+        {packages.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>{emptyText}</div>}
         {packages.map(p => {
           const pp = p.package_programs || []
           const vkeys = [...new Set(pp.map(pr => pr.vendor_key))]
@@ -1618,13 +1618,13 @@ function BizTab() {
       supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('packages').select('id,code,zone_code,name,total_price,package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
+      supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
     ])
     setBizList(bizR.data || [])
     setItems(itemR.data || [])
     setZones(zoneR.data || [])
-    setPackages(pkgR.data || [])
+    setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === 'business'))
     setVendors(vendorR.data || [])
   }, [])
   useEffect(() => { load() }, [load])
@@ -1885,10 +1885,18 @@ function BizTab() {
 
   return (
     <div>
+      <div style={{ marginBottom: '18px' }}>
+        <PackagesTab
+          packageType="business"
+          title="사업비 패키지 목록"
+          addLabel="+ 사업비 패키지 추가"
+          emptyText="등록된 사업비 패키지 없음"
+        />
+      </div>
       <div className="section-header">
         <div>
           <div className="section-title">사업비 상품 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>사업비 단품/패키지의 기준가, 할인 지원, 선지급 재정산 기준을 관리합니다.</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>위에서 만든 사업비 패키지 또는 단품 프로그램에 기준가, 할인 지원, 선지급 재정산 기준을 연결합니다.</div>
         </div>
         <button className="btn-primary" onClick={openNew}>+ 사업비 상품 추가</button>
       </div>
