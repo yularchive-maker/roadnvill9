@@ -1606,28 +1606,44 @@ function BizTab() {
   const [bizList, setBizList] = useState([])
   const [items, setItems] = useState([])
   const [zones, setZones] = useState([])
+  const [packages, setPackages] = useState([])
+  const [vendors, setVendors] = useState([])
   const [modal, setModal] = useState(null)
   const [bizModal, setBizModal] = useState(null)
   const [form, setForm] = useState({})
   const [bizForm, setBizForm] = useState({})
 
   const load = useCallback(async () => {
-    const [bizR, itemR, zoneR] = await Promise.all([
+    const [bizR, itemR, zoneR, pkgR, vendorR] = await Promise.all([
       supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
       supabase.from('zones').select('*').order('code'),
+      supabase.from('packages').select('id,code,zone_code,name,total_price,package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
+      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
     ])
     setBizList(bizR.data || [])
     setItems(itemR.data || [])
     setZones(zoneR.data || [])
+    setPackages(pkgR.data || [])
+    setVendors(vendorR.data || [])
   }, [])
   useEffect(() => { load() }, [load])
 
   const products = items.filter(item => item.category === 'product_operation' && item.is_active !== false)
-  const findPromo = name => items.find(item => item.category === 'promotion_discount' && item.item_name === name && item.is_active !== false)
+  const findPromo = product => items.find(item =>
+    item.category === 'promotion_discount' &&
+    item.item_name === product.item_name &&
+    (item.sale_type || 'package') === (product.sale_type || 'package') &&
+    String(item.biz_id || '') === String(product.biz_id || '') &&
+    item.is_active !== false
+  )
   const money = value => `₩${Number(value || 0).toLocaleString()}`
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const bizInp = (k, v) => setBizForm(f => ({ ...f, [k]: v }))
+  const selectedSaleType = form.sale_type || 'package'
+  const selectedPackage = packages.find(p => String(p.id) === String(form.package_id)) || packages.find(p => p.name === form.item_name)
+  const selectedVendor = vendors.find(v => v.key === form.vendor_key)
+  const selectedVendorProgram = selectedVendor?.vendor_programs?.find(p => p.prog_name === form.prog_name)
   const normalUnit = Number(form.support_unit_amount) || 0
   const plannedPeople = Number(form.planned_people_count) || 0
   const discountRate = Number(form.discount_rate) || 0
@@ -1638,9 +1654,15 @@ function BizTab() {
 
   function blankForm() {
     return {
+      sale_type: 'package',
       biz_id: '',
       zone_code: '',
       item_name: '',
+      package_id: '',
+      vendor_key: '',
+      prog_name: '',
+      vendor_settle_price: 0,
+      settle_type: 'per_person',
       planned_people_count: 0,
       support_unit_amount: 0,
       discount_rate: 0,
@@ -1675,13 +1697,19 @@ function BizTab() {
   }
 
   function openEdit(product) {
-    const promo = findPromo(product.item_name)
+    const promo = findPromo(product)
     setForm({
       product_id: product.id,
       promo_id: promo?.id || null,
+      sale_type: product.sale_type || 'package',
       biz_id: product.biz_id || '',
       zone_code: product.zone_code || '',
       item_name: product.item_name || '',
+      package_id: product.package_id || '',
+      vendor_key: product.vendor_key || '',
+      prog_name: product.prog_name || '',
+      vendor_settle_price: Number(product.vendor_settle_price) || 0,
+      settle_type: product.settle_type || 'per_person',
       planned_people_count: Number(product.planned_people_count) || 0,
       support_unit_amount: Number(product.support_unit_amount) || 0,
       discount_rate: Number(promo?.support_rate) || 0,
@@ -1692,14 +1720,74 @@ function BizTab() {
     setModal({ mode: 'edit', data: product })
   }
 
+  function changeSaleType(saleType) {
+    setForm(f => ({
+      ...f,
+      sale_type: saleType,
+      item_name: '',
+      package_id: '',
+      vendor_key: '',
+      prog_name: '',
+      vendor_settle_price: 0,
+      settle_type: 'per_person',
+      support_unit_amount: 0,
+    }))
+  }
+
+  function changeBusinessPackage(packageId) {
+    const pkg = packages.find(p => String(p.id) === String(packageId))
+    setForm(f => ({
+      ...f,
+      package_id: packageId,
+      item_name: pkg?.name || '',
+      zone_code: pkg?.zone_code || f.zone_code || '',
+      support_unit_amount: Number(pkg?.total_price) || Number(f.support_unit_amount) || 0,
+      vendor_key: '',
+      prog_name: '',
+      vendor_settle_price: 0,
+      settle_type: 'per_person',
+    }))
+  }
+
+  function changeBusinessVendor(vendorKey) {
+    setForm(f => ({
+      ...f,
+      vendor_key: vendorKey,
+      prog_name: '',
+      item_name: '',
+      vendor_settle_price: 0,
+      settle_type: 'per_person',
+    }))
+  }
+
+  function changeBusinessProgram(progName) {
+    const vendor = vendors.find(v => v.key === form.vendor_key)
+    const program = vendor?.vendor_programs?.find(p => p.prog_name === progName)
+    setForm(f => ({
+      ...f,
+      prog_name: progName,
+      item_name: progName,
+      support_unit_amount: Number(program?.customer_price) || Number(f.support_unit_amount) || 0,
+      vendor_settle_price: Number(program?.vendor_settle_price ?? program?.unit_price ?? 0) || 0,
+      settle_type: program?.settle_type || 'per_person',
+    }))
+  }
+
   async function save() {
-    if (!form.item_name) { alert('사업비 패키지명을 입력하세요.'); return }
+    if (!form.item_name) { alert('사업비 상품명을 입력하세요.'); return }
     const itemName = form.item_name.trim()
     const base = {
       biz_id: form.biz_id || null,
       zone_code: form.zone_code || null,
       item_name: itemName,
-      match_package_name: itemName,
+      sale_type: form.sale_type || 'package',
+      package_id: form.sale_type === 'package' ? (form.package_id || null) : null,
+      vendor_key: form.sale_type === 'single' ? (form.vendor_key || null) : null,
+      prog_name: form.sale_type === 'single' ? (form.prog_name || null) : null,
+      vendor_settle_price: Number(form.vendor_settle_price) || 0,
+      settle_type: form.settle_type || 'per_person',
+      match_package_name: form.sale_type === 'package' ? itemName : null,
+      match_program_name: form.sale_type === 'single' ? itemName : null,
       default_reimbursement_target: form.default_reimbursement_target || null,
       memo: form.memo || null,
       is_active: true,
@@ -1799,10 +1887,10 @@ function BizTab() {
     <div>
       <div className="section-header">
         <div>
-          <div className="section-title">사업비 패키지 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>고객 할인 지원과 선지급 재정산 기준을 패키지 단위로 관리합니다.</div>
+          <div className="section-title">사업비 상품 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>사업비 단품/패키지의 기준가, 할인 지원, 선지급 재정산 기준을 관리합니다.</div>
         </div>
-        <button className="btn-primary" onClick={openNew}>+ 사업비 패키지 추가</button>
+        <button className="btn-primary" onClick={openNew}>+ 사업비 상품 추가</button>
       </div>
       <div className="list-card" style={{ padding: '14px', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
@@ -1832,23 +1920,23 @@ function BizTab() {
         )}
       </div>
       <div className="list-card">
-        <div className="list-header" style={{ gridTemplateColumns: '.9fr 1.1fr .9fr .8fr .7fr .7fr .65fr .9fr 36px', gap: '10px' }}>
-          <span>사업명</span><span>패키지명</span><span>구역명</span><span>기준가</span><span>계획인원</span><span>할인인원</span><span>할인율</span><span>선지급 예산</span><span />
+        <div className="list-header" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px' }}>
+          <span>사업명</span><span>형태</span><span>상품명</span><span>구역명</span><span>기준가</span><span>계획</span><span>할인</span><span>선지급 예산</span><span />
         </div>
-        {products.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 사업비 패키지 없음</div>}
+        {products.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 사업비 상품 없음</div>}
         {products.map(product => {
-          const promo = findPromo(product.item_name)
+          const promo = findPromo(product)
           const biz = bizList.find(b => String(b.id) === String(product.biz_id))
           const zone = zones.find(z => z.code === product.zone_code)
           return (
-            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '.9fr 1.1fr .9fr .8fr .7fr .7fr .65fr .9fr 36px', gap: '10px', cursor: 'default' }}>
+            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px', cursor: 'default' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{biz?.name || '-'}</span>
+              <span style={{ fontSize: '11px', color: product.sale_type === 'single' ? 'var(--accent)' : 'var(--amber)', fontWeight: 800 }}>{product.sale_type === 'single' ? '단품' : '패키지'}</span>
               <span style={{ fontWeight: 700 }}>{product.item_name}</span>
               <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{zone?.name || product.zone_code || '-'}</span>
               <span className="mono" style={{ fontSize: '12px' }}>{money(product.support_unit_amount)}</span>
               <span style={{ fontSize: '12px' }}>{Number(product.planned_people_count || 0).toLocaleString()}명</span>
-              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${Number(promo.planned_people_count || 0).toLocaleString()}명` : '-'}</span>
-              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}%` : '-'}</span>
+              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}% / ${Number(promo.planned_people_count || 0).toLocaleString()}명` : '-'}</span>
               <span className="mono" style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{money(promo?.total_budget_amount || 0)}</span>
               <button className="icon-btn" onClick={() => openEdit(product)}>✎</button>
             </div>
@@ -1856,7 +1944,7 @@ function BizTab() {
         })}
       </div>
       {modal && (
-        <Modal title={modal.mode === 'new' ? '사업비 패키지 추가' : '사업비 패키지 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="760px">
+        <Modal title={modal.mode === 'new' ? '사업비 상품 추가' : '사업비 상품 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="820px">
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="사업명">
               <select className="form-select" value={form.biz_id || ''} onChange={e => inp('biz_id', e.target.value)}>
@@ -1864,17 +1952,59 @@ function BizTab() {
                 {bizList.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </Field>
+            <Field label="판매형태">
+              <select className="form-select" value={selectedSaleType} onChange={e => changeSaleType(e.target.value)}>
+                <option value="package">패키지 체험 판매용</option>
+                <option value="single">단품 체험 판매용</option>
+              </select>
+            </Field>
+          </div>
+          <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="구역">
               <select className="form-select" value={form.zone_code || ''} onChange={e => inp('zone_code', e.target.value)}>
                 <option value="">선택 안 함</option>
                 {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
               </select>
             </Field>
+            {selectedSaleType === 'package' ? (
+              <Field label="연결 패키지">
+                <select className="form-select" value={form.package_id || selectedPackage?.id || ''} onChange={e => changeBusinessPackage(e.target.value)}>
+                  <option value="">선택</option>
+                  {packages
+                    .filter(p => !form.zone_code || p.zone_code === form.zone_code)
+                    .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label="업체">
+                <select className="form-select" value={form.vendor_key || ''} onChange={e => changeBusinessVendor(e.target.value)}>
+                  <option value="">선택</option>
+                  {vendors.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
+                </select>
+              </Field>
+            )}
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-            <Field label="사업비 패키지명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder="금양연화" /></Field>
+            {selectedSaleType === 'single' ? (
+              <Field label="연결 프로그램">
+                <select className="form-select" value={form.prog_name || ''} onChange={e => changeBusinessProgram(e.target.value)}>
+                  <option value="">선택</option>
+                  {(selectedVendor?.vendor_programs || []).map(p => <option key={p.prog_name} value={p.prog_name}>{p.prog_name}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder="금양연화" /></Field>
+            )}
             <Field label="재정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
           </div>
+          {selectedSaleType === 'single' && (
+            <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
+              <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder={selectedVendorProgram?.prog_name || '단품 상품명'} /></Field>
+              <Field label="업체 정산단가">
+                <input className="form-input" inputMode="numeric" value={numberInputValue(form.vendor_settle_price)} onChange={e => inp('vendor_settle_price', numberInputChange(e.target.value))} />
+              </Field>
+            </div>
+          )}
           <div className="form-grid form-grid-4" style={{ marginBottom: '12px' }}>
             <Field label="정상 기준가"><input className="form-input" inputMode="numeric" value={numberInputValue(form.support_unit_amount)} onChange={e => inp('support_unit_amount', numberInputChange(e.target.value))} /></Field>
             <Field label="전체 계획 인원"><input className="form-input" type="number" value={form.planned_people_count || 0} onChange={e => inp('planned_people_count', e.target.value)} /></Field>
@@ -1887,6 +2017,12 @@ function BizTab() {
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>인당 선지급금<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(prepaidUnit)}</b></div>
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>할인지원 예산<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(promoBudget)}</b></div>
           </div>
+          {selectedSaleType === 'package' && selectedPackage && (
+            <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: '6px' }}>연결 패키지 구성</div>
+              {(selectedPackage.package_programs || []).length === 0 ? '등록된 구성 프로그램 없음' : (selectedPackage.package_programs || []).map(pp => `${pp.vendors?.name || pp.vendor_key} · ${pp.prog_name} · 정산 ${money(pp.vendor_settle_price)}`).join(' / ')}
+            </div>
+          )}
           <Field label="메모"><input className="form-input" value={form.memo || ''} onChange={e => inp('memo', e.target.value)} placeholder="운영 기준, 내부 참고사항" /></Field>
         </Modal>
       )}
