@@ -58,7 +58,7 @@ export default function DashboardPage() {
       supabase.from('vendor_confirms').select('*'),
       supabase.from('lodge_confirms').select('*'),
       supabase.from('reservation_pickup').select('*, drivers(name)'),
-      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_name,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setPackages(pkgR.data || [])
@@ -309,7 +309,7 @@ export default function DashboardPage() {
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontWeight:600, fontSize:'13px' }}>
                               {r.customer}
-                              <span style={{ fontWeight:400, fontSize:'11px', color:'var(--text-muted)', marginLeft:'4px' }}>{componentSummary.zoneCount}구역 · 패키지 {componentSummary.packageCount}건</span>
+                              <span style={{ fontWeight:400, fontSize:'11px', color:'var(--text-muted)', marginLeft:'4px' }}>{componentSummary.zoneCount}구역 · 상품 {componentSummary.packageCount}건</span>
                             </div>
                             <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' }}>
                               {r.package_name || r.pkg || '-'} · <span className={`badge ${r.type}`} style={{ fontSize:'10px', padding:'1px 6px' }}>{STATUS_LABEL[r.type]}</span>
@@ -331,7 +331,7 @@ export default function DashboardPage() {
                           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px', marginBottom:'10px' }}>
                             {infoItem('고객명', r.customer)}
                             {infoItem('패키지', r.package_name || r.pkg)}
-                            {infoItem('구성', `${componentSummary.zoneCount}구역 / 패키지 ${componentSummary.packageCount}건`)}
+                            {infoItem('구성', `${componentSummary.zoneCount}구역 / 상품 ${componentSummary.packageCount}건`)}
                             {infoItem('연락처', r.tel)}
                             {infoItem('날짜', `${r.date}${r.end_date && r.end_date !== r.date ? ` ~ ${r.end_date.slice(5)}` : ''}`)}
                             {infoItem('결제처', r.payto)}

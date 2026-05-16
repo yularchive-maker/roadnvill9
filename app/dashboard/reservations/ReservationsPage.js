@@ -1981,10 +1981,15 @@ export default function ReservationsPage() {
   // 필터링
   const filtered = reservations.filter(r => {
     const q = search.toLowerCase()
+    const componentNames = budgetUsages
+      .filter(row => row.reservation_no === r.no && row.usage_type === 'product_operation' && row.is_deleted !== true)
+      .map(row => row.item_name || row.package_name)
+      .filter(Boolean)
     const matchSearch = !q ||
       r.customer?.toLowerCase().includes(q) ||
       r.no?.includes(q) ||
-      r.package_name?.toLowerCase().includes(q)
+      r.package_name?.toLowerCase().includes(q) ||
+      componentNames.some(name => String(name).toLowerCase().includes(q))
     const matchType  = !filterType  || r.type === filterType
     const matchMonth = !filterMonth || r.date?.startsWith(filterMonth)
     return matchSearch && matchType && matchMonth

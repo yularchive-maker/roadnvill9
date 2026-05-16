@@ -50,6 +50,7 @@ function usageDetailsFromRows(usages, reservations) {
         no: reservation.no,
         date: reservation.date,
         customer: reservation.customer,
+        item_name: usage.item_name || usage.package_name || reservation.package_name,
         package_name: usage.package_name || reservation.package_name,
         people,
         amount,
@@ -244,9 +245,12 @@ export default function BizPage() {
     return productItems.map(product => {
       const promo = promotionItems.find(item =>
         matchesName(item.item_name, product.item_name) &&
+        (item.sale_type || 'package') === (product.sale_type || 'package') &&
         String(item.biz_id || '') === String(product.biz_id || '')
       )
-      const pkg = packages.find(p => matchesName(p.name, packageTarget(product)))
+      const pkg = (product.sale_type || 'package') === 'package'
+        ? packages.find(p => matchesName(p.name, packageTarget(product)))
+        : null
       const biz = bizList.find(item => String(item.id) === String(product.biz_id))
       const zoneCode = product.zone_code || pkg?.zone_code || ''
       const productUsage = buildProductUsage(product, reservations, snapshots, budgetUsages)
@@ -366,7 +370,7 @@ export default function BizPage() {
           customer: reservation.customer,
           biz_name: usage.biz_name || bizList.find(b => String(b.id) === String(usage.biz_id))?.name || '-',
           zone_name: usage.zone_name || zoneMap[usage.zone_code] || usage.zone_code || '-',
-          package_name: usage.package_name || reservation.package_name || '-',
+          package_name: usage.item_name || usage.package_name || reservation.package_name || '-',
           discount_label: usage.discount_label || `${Number(usage.discount_rate) || 0}% 할인`,
           people: Number(usage.people_count) || 0,
           target: usage.reimbursement_target || '-',
@@ -615,7 +619,7 @@ export default function BizPage() {
 
           <div className="list-card" style={{ overflow: 'hidden' }}>
             <div className="list-header" style={{ gridTemplateColumns: '80px 96px 1fr 1fr 1fr 76px 104px 104px 104px 82px 92px' }}>
-              <span>예약번호</span><span>예약일</span><span>재정산 받을 곳</span><span>사업비</span><span>패키지</span><span>인원</span><span>선지급</span><span>정산완료</span><span>미정산</span><span>상태</span><span>작업</span>
+              <span>예약번호</span><span>예약일</span><span>재정산 받을 곳</span><span>사업비</span><span>상품</span><span>인원</span><span>선지급</span><span>정산완료</span><span>미정산</span><span>상태</span><span>작업</span>
             </div>
             {reimbursementRows.length === 0 ? (
               <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>선지급 정산 내역이 없습니다.</div>

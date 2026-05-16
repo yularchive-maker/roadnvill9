@@ -37,6 +37,7 @@ export default function SearchPage() {
   const [pickups, setPickups] = useState([])
   const [settles, setSettles] = useState([])
   const [zones, setZones] = useState([])
+  const [budgetUsages, setBudgetUsages] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState({
@@ -56,15 +57,16 @@ export default function SearchPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [resR, vcR, lcR, pkR, stR, zoneR] = await Promise.all([
+    const [resR, vcR, lcR, pkR, stR, zoneR, usageR] = await Promise.all([
       supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date', { ascending: false }),
       supabase.from('vendor_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('settle_history').select('settle_history_items(reservation_no)'),
       supabase.from('zones').select('code,name').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,item_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
-    const firstError = resR.error || vcR.error || lcR.error || pkR.error || stR.error || zoneR.error
+    const firstError = resR.error || vcR.error || lcR.error || pkR.error || stR.error || zoneR.error || usageR.error
     if (firstError) {
       setError(firstError.message || '검색 데이터를 불러오지 못했습니다.')
       setRows([])
@@ -75,6 +77,7 @@ export default function SearchPage() {
       setPickups(pkR.data || [])
       setSettles(stR.data || [])
       setZones(zoneR.data || [])
+      setBudgetUsages(usageR.data || [])
     }
     setLoading(false)
   }, [])
@@ -86,6 +89,10 @@ export default function SearchPage() {
     const zone = zones.find(item => item.code === row.zone_code)
     const lodges = lodgeConfirms.filter(item => item.reservation_no === row.no)
     const pickupRows = pickups.filter(item => item.reservation_no === row.no)
+    const componentNames = budgetUsages
+      .filter(item => item.reservation_no === row.no && item.usage_type === 'product_operation' && item.is_deleted !== true)
+      .map(item => item.item_name || item.package_name)
+      .filter(Boolean)
     const settledRows = settles.filter(item =>
       (item.settle_history_items || []).some(child => child.reservation_no === row.no)
     )
@@ -111,6 +118,7 @@ export default function SearchPage() {
     return {
       ...row,
       vendors,
+      componentNames,
       zone_name: zone?.name || '',
       replySummary,
       reply_status_rollup: vendorImpossible ? '불가능' : vendorAdjust ? '시간조정 필요' : vendorWaiting ? '회신대기' : allVendorsOk ? '가능' : '전체',
@@ -120,7 +128,7 @@ export default function SearchPage() {
       needAction,
       settled,
     }
-  }), [lodgeConfirms, pickups, rows, settles, vendorConfirms, zones])
+  }), [budgetUsages, lodgeConfirms, pickups, rows, settles, vendorConfirms, zones])
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase()
@@ -143,6 +151,7 @@ export default function SearchPage() {
         row.no,
         row.customer,
         row.package_name,
+        ...row.componentNames,
         row.zone_code,
         row.zone_name,
         row.payto,
