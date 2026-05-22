@@ -9,7 +9,7 @@ import { numberInputValue, numberInputChange } from '@/lib/number-format'
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const INFLOW_OPTS  = ['플랫폼','여행사','직접']
 const OP_OPTS      = ['일반','사업비']
-const RESERVATION_LIST_GRID = '60px 78px 94px minmax(150px,1.05fr) minmax(150px,1fr) 74px 64px 104px 112px 72px 72px'
+const RESERVATION_LIST_GRID = '60px 78px 94px minmax(150px,1.05fr) minmax(150px,1fr) 88px 70px 104px 112px 72px 72px'
 const VENDOR_CHECK_GRID = '44px minmax(92px, 1fr) minmax(118px, 1fr) 88px 96px 86px minmax(110px, 1.15fr) 88px'
 const CENTER_CELL = { display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', width:'100%' }
 const RIGHT_CELL = { display:'flex', alignItems:'center', justifyContent:'flex-end', textAlign:'right', width:'100%' }
@@ -224,11 +224,17 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     zone_code: '',
     zone_codes: [],
     item_name: '',
+    component_uid: '',
     package_id: '',
     package_name: '',
     vendor_key: '',
     prog_name: '',
     people_count: Number(form.pax) || 1,
+    customer_unit_price: '',
+    vendor_settle_unit_price: '',
+    start_time: '',
+    end_time: '',
+    place: '',
     discount_rate: 0,
     reimbursement_target: '',
     reimbursed_amount: 0,
@@ -266,11 +272,17 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           zone_code: u.zone_code || '',
           zone_codes: Array.isArray(u.zone_codes) && u.zone_codes.length ? u.zone_codes : (u.zone_code ? [u.zone_code] : []),
           item_name: u.item_name || u.package_name || '',
+          component_uid: u.component_uid || '',
           package_id: u.package_id || '',
           package_name: u.package_name || '',
           vendor_key: u.vendor_key || '',
           prog_name: u.prog_name || '',
           people_count: Number(u.people_count) || Number(form.pax) || 1,
+          customer_unit_price: Number(u.customer_unit_price) || '',
+          vendor_settle_unit_price: Number(u.vendor_settle_unit_price) || '',
+          start_time: u.start_time || '',
+          end_time: u.end_time || '',
+          place: u.place || '',
           discount_rate: rowDiscountRate,
           reimbursement_target: promo?.reimbursement_target || '',
           reimbursed_amount: Number(promo?.reimbursed_amount) || 0,
@@ -517,7 +529,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     const normalUnit = row.operation_type === 'business'
       ? Number(productItem?.support_unit_amount) || Number(pkg?.total_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
       : (row.sale_type === 'single'
-        ? Number(vendorProgram?.customer_price) || Number(form.price) || 0
+        ? Number(row.customer_unit_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
         : Number(pkg?.total_price) || Number(form.price) || 0)
     const discountRate = row.operation_type === 'business' ? Number(row.discount_rate) || 0 : 0
     const people = Number(row.people_count) || 0
@@ -605,6 +617,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (value.startsWith('single:')) {
       const [, vendorKey, ...programParts] = value.split(':')
       const progName = programParts.join(':')
+      const vendor = vendors.find(v => v.key === vendorKey)
+      const program = vendor?.vendor_programs?.find(p => p.prog_name === progName)
       return {
         ...row,
         sale_type: 'single',
@@ -613,6 +627,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         item_name: progName,
         vendor_key: vendorKey,
         prog_name: progName,
+        customer_unit_price: Number(program?.customer_price) || '',
+        vendor_settle_unit_price: Number(program?.vendor_settle_price ?? program?.unit_price) || '',
       }
     }
     return row
@@ -663,6 +679,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         next.package_name = ''
         next.vendor_key = ''
         next.prog_name = ''
+        next.customer_unit_price = ''
+        next.vendor_settle_unit_price = ''
+        next.start_time = ''
+        next.end_time = ''
+        next.place = ''
         next.discount_rate = 0
         next.reimbursement_target = ''
       }
@@ -673,6 +694,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         next.package_name = ''
         next.vendor_key = ''
         next.prog_name = ''
+        next.customer_unit_price = ''
+        next.vendor_settle_unit_price = ''
+        next.start_time = ''
+        next.end_time = ''
+        next.place = ''
         next.discount_rate = 0
         next.reimbursement_target = ''
       }
@@ -731,6 +757,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         package_name: '',
         vendor_key: '',
         prog_name: '',
+        customer_unit_price: '',
+        vendor_settle_unit_price: '',
+        start_time: '',
+        end_time: '',
+        place: '',
       }
     }))
   }
@@ -776,16 +807,21 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         operation_type: row.operation_type,
         biz_id: isBusiness ? (row.biz_id || null) : null,
         biz_name: isBusiness ? (biz?.name || null) : null,
-        sale_type: row.sale_type || 'package',
-        item_name: row.item_name || row.package_name || null,
-        zone_code: primaryZoneCode,
-        zone_codes: selectedZoneCodes.length ? selectedZoneCodes : (primaryZoneCode ? [primaryZoneCode] : []),
-        zone_name: zones.find(z => z.code === primaryZoneCode)?.name || null,
-        package_id: row.sale_type === 'package' && pkg?.id ? String(pkg.id) : null,
-        package_name: row.package_name,
-        vendor_key: row.sale_type === 'single' ? (row.vendor_key || null) : null,
-        prog_name: row.sale_type === 'single' ? (row.prog_name || null) : null,
-        people_count: amounts.people,
+          sale_type: row.sale_type || 'package',
+          item_name: row.item_name || row.package_name || null,
+          component_uid: row.component_uid || row.id,
+          zone_code: primaryZoneCode,
+          zone_codes: selectedZoneCodes.length ? selectedZoneCodes : (primaryZoneCode ? [primaryZoneCode] : []),
+          zone_name: zones.find(z => z.code === primaryZoneCode)?.name || null,
+          package_id: row.sale_type === 'package' && pkg?.id ? String(pkg.id) : null,
+          package_name: row.package_name,
+          vendor_key: row.sale_type === 'single' ? (row.vendor_key || null) : null,
+          prog_name: row.sale_type === 'single' ? (row.prog_name || null) : null,
+          vendor_settle_unit_price: row.sale_type === 'single' ? (Number(row.vendor_settle_unit_price) || 0) : 0,
+          start_time: row.sale_type === 'single' ? (row.start_time || null) : null,
+          end_time: row.sale_type === 'single' ? (row.end_time || null) : null,
+          place: row.sale_type === 'single' ? (row.place || null) : null,
+          people_count: amounts.people,
         normal_unit_price: amounts.normalUnit,
         customer_unit_price: amounts.customerUnit,
         memo: row.reimbursement_memo || null,
@@ -1702,6 +1738,30 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                 <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>금소마을, 암산마을처럼 실제 포함될 구역을 먼저 선택해주세요.</div>
                               )}
                             </div>
+                            {row.operation_type === 'general' && row.sale_type === 'single' && (
+                              <div style={{gridColumn:'1 / -1',display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(128px,1fr))',gap:'8px',alignItems:'end'}}>
+                                <div className="form-field">
+                                  <label>고객 판매가</label>
+                                  <input className="form-input" inputMode="numeric" value={numberInputValue(row.customer_unit_price)} onChange={e=>updateComponentRow(row.id,{customer_unit_price:numberInputChange(e.target.value)})} placeholder="기준정보 판매가" />
+                                </div>
+                                <div className="form-field">
+                                  <label>업체 정산단가</label>
+                                  <input className="form-input" inputMode="numeric" value={numberInputValue(row.vendor_settle_unit_price)} onChange={e=>updateComponentRow(row.id,{vendor_settle_unit_price:numberInputChange(e.target.value)})} placeholder="기준정보 정산가" />
+                                </div>
+                                <div className="form-field">
+                                  <label>시작시간</label>
+                                  <input className="form-input" type="time" value={row.start_time || ''} onChange={e=>updateComponentRow(row.id,{start_time:e.target.value})} />
+                                </div>
+                                <div className="form-field">
+                                  <label>종료시간</label>
+                                  <input className="form-input" type="time" value={row.end_time || ''} onChange={e=>updateComponentRow(row.id,{end_time:e.target.value})} />
+                                </div>
+                                <div className="form-field">
+                                  <label>장소</label>
+                                  <input className="form-input" value={row.place || ''} onChange={e=>updateComponentRow(row.id,{place:e.target.value})} placeholder="체험장/장소" />
+                                </div>
+                              </div>
+                            )}
                             {row.operation_type === 'business' && (
                               <div className="form-field">
                                 <label>요금 조건</label>
@@ -1738,6 +1798,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>기준가 <b style={{display:'block',color:'var(--text-primary)'}}>{amounts.normalUnit.toLocaleString()}원</b></div>
                             {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>할인율 <b style={{display:'block',color:'var(--accent)'}}>{amounts.discountRate}%</b></div>}
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>고객가 <b style={{display:'block',color:'var(--accent)'}}>{amounts.customerUnit.toLocaleString()}원</b></div>
+                            {row.operation_type === 'general' && row.sale_type === 'single' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>업체 정산 <b style={{display:'block',color:'var(--amber)'}}>{(Number(row.vendor_settle_unit_price) || 0).toLocaleString()}원</b></div>}
                             {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>선지급 단가 <b style={{display:'block',color:'var(--warning)'}}>{amounts.prepaidUnit.toLocaleString()}원</b></div>}
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>{row.operation_type === 'business' ? '선지급 총액' : '예상금액'} <b style={{display:'block',color:row.operation_type === 'business'?'var(--warning)':'var(--text-primary)'}}>{(row.operation_type === 'business' ? amounts.prepaidTotal : amounts.customerUnit * amounts.people).toLocaleString()}원</b></div>
                           </div>
@@ -2293,7 +2354,9 @@ export default function ReservationsPage() {
               <span style={{...CENTER_CELL,fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
               <span style={{...NOWRAP_CELL,fontWeight:600}} title={r.customer}>{r.customer}</span>
               <span style={{...NOWRAP_CELL,fontSize:'12px',color:'var(--text-secondary)'}} title={summary.packageTitle || '-'}>{summary.packageLabel || '-'}</span>
-              <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)', ...NOWRAP_CELL}} title={summary.zoneTitle || '-'}>{summary.zoneLabel || '-'}</span>
+              <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)',fontWeight:700}} title={summary.zoneTitle || '-'}>
+                {summary.zoneCount > 1 ? `${summary.zoneCount}구역` : (summary.zoneLabel || '-')}
+              </span>
               <span style={{...CENTER_CELL,flexDirection:'column',gap:'2px',fontSize:'11px',fontWeight:700,lineHeight:1.15}}>
                 <span>{summary.zoneCount}구역</span>
                 <span style={{color:'var(--accent)'}}>상품 {summary.packageCount}건</span>
