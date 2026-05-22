@@ -2,7 +2,7 @@
 <script>
 (async function _supabaseIntegration() {
   const SUPA_URL = 'https://guocaxlcibrpleigkuwx.supabase.co';
-  const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1b2NheGxjaWJycGxlaWdrdXd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MjM3MTIsImV4cCI6MjA5MTI5OTcxMn0.GGrHXPxefDZVAV8J04IbSeAlRasZq1kRlpMtHvNP-qE';
+  const SUPA_KEY = 'YOUR_SUPABASE_ANON_KEY';
   window._sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
   // 구 sessionStorage 세션 방식 비활성화

@@ -104,22 +104,60 @@ function lodgePayload(row, reservationNo) {
   }
 }
 
-function componentSummaryForReservation(reservation, usages) {
+function componentSummaryForReservation(reservation, usages, packages = [], zoneList = []) {
+  const zoneNameMap = Object.fromEntries(zoneList.map(zone => [zone.code, zone.name]))
   const rows = usages.filter(row =>
     row.reservation_no === reservation.no &&
     row.usage_type === 'product_operation' &&
     row.is_deleted !== true
   )
   if (!rows.length) {
+    const zoneLabel = reservation.zone_code ? (zoneNameMap[reservation.zone_code] || reservation.zone_code) : '-'
+    const packageLabel = reservation.package_name || '-'
     return {
       zoneCount: reservation.zone_code ? 1 : 0,
       packageCount: reservation.package_name ? 1 : 0,
+      zoneLabel,
+      zoneTitle: zoneLabel,
+      packageLabel,
+      packageTitle: packageLabel,
     }
   }
-  const zones = new Set(rows.map(row => row.zone_code || row.zone_name || '').filter(Boolean))
+  const zoneCodes = new Set()
+  const zoneNames = new Set()
+  const packageNames = new Set()
+  rows.forEach(row => {
+    const pkg = packages.find(p => String(p.id) === String(row.package_id)) || packages.find(p => p.name === row.package_name)
+    const packageZones = (pkg?.package_zones || [])
+      .filter(zone => zone && zone.is_deleted !== true)
+      .map(zone => zone.zone_code)
+      .filter(Boolean)
+    if (row.item_name || row.package_name) packageNames.add(row.item_name || row.package_name)
+    if (Array.isArray(row.zone_codes) && row.zone_codes.length) {
+      row.zone_codes.filter(Boolean).forEach(code => {
+        zoneCodes.add(code)
+        zoneNames.add(zoneNameMap[code] || code)
+      })
+    } else if (packageZones.length) {
+      packageZones.forEach(code => {
+        zoneCodes.add(code)
+        zoneNames.add(zoneNameMap[code] || code)
+      })
+    } else if (row.zone_code || row.zone_name) {
+      const code = row.zone_code || row.zone_name
+      zoneCodes.add(code)
+      zoneNames.add(row.zone_name || zoneNameMap[code] || code)
+    }
+  })
+  const zoneNameList = [...zoneNames]
+  const packageNameList = [...packageNames]
   return {
-    zoneCount: zones.size,
+    zoneCount: zoneCodes.size,
     packageCount: rows.length,
+    zoneLabel: zoneNameList.length <= 2 ? zoneNameList.join(' · ') : `${zoneNameList.length}구역`,
+    zoneTitle: zoneNameList.join(' / '),
+    packageLabel: packageNameList.length === 1 ? packageNameList[0] : `${packageNameList.length}개 상품 구성`,
+    packageTitle: packageNameList.join(' / '),
   }
 }
 
@@ -184,6 +222,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     biz_id: '',
     budget_item_id: '',
     zone_code: '',
+    zone_codes: [],
     item_name: '',
     package_id: '',
     package_name: '',
@@ -225,6 +264,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           biz_id: u.biz_id || '',
           budget_item_id: u.budget_item_id || '',
           zone_code: u.zone_code || '',
+          zone_codes: Array.isArray(u.zone_codes) && u.zone_codes.length ? u.zone_codes : (u.zone_code ? [u.zone_code] : []),
           item_name: u.item_name || u.package_name || '',
           package_id: u.package_id || '',
           package_name: u.package_name || '',
@@ -330,7 +370,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       const next = { ...f, package_name: pkgName }
       if (pkg) {
         next.price    = pkg.total_price || 0
-        next.zone_code = pkg.zone_code || f.zone_code
+        next.zone_code = packageZoneCodes(pkg).length === 1 ? packageZoneCodes(pkg)[0] : f.zone_code
       }
       next.total = calcTotal(next.price, next.pax, next.discount, next.pickup_fee, next.burden)
       return next
@@ -340,7 +380,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       const defaultRow = makeComponentRow({
         operation_type: 'general',
         biz_id: '',
-        zone_code: pkg?.zone_code || form.zone_code || '',
+        zone_code: packageZoneCodes(pkg).length === 1 ? packageZoneCodes(pkg)[0] : (form.zone_code || ''),
         package_name: pkgName,
         people_count: Number(form.pax) || 1,
       })
@@ -354,7 +394,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           ...rows[0],
           operation_type: 'general',
           biz_id: '',
-          zone_code: pkg?.zone_code || rows[0].zone_code || form.zone_code || '',
+          zone_code: packageZoneCodes(pkg).length === 1 ? packageZoneCodes(pkg)[0] : (rows[0].zone_code || form.zone_code || ''),
           package_name: pkgName,
           people_count: Number(form.pax) || Number(rows[0].people_count) || 1,
           discount_rate: 0,
@@ -367,6 +407,24 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function componentPackage(row) {
     return packages.find(p => String(p.id) === String(row.package_id)) || packages.find(p => p.name === row.package_name)
+  }
+
+  function packageZoneCodes(pkg) {
+    const linked = (pkg?.package_zones || []).filter(z => z && z.is_deleted !== true).map(z => z.zone_code).filter(Boolean)
+    return linked.length ? [...new Set(linked)] : (pkg?.zone_code ? [pkg.zone_code] : [])
+  }
+
+  function rowZoneCodes(row) {
+    const linked = Array.isArray(row.zone_codes) ? row.zone_codes.filter(Boolean) : []
+    return linked.length ? [...new Set(linked)] : (row.zone_code ? [row.zone_code] : [])
+  }
+
+  function packageMatchesZones(pkg, selectedCodes) {
+    const codes = selectedCodes || []
+    if (!codes.length) return true
+    const packageCodes = packageZoneCodes(pkg)
+    if (!packageCodes.length) return false
+    return codes.length === packageCodes.length && codes.every(code => packageCodes.includes(code))
   }
 
   function componentBiz(row) {
@@ -398,11 +456,19 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   }
 
   function componentBudgetPackageOptions(row) {
+    const selectedCodes = rowZoneCodes(row)
     return budgetItems
       .filter(item => item.is_active !== false && item.category === 'product_operation')
       .filter(item => !row.biz_id || !item.biz_id || String(item.biz_id) === String(row.biz_id))
-      .filter(item => !row.zone_code || !item.zone_code || item.zone_code === row.zone_code)
       .filter(item => (item.sale_type || 'package') === (row.sale_type || 'package'))
+      .filter(item => {
+        if (!selectedCodes.length) return true
+        if ((item.sale_type || 'package') !== 'package') return !item.zone_code || selectedCodes.includes(item.zone_code)
+        const pkg = packages.find(p => String(p.id) === String(item.package_id)) || packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
+        const zonesForPackage = packageZoneCodes(pkg)
+        if (zonesForPackage.length) return selectedCodes.length === zonesForPackage.length && selectedCodes.every(code => zonesForPackage.includes(code))
+        return !item.zone_code || selectedCodes.includes(item.zone_code)
+      })
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .map(item => ({
         id: String(item.id),
@@ -413,16 +479,19 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   }
 
   function generalItemOptions(row) {
+    const selectedCodes = rowZoneCodes(row)
     const showPackages = (row.sale_type || 'package') === 'package'
     const showSingles = row.sale_type === 'single'
     const generalPackages = packages.filter(pkg => (pkg.package_type || 'general') === 'general')
-    const packageOptions = showPackages ? (row.zone_code ? generalPackages.filter(p => p.zone_code === row.zone_code) : generalPackages).map(pkg => ({
+    const packageOptions = showPackages ? generalPackages.filter(p => packageMatchesZones(p, selectedCodes)).map(pkg => ({
       key: `package:${pkg.id}`,
       sale_type: 'package',
       label: `패키지 · ${pkg.name}`,
       item: pkg,
     })) : []
-    const singleOptions = showSingles ? vendors.flatMap(vendor => (vendor.vendor_programs || []).map(program => ({
+    const singleOptions = showSingles ? vendors.flatMap(vendor => (vendor.vendor_programs || [])
+      .filter(program => !selectedCodes.length || !program.zone_code || selectedCodes.includes(program.zone_code))
+      .map(program => ({
       key: `single:${vendor.key}:${program.prog_name}`,
       sale_type: 'single',
       label: `단품 · ${vendor.name} · ${program.prog_name}`,
@@ -528,7 +597,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         package_id: packageId,
         package_name: pkg?.name || '',
         item_name: pkg?.name || '',
-        zone_code: pkg?.zone_code || row.zone_code,
+        zone_code: row.zone_code || (packageZoneCodes(pkg).length === 1 ? packageZoneCodes(pkg)[0] : ''),
         vendor_key: '',
         prog_name: '',
       }
@@ -549,6 +618,18 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     return row
   }
 
+  function zoneForBusinessItem(row, item) {
+    if ((item?.sale_type || 'package') === 'package') {
+      const pkg = packages.find(p => String(p.id) === String(item.package_id)) || packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
+      const pkgZones = packageZoneCodes(pkg)
+      const selectedCodes = rowZoneCodes(row)
+      if (selectedCodes.length && selectedCodes.every(code => pkgZones.includes(code))) return selectedCodes[0]
+      if (row.zone_code && pkgZones.includes(row.zone_code)) return row.zone_code
+      if (pkgZones.length === 1) return pkgZones[0]
+    }
+    return item?.zone_code || row.zone_code || ''
+  }
+
   function applyBusinessSelection(row, budgetItemId) {
     const item = budgetItems.find(b => String(b.id) === String(budgetItemId))
     if (!item) {
@@ -559,7 +640,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       budget_item_id: String(item.id),
       sale_type: item.sale_type || 'package',
       biz_id: item.biz_id || row.biz_id || '',
-      zone_code: item.zone_code || row.zone_code || '',
+      zone_code: zoneForBusinessItem(row, item),
       item_name: item.item_name || '',
       package_id: item.package_id || '',
       package_name: item.item_name || item.match_package_name || '',
@@ -633,18 +714,52 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     }))
   }
 
+  function toggleComponentZone(rowId, zoneCode) {
+    setComponentRows(rows => rows.map(row => {
+      if (row.id !== rowId) return row
+      const current = rowZoneCodes(row)
+      const nextCodes = current.includes(zoneCode)
+        ? current.filter(code => code !== zoneCode)
+        : [...current, zoneCode]
+      return {
+        ...row,
+        zone_codes: nextCodes,
+        zone_code: nextCodes[0] || '',
+        budget_item_id: '',
+        item_name: '',
+        package_id: '',
+        package_name: '',
+        vendor_key: '',
+        prog_name: '',
+      }
+    }))
+  }
+
   function removeComponentRow(id) {
     setComponentRows(rows => rows.filter(row => row.id !== id))
   }
 
   async function saveComponentRows(reservationNo) {
-    await supabase
+    const { data: oldRows, error: oldRowsError } = await supabase
       .from('reservation_budget_usages')
-      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .select('id')
       .eq('reservation_no', reservationNo)
+      .in('usage_type', ['product_operation', 'promotion_discount'])
+      .or('is_deleted.is.null,is_deleted.eq.false')
+    if (oldRowsError) throw oldRowsError
 
-    const rows = componentRows.filter(row => row.package_name && Number(row.people_count) > 0)
-    if (!rows.length) return
+    const oldIds = (oldRows || []).map(row => row.id).filter(Boolean)
+    const rows = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
+    if (!rows.length) {
+      if (oldIds.length) {
+        const { error } = await supabase
+          .from('reservation_budget_usages')
+          .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+          .in('id', oldIds)
+        if (error) throw error
+      }
+      return
+    }
 
     const insertRows = []
     for (const row of rows) {
@@ -654,6 +769,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       const promoItem = componentBudgetItem(row, 'promotion_discount')
       const amounts = componentAmounts(row)
       const isBusiness = row.operation_type === 'business'
+      const selectedZoneCodes = rowZoneCodes(row)
+      const primaryZoneCode = selectedZoneCodes[0] || packageZoneCodes(pkg)[0] || null
       const base = {
         reservation_no: reservationNo,
         operation_type: row.operation_type,
@@ -661,8 +778,9 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         biz_name: isBusiness ? (biz?.name || null) : null,
         sale_type: row.sale_type || 'package',
         item_name: row.item_name || row.package_name || null,
-        zone_code: row.zone_code || pkg?.zone_code || null,
-        zone_name: zones.find(z => z.code === (row.zone_code || pkg?.zone_code))?.name || null,
+        zone_code: primaryZoneCode,
+        zone_codes: selectedZoneCodes.length ? selectedZoneCodes : (primaryZoneCode ? [primaryZoneCode] : []),
+        zone_name: zones.find(z => z.code === primaryZoneCode)?.name || null,
         package_id: row.sale_type === 'package' && pkg?.id ? String(pkg.id) : null,
         package_name: row.package_name,
         vendor_key: row.sale_type === 'single' ? (row.vendor_key || null) : null,
@@ -707,9 +825,25 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       }
     }
 
+    if (oldIds.length) {
+      const { error } = await supabase
+        .from('reservation_budget_usages')
+        .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+        .in('id', oldIds)
+      if (error) throw error
+    }
+
     if (insertRows.length) {
       const { error } = await supabase.from('reservation_budget_usages').insert(insertRows)
-      if (error) throw error
+      if (error) {
+        if (oldIds.length) {
+          await supabase
+            .from('reservation_budget_usages')
+            .update({ is_deleted: false, deleted_at: null })
+            .in('id', oldIds)
+        }
+        throw error
+      }
     }
   }
 
@@ -793,15 +927,25 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     const derivedPax = activeComponents.length
       ? Math.max(...activeComponents.map(row => Number(row.people_count) || 0), 1)
       : Number(form.pax) || 1
+    const componentSubtotal = activeComponents.reduce((acc, row) => {
+      const amounts = componentAmounts(row)
+      return acc + (amounts.customerUnit * amounts.people)
+    }, 0)
+    const derivedPrice = activeComponents.length === 1
+      ? componentAmounts(activeComponents[0]).customerUnit
+      : Number(form.price) || 0
+    const derivedTotal = activeComponents.length
+      ? componentSubtotal + (Number(form.pickup_fee) || 0) + (Number(form.burden) || 0)
+      : Number(form.total) || 0
 
     const payload = {
       type: form.type, date: form.date, end_date: form.end_date || form.date,
       zone_code: activeComponents.length ? null : (form.zone_code || null),
       package_name: derivedPackageName,
       customer: form.customer, tel: form.tel, pax: derivedPax,
-      price: Number(form.price)||0, discount: Number(form.discount)||0,
+      price: derivedPrice, discount: activeComponents.length ? 0 : Number(form.discount)||0,
       pickup_fee: Number(form.pickup_fee)||0, burden: Number(form.burden)||0,
-      total: Number(form.total)||0,
+      total: derivedTotal,
       payto: form.payto, inflow: form.inflow,
       platform_name: form.platform_name, plat_fee: Number(form.plat_fee)||0,
       agency_name: form.agency_name, ag_fee: Number(form.ag_fee)||0,
@@ -1258,18 +1402,41 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   const componentDraftSummary = useMemo(() => {
     const rows = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
-    const zoneCount = new Set(rows.map(row => row.zone_code).filter(Boolean)).size
+    const zoneCodes = new Set()
+    rows.forEach(row => {
+      const pkgZones = packageZoneCodes(componentPackage(row))
+      if (pkgZones.length) pkgZones.forEach(code => zoneCodes.add(code))
+      else if (row.zone_code) zoneCodes.add(row.zone_code)
+    })
+    const zoneCount = zoneCodes.size
     const maxPeople = rows.length ? Math.max(...rows.map(row => Number(row.people_count) || 0), 0) : 0
     return {
       zoneCount,
       itemCount: rows.length,
       maxPeople,
     }
-  }, [componentRows, form.pax])
+  }, [componentRows, form.pax, packages])
+
+  const componentPaymentSummary = useMemo(() => {
+    const rows = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
+    const subtotal = rows.reduce((acc, row) => {
+      const amounts = componentAmounts(row)
+      return acc + (amounts.customerUnit * amounts.people)
+    }, 0)
+    const total = subtotal > 0
+      ? subtotal + (Number(form.pickup_fee) || 0) + (Number(form.burden) || 0)
+      : Number(form.total) || 0
+    return {
+      hasComponents: rows.length > 0,
+      subtotal,
+      total,
+      representativeUnit: rows.length === 1 ? componentAmounts(rows[0]).customerUnit : 0,
+    }
+  }, [componentRows, form.pickup_fee, form.burden, form.total, budgetItems, packages, vendors])
 
   return (
     <div className="modal-overlay open" onClick={e => e.target===e.currentTarget && onClose()}>
-      <div className="modal" style={{width:'760px', maxWidth:'calc(100vw - 32px)'}}>
+      <div className="modal" style={{width:'720px', maxWidth:'calc(100vw - 32px)'}}>
         <div className="modal-header">
           <div className="modal-title">{isEdit ? `예약 수정 — #${form.no}` : '예약 등록'}</div>
           <button className="close-btn" onClick={onClose}>✕</button>
@@ -1423,7 +1590,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     기준정보에서 만든 상품을 상품 담기로 추가해주세요.
                   </div>
                 ) : (
-                  <div style={{display:'grid',gap:'10px'}}>
+                  <div style={{display:'grid',gap:'12px'}}>
                     {componentRows.map((row, idx) => {
                       const pkg = componentPackage(row)
                       const amounts = componentAmounts(row)
@@ -1433,24 +1600,42 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                         : generalItemOptions(row)
                       const saleTypeLabel = (row.sale_type || 'package') === 'single' ? '단품' : '패키지'
                       const rowComplete = !!(row.item_name || row.package_name) && Number(row.people_count) > 0
+                      const selectedZoneCodes = rowZoneCodes(row)
+                      const selectedZoneNames = selectedZoneCodes.map(code => zones.find(z => z.code === code)?.name || code)
+                      const canSelectProduct = selectedZoneCodes.length > 0
                       return (
-                        <div key={row.id} style={{border:'1px solid var(--border)',borderRadius:'8px',background:'rgba(15,35,52,.45)',padding:'12px'}}>
+                        <div key={row.id} style={{border:'1px solid var(--border)',borderRadius:'8px',background:'rgba(15,35,52,.45)',padding:'12px',maxWidth:'100%',overflow:'hidden'}}>
                           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginBottom:'10px'}}>
                             <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
                               <span style={{width:'22px',height:'22px',borderRadius:'50%',background:'rgba(78,205,196,.14)',border:'1px solid rgba(78,205,196,.28)',color:'var(--accent)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:'11px',fontWeight:800}}>{idx+1}</span>
                               <span style={{fontSize:'13px',fontWeight:800,color:'var(--text-primary)'}}>{row.item_name || row.package_name || '상품 선택'}</span>
                               <span style={{fontSize:'11px',color:row.operation_type === 'business' ? 'var(--amber)' : 'var(--text-secondary)'}}>{row.operation_type === 'business' ? '사업비' : '일반'}</span>
                               <span style={{fontSize:'11px',color:'var(--text-muted)'}}>{saleTypeLabel}</span>
+                              {selectedZoneNames.length > 0 && (
+                                <span style={{fontSize:'11px',color:'var(--accent)',fontWeight:700}}>{selectedZoneNames.join(' · ')}</span>
+                              )}
                             </div>
                             <button type="button" className="icon-btn" onClick={()=>removeComponentRow(row.id)}>×</button>
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(130px,.9fr) 140px 140px minmax(130px,.9fr)' : 'minmax(130px,1fr) 140px 140px',gap:'8px',alignItems:'end'}}>
+                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(0,1fr) 112px 112px minmax(128px,.65fr)' : 'minmax(0,1fr) 112px 112px',gap:'8px',alignItems:'end'}}>
                             <div className="form-field">
                               <label>구역</label>
-                              <select className="form-select" value={row.zone_code||''} onChange={e=>updateComponentRow(row.id,{zone_code:e.target.value,selection:''})}>
-                                <option value="">전체</option>
-                                {zones.map(z=><option key={z.code} value={z.code}>{z.name}</option>)}
-                              </select>
+                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                                {zones.map(z => {
+                                  const active = selectedZoneCodes.includes(z.code)
+                                  return (
+                                    <button
+                                      key={z.code}
+                                      type="button"
+                                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                                      onClick={() => toggleComponentZone(row.id, z.code)}
+                                      style={{height:'32px',minWidth:'76px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
+                                    >
+                                      {z.name}
+                                    </button>
+                                  )
+                                })}
+                              </div>
                             </div>
                             <div className="form-field">
                               <label>운영구분</label>
@@ -1466,7 +1651,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                       type="button"
                                       className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                       onClick={() => updateComponentRow(row.id,{operation_type:value})}
-                                      style={{height:'36px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
+                                      style={{height:'34px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
                                       {label}
                                     </button>
@@ -1488,7 +1673,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                       type="button"
                                       className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                       onClick={() => updateComponentRow(row.id,{sale_type:value})}
-                                      style={{height:'36px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
+                                      style={{height:'34px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
                                       {label}
                                     </button>
@@ -1506,13 +1691,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               </div>
                             )}
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(220px,1fr) minmax(140px,.55fr) 82px' : 'minmax(220px,1fr) 82px',gap:'8px',alignItems:'end',marginTop:'8px'}}>
+                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(0,1fr) 126px 70px' : 'minmax(0,1fr) 70px',gap:'8px',alignItems:'end',marginTop:'8px'}}>
                             <div className="form-field">
                               <label>상품 선택</label>
-                              <select className="form-select" value={rowSelectionValue(row)} onChange={e=>updateComponentRow(row.id,{selection:e.target.value})}>
-                                <option value="">선택</option>
+                              <select className="form-select" value={rowSelectionValue(row)} onChange={e=>updateComponentRow(row.id,{selection:e.target.value})} disabled={!canSelectProduct}>
+                                <option value="">{canSelectProduct ? '선택' : '구역 먼저 선택'}</option>
                                 {itemOptions.map(p=><option key={p.id || p.key} value={p.id || p.key}>{p.label || p.name}</option>)}
                               </select>
+                              {!canSelectProduct && (
+                                <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>금소마을, 암산마을처럼 실제 포함될 구역을 먼저 선택해주세요.</div>
+                              )}
                             </div>
                             {row.operation_type === 'business' && (
                               <div className="form-field">
@@ -1526,7 +1714,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                         type="button"
                                         className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                         onClick={() => updateComponentRow(row.id,{discount_rate:option.rate})}
-                                        style={{height:'34px',padding:'0 8px',fontSize:'12px',whiteSpace:'nowrap'}}
+                                        style={{height:'34px',padding:'0 8px',fontSize:'12px',whiteSpace:'nowrap',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                       >
                                         {option.label}
                                       </button>
@@ -1546,7 +1734,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               <input className="form-input" value={row.reimbursement_target||''} onChange={e=>updateComponentRow(row.id,{reimbursement_target:e.target.value})} placeholder="사업비 패키지 기준에서 자동 입력"/>
                             </div>
                           )}
-                          <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'repeat(5,minmax(0,1fr))' : 'repeat(3,minmax(0,1fr))',gap:'6px',fontSize:'12px'}}>
+                          <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(98px,1fr))',gap:'6px',fontSize:'12px'}}>
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>기준가 <b style={{display:'block',color:'var(--text-primary)'}}>{amounts.normalUnit.toLocaleString()}원</b></div>
                             {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>할인율 <b style={{display:'block',color:'var(--accent)'}}>{amounts.discountRate}%</b></div>}
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>고객가 <b style={{display:'block',color:'var(--accent)'}}>{amounts.customerUnit.toLocaleString()}원</b></div>
@@ -1678,7 +1866,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
                   <div className="form-field">
                     <label>1인 판매가 <span className="req">*</span></label>
-                    <input className="form-input" inputMode="numeric" value={numberInputValue(form.price)} onChange={e=>inp('price',numberInputChange(e.target.value))} placeholder="원"/>
+                    <input
+                      className={`form-input ${componentPaymentSummary.hasComponents ? 'auto-fill' : ''}`}
+                      inputMode="numeric"
+                      value={numberInputValue(componentPaymentSummary.hasComponents ? componentPaymentSummary.representativeUnit : form.price)}
+                      onChange={e=>!componentPaymentSummary.hasComponents && inp('price',numberInputChange(e.target.value))}
+                      readOnly={componentPaymentSummary.hasComponents}
+                      placeholder={componentPaymentSummary.hasComponents && !componentPaymentSummary.representativeUnit ? '구성별 자동계산' : '원'}
+                    />
                   </div>
                   <div className="form-field">
                     <label>할인금액</label>
@@ -1741,7 +1936,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
                 <div className="form-field" style={{marginBottom:'10px'}}>
                   <label>총 결제금액 <span className="auto">자동계산</span></label>
-                  <input className="form-input total" value={(form.total||0).toLocaleString()+'원'} readOnly/>
+                  <input className="form-input total" value={(componentPaymentSummary.total||0).toLocaleString()+'원'} readOnly/>
                 </div>
                 <div style={{fontSize:'12px',color:'var(--text-secondary)',lineHeight:1.5,marginBottom:'10px'}}>
                   운영구분과 사업명은 위 구성 패키지에 사업비 항목이 포함되어 있으면 저장 시 자동 반영됩니다.
@@ -1976,13 +2171,13 @@ export default function ReservationsPage() {
     const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, vendorR, usageR] = await Promise.all([
       supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('name'),
+      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
       supabase.from('platforms').select('*').order('type').order('name'),
       supabase.from('drivers').select('*').order('name'),
       supabase.from('biz').select('*').order('name'),
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type)').order('key'),
-      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_name,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setZones(zoneR.data || [])
@@ -2078,7 +2273,7 @@ export default function ReservationsPage() {
           <span style={CENTER_CELL}>상태</span>
           <span style={CENTER_CELL}>날짜</span>
           <span>고객명</span>
-          <span>패키지명</span>
+          <span>상품/패키지</span>
           <span style={CENTER_CELL}>구역</span>
           <span style={CENTER_CELL}>구성</span>
           <span style={RIGHT_CELL}>총금액</span>
@@ -2090,18 +2285,18 @@ export default function ReservationsPage() {
           <div style={{padding:'40px',textAlign:'center',color:'var(--text-muted)',fontSize:'13px'}}>예약 없음</div>
         )}
         {filtered.map(r => {
-          const summary = componentSummaryForReservation(r, budgetUsages)
+          const summary = componentSummaryForReservation(r, budgetUsages, packages, zones)
           return (
             <div key={r.no} className="list-row" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px'}} onClick={()=>openEdit(r)}>
               <span className="no-col" style={CENTER_CELL}>#{r.no}</span>
               <span style={CENTER_CELL}><span className={`badge ${r.type}`} style={{minWidth:'46px',justifyContent:'center'}}>{STATUS_LABEL[r.type]}</span></span>
               <span style={{...CENTER_CELL,fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
               <span style={{...NOWRAP_CELL,fontWeight:600}} title={r.customer}>{r.customer}</span>
-              <span style={{...NOWRAP_CELL,fontSize:'12px',color:'var(--text-secondary)'}} title={r.package_name || '-'}>{r.package_name||'-'}</span>
-              <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)'}}>{r.zone_code||'-'}</span>
+              <span style={{...NOWRAP_CELL,fontSize:'12px',color:'var(--text-secondary)'}} title={summary.packageTitle || '-'}>{summary.packageLabel || '-'}</span>
+              <span style={{...CENTER_CELL,fontSize:'11px',color:'var(--text-muted)', ...NOWRAP_CELL}} title={summary.zoneTitle || '-'}>{summary.zoneLabel || '-'}</span>
               <span style={{...CENTER_CELL,flexDirection:'column',gap:'2px',fontSize:'11px',fontWeight:700,lineHeight:1.15}}>
                 <span>{summary.zoneCount}구역</span>
-                <span style={{color:'var(--accent)'}}>패키지 {summary.packageCount}건</span>
+                <span style={{color:'var(--accent)'}}>상품 {summary.packageCount}건</span>
               </span>
               <span style={{...RIGHT_CELL,fontFamily:'DM Mono,monospace',fontSize:'12px',fontWeight:700}}>{(r.total||0).toLocaleString()}</span>
               <span style={{...CENTER_CELL,fontSize:'12px',color:'var(--text-secondary)', ...NOWRAP_CELL}} title={r.payto || '-'}>{r.payto||'-'}</span>

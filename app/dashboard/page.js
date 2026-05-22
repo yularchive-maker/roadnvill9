@@ -14,22 +14,64 @@ function fmtMoney(n) {
   return n.toLocaleString('ko-KR') + '원'
 }
 
-function componentSummaryForReservation(reservation, usages) {
+function componentSummaryForReservation(reservation, usages, packages = [], zoneList = []) {
+  const zoneNameMap = Object.fromEntries(zoneList.map(zone => [zone.code, zone.name]))
   const rows = usages.filter(row =>
     row.reservation_no === reservation.no &&
     row.usage_type === 'product_operation' &&
     row.is_deleted !== true
   )
   if (!rows.length) {
+    const zoneLabel = reservation.zone_code ? (zoneNameMap[reservation.zone_code] || reservation.zone_code) : '-'
+    const packageLabel = reservation.package_name || reservation.pkg || '-'
+    const maxPeople = Number(reservation.pax) || 0
     return {
       zoneCount: reservation.zone_code ? 1 : 0,
       packageCount: reservation.package_name ? 1 : 0,
+      maxPeople,
+      zoneLabel,
+      zoneTitle: zoneLabel,
+      packageLabel,
+      packageTitle: packageLabel,
     }
   }
-  const zones = new Set(rows.map(row => row.zone_code || row.zone_name || '').filter(Boolean))
+  const zoneCodes = new Set()
+  const zoneNames = new Set()
+  const packageNames = new Set()
+  rows.forEach(row => {
+    const pkg = packages.find(p => String(p.id) === String(row.package_id)) || packages.find(p => p.name === row.package_name)
+    const packageZones = (pkg?.package_zones || [])
+      .filter(zone => zone && zone.is_deleted !== true)
+      .map(zone => zone.zone_code)
+      .filter(Boolean)
+    if (row.item_name || row.package_name) packageNames.add(row.item_name || row.package_name)
+    if (Array.isArray(row.zone_codes) && row.zone_codes.length) {
+      row.zone_codes.filter(Boolean).forEach(code => {
+        zoneCodes.add(code)
+        zoneNames.add(zoneNameMap[code] || code)
+      })
+    } else if (packageZones.length) {
+      packageZones.forEach(code => {
+        zoneCodes.add(code)
+        zoneNames.add(zoneNameMap[code] || code)
+      })
+    } else if (row.zone_code || row.zone_name) {
+      const code = row.zone_code || row.zone_name
+      zoneCodes.add(code)
+      zoneNames.add(row.zone_name || zoneNameMap[code] || code)
+    }
+  })
+  const zoneNameList = [...zoneNames]
+  const packageNameList = [...packageNames]
+  const maxPeople = rows.length ? Math.max(...rows.map(row => Number(row.people_count) || 0), 0) : 0
   return {
-    zoneCount: zones.size,
+    zoneCount: zoneCodes.size,
     packageCount: rows.length,
+    maxPeople,
+    zoneLabel: zoneNameList.length <= 2 ? zoneNameList.join(' · ') : `${zoneNameList.length}구역`,
+    zoneTitle: zoneNameList.join(' / '),
+    packageLabel: packageNameList.length === 1 ? packageNameList[0] : `${packageNameList.length}개 상품 구성`,
+    packageTitle: packageNameList.join(' / '),
   }
 }
 
@@ -37,6 +79,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const [reservations, setReservations] = useState([])
   const [packages,     setPackages]     = useState([])
+  const [zones,        setZones]        = useState([])
   const [notices,      setNotices]      = useState([])
   const [vendorConfirms, setVendorConfirms] = useState([])
   const [lodgeConfirms,  setLodgeConfirms]  = useState([])
@@ -47,21 +90,24 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState(todayStr())
   const [openResNo, setOpenResNo] = useState('')
   const [noticePopup,  setNoticePopup]  = useState(null)  // { date, specials, notices }
+  const [limitAlertSending, setLimitAlertSending] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [resR, pkgR, notR, vcR, lcR, pkR, usageR] = await Promise.all([
+    const [resR, pkgR, zoneR, notR, vcR, lcR, pkR, usageR] = await Promise.all([
       supabase.from('reservations').select('*').order('date', { ascending: false }),
-      supabase.from('packages').select('*, package_programs(vendor_key, prog_name, vendors(key,name,color))'),
+      supabase.from('packages').select('*, package_zones(*), package_programs(vendor_key, prog_name, vendors(key,name,color))'),
+      supabase.from('zones').select('*').order('code'),
       supabase.from('notices').select('*').order('date'),
       supabase.from('vendor_confirms').select('*'),
       supabase.from('lodge_confirms').select('*'),
       supabase.from('reservation_pickup').select('*, drivers(name)'),
-      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_name,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,people_count,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setPackages(pkgR.data || [])
+    setZones(zoneR.data || [])
     setNotices(notR.data || [])
     setVendorConfirms(vcR.data || [])
     setLodgeConfirms(lcR.data || [])
@@ -95,20 +141,72 @@ export default function DashboardPage() {
   function dateStr(y, m, d) { return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` }
 
   function getDateRes(ds) { return reservations.filter(r => r.date === ds && r.type !== 'cancelled') }
-  function getDatePax(ds) { return getDateRes(ds).reduce((s,r) => s + (r.pax||0), 0) }
+  function getReservationPeople(r) {
+    const summary = componentSummaryForReservation(r, budgetUsages, packages, zones)
+    return Number(summary.maxPeople) || Number(r.pax) || 0
+  }
+  function getDatePax(ds) { return getDateRes(ds).reduce((s,r) => s + getReservationPeople(r), 0) }
 
-  // pax_limit 초과 여부
-  const pkgLimitMap = {}
-  packages.forEach(p => { if (p.pax_limit > 0) pkgLimitMap[p.name] = p.pax_limit })
+  // 구성 상품별 인원 알림 기준 초과 여부
+  function getDateLimitWarnings(ds) {
+    const rList = getDateRes(ds)
+    const reservationNos = new Set(rList.map(r => r.no))
+    const byPackage = new Map()
+
+    budgetUsages
+      .filter(row =>
+        reservationNos.has(row.reservation_no) &&
+        row.usage_type === 'product_operation' &&
+        row.is_deleted !== true
+      )
+      .forEach(row => {
+        const pkg = packages.find(p => String(p.id) === String(row.package_id)) || packages.find(p => p.name === row.package_name || p.name === row.item_name)
+        const name = row.item_name || row.package_name || pkg?.name
+        if (!name) return
+        const limit = Number(pkg?.pax_limit) || 0
+        if (!limit) return
+        const current = byPackage.get(name) || { name, people: 0, limit }
+        current.people += Number(row.people_count) || 0
+        current.limit = limit
+        byPackage.set(name, current)
+      })
+
+    rList.forEach(r => {
+      const hasComponentRows = budgetUsages.some(row =>
+        row.reservation_no === r.no &&
+        row.usage_type === 'product_operation' &&
+        row.is_deleted !== true
+      )
+      if (hasComponentRows) return
+      const pkg = packages.find(p => p.name === (r.package_name || r.pkg))
+      const limit = Number(pkg?.pax_limit) || 0
+      if (!limit) return
+      const name = r.package_name || r.pkg
+      const current = byPackage.get(name) || { name, people: 0, limit }
+      current.people += Number(r.pax) || 0
+      current.limit = limit
+      byPackage.set(name, current)
+    })
+
+    return [...byPackage.values()]
+      .map(item => {
+        const cautionAt = Math.ceil(item.limit * 0.85)
+        const level = item.people >= item.limit ? 'over' : item.people >= cautionAt ? 'caution' : 'normal'
+        return { ...item, cautionAt, level }
+      })
+      .filter(item => item.level !== 'normal')
+      .sort((a, b) => {
+        if (a.level !== b.level) return a.level === 'over' ? -1 : 1
+        return (b.people / b.limit) - (a.people / a.limit)
+      })
+  }
 
   function isOverLimit(ds) {
-    const rList = getDateRes(ds)
-    const byPkg = {}
-    rList.forEach(r => {
-      if (!byPkg[r.package_name]) byPkg[r.package_name] = 0
-      byPkg[r.package_name] += (r.pax || 0)
-    })
-    return Object.entries(byPkg).some(([name, pax]) => pkgLimitMap[name] && pax >= pkgLimitMap[name])
+    return getDateLimitWarnings(ds).some(item => item.level === 'over')
+  }
+
+  function isCautionLimit(ds) {
+    return getDateLimitWarnings(ds).some(item => item.level === 'caution')
   }
 
   function getDateNotices(ds) { return notices.filter(n => n.date === ds) }
@@ -133,6 +231,37 @@ export default function DashboardPage() {
 
   // 선택 날짜 예약 목록
   const selRes = reservations.filter(r => r.date === selectedDate)
+  const selectedDateWarnings = getDateLimitWarnings(selectedDate)
+
+  async function sendLimitAlert() {
+    if (!selectedDateWarnings.length || limitAlertSending) return
+    setLimitAlertSending(true)
+    try {
+      const res = await fetch('/api/telegram/limit-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: selectedDate,
+          reservationCount: selRes.length,
+          totalPeople: getDatePax(selectedDate),
+          warnings: selectedDateWarnings.map(item => ({
+            name: item.name,
+            people: item.people,
+            limit: item.limit,
+            cautionAt: item.cautionAt,
+            level: item.level,
+          })),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '텔레그램 알림 발송 실패')
+      alert('대표님에게 텔레그램 인원 알림을 발송했습니다.')
+    } catch (error) {
+      alert('텔레그램 인원 알림 발송 실패: ' + error.message)
+    } finally {
+      setLimitAlertSending(false)
+    }
+  }
 
   function getPkg(r) {
     return packages.find(p => p.name === (r.package_name || r.pkg))
@@ -215,12 +344,28 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="cal-card">
-            <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px', fontSize:'10px', color:'var(--text-muted)', flexWrap:'wrap' }}>
-              <span><span style={{ color:'var(--accent)', fontWeight:600 }}>예약n건</span> 건수</span>
-              <span><span style={{ color:'var(--text-muted)', fontWeight:600 }}>n명</span> 총인원</span>
-              <span><span style={{ color:'var(--amber)', fontWeight:600 }}>⚠ n명</span> 임계초과</span>
-              <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span className="cal-notice-dot" /> 알림</span>
-              <span style={{ color:'var(--amber)', fontWeight:600 }}>특일</span>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'8px', fontSize:'10px', color:'var(--text-muted)', flexWrap:'wrap' }}>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid var(--border2)',borderRadius:'999px'}}>
+                <span style={{ color:'var(--accent)', fontWeight:700 }}>예약 n건</span>
+                <span>해당 날짜 예약 수</span>
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid var(--border2)',borderRadius:'999px'}}>
+                <span style={{ color:'var(--text-primary)', fontWeight:700 }}>총 n명</span>
+                <span>요약 인원 합계</span>
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid rgba(247,201,72,.28)',borderRadius:'999px'}}>
+                <span style={{ color:'var(--amber)', fontWeight:700 }}>주의 85%</span>
+                <span>알림</span>
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid rgba(255,107,107,.28)',borderRadius:'999px'}}>
+                <span style={{ color:'var(--red)', fontWeight:700 }}>초과 100%</span>
+                <span>마감권고</span>
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid var(--border2)',borderRadius:'999px'}}>
+                <span className="cal-notice-dot" />
+                <span>알림</span>
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid rgba(247,201,72,.28)',borderRadius:'999px',color:'var(--amber)',fontWeight:700}}>특일</span>
             </div>
             <div className="cal-grid">
               {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
@@ -235,6 +380,7 @@ export default function DashboardPage() {
                 const cnt      = getDateRes(ds).length
                 const pax      = getDatePax(ds)
                 const over     = isOverLimit(ds)
+                const caution  = !over && isCautionLimit(ds)
                 const special  = getDateSpecial(ds)
                 const ntcList  = getDateNotices(ds)
                 const isToday  = ds === today
@@ -243,7 +389,11 @@ export default function DashboardPage() {
                   <div
                     key={i}
                     className={`cal-day${isToday?' today':''}${isSel?' cal-selected':''}`}
-                    style={over ? { boxShadow:'inset 0 0 0 2px rgba(247,201,72,0.6)' } : null}
+                    style={over
+                      ? { boxShadow:'inset 0 0 0 2px rgba(255,107,107,0.62)' }
+                      : caution
+                        ? { boxShadow:'inset 0 0 0 2px rgba(247,201,72,0.54)' }
+                        : null}
                     onClick={() => { setSelectedDate(ds); setOpenResNo('') }}
                     onDoubleClick={() => router.push(`/dashboard/reservations?new=1&date=${ds}&from=dashboard`)}
                   >
@@ -251,8 +401,8 @@ export default function DashboardPage() {
                     <div className="cal-day-num">{c.day}</div>
                     {cnt > 0 ? <div className="cal-res-count">예약{cnt}건</div> : <div style={{ height:'13px' }} />}
                     {pax > 0 ? (
-                      <div style={{ fontSize:'9px', fontWeight:700, marginBottom:'2px', color: over ? 'var(--amber)' : 'var(--text-muted)' }}>
-                        {over ? '⚠ ' : ''}{pax}명
+                      <div style={{ fontSize:'9px', fontWeight:700, marginBottom:'2px', color: over ? 'var(--red)' : caution ? 'var(--amber)' : 'var(--text-muted)' }}>
+                        {over ? '초과 ' : caution ? '주의 ' : '총 '}{pax}명
                       </div>
                     ) : <div style={{ height:'13px' }} />}
                     <div
@@ -280,6 +430,54 @@ export default function DashboardPage() {
               등록
             </button>
           </div>
+          {selectedDateWarnings.length > 0 && (
+            <div
+              style={{
+                marginBottom:'10px',
+                padding:'10px 12px',
+                border:'1px solid rgba(247,201,72,.32)',
+                borderRadius:'8px',
+                background:'rgba(247,201,72,.08)',
+              }}
+            >
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginBottom:'7px'}}>
+                <div style={{fontSize:'11px',fontWeight:800,color:'var(--amber)'}}>인원 알림 상품</div>
+                <button
+                  className="btn-outline"
+                  style={{height:'28px',padding:'0 10px',fontSize:'11px'}}
+                  onClick={sendLimitAlert}
+                  disabled
+                  title="대표님 텔레그램 chat_id 연동 후 사용할 수 있습니다"
+                >
+                  텔레그램 연동 후 사용
+                </button>
+              </div>
+              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                {selectedDateWarnings.map(item => (
+                  <span
+                    key={item.name}
+                    title={`${item.name} ${item.people}/${item.limit}명 · ${item.level === 'over' ? '초과' : '주의'} 기준 ${item.level === 'over' ? item.limit : item.cautionAt}명`}
+                    style={{
+                      display:'inline-flex',
+                      alignItems:'center',
+                      gap:'5px',
+                      padding:'4px 8px',
+                      borderRadius:'999px',
+                      border:item.level === 'over' ? '1px solid rgba(255,107,107,.34)' : '1px solid rgba(247,201,72,.34)',
+                      background:'rgba(10,31,48,.32)',
+                      fontSize:'11px',
+                      fontWeight:800,
+                      color:'var(--text-primary)',
+                    }}
+                  >
+                    <span style={{color:item.level === 'over' ? 'var(--red)' : 'var(--amber)'}}>{item.level === 'over' ? '초과' : '주의'}</span>
+                    <span>{item.name}</span>
+                    <span style={{color:item.level === 'over' ? 'var(--red)' : 'var(--amber)'}}>{item.people}/{item.limit}명</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {selRes.length === 0 ? (
             <div className="list-card" style={{ padding:'20px', textAlign:'center' }}>
               <div style={{ fontSize:'12px', color:'var(--text-muted)', marginBottom:'10px' }}>해당 날짜 예약이 없습니다.</div>
@@ -291,7 +489,7 @@ export default function DashboardPage() {
             <div className="list-card" style={{ overflow:'hidden', maxHeight:'486px', overflowY:'auto' }}>
               {selRes.map(r => {
                 const conf = getConfirmStatus(r)
-                const componentSummary = componentSummaryForReservation(r, budgetUsages)
+                const componentSummary = componentSummaryForReservation(r, budgetUsages, packages, zones)
                 const dot = conf === 'confirmed' ? 'var(--green)' : conf === 'partial' ? 'var(--amber)' : 'var(--text-muted)'
                 const lodges = getLodges(r.no)
                 const pickupRows = getPickups(r.no)
@@ -312,7 +510,11 @@ export default function DashboardPage() {
                               <span style={{ fontWeight:400, fontSize:'11px', color:'var(--text-muted)', marginLeft:'4px' }}>{componentSummary.zoneCount}구역 · 상품 {componentSummary.packageCount}건</span>
                             </div>
                             <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' }}>
-                              {r.package_name || r.pkg || '-'} · <span className={`badge ${r.type}`} style={{ fontSize:'10px', padding:'1px 6px' }}>{STATUS_LABEL[r.type]}</span>
+                              <span title={componentSummary.packageTitle || '-'}>{componentSummary.packageLabel || '-'}</span>
+                              <span style={{ color:'var(--text-muted)' }}> · </span>
+                              <span title={componentSummary.zoneTitle || '-'}>{componentSummary.zoneLabel || '-'}</span>
+                              <span style={{ color:'var(--text-muted)' }}> · </span>
+                              <span className={`badge ${r.type}`} style={{ fontSize:'10px', padding:'1px 6px' }}>{STATUS_LABEL[r.type]}</span>
                             </div>
                           </div>
                         </div>
@@ -330,7 +532,8 @@ export default function DashboardPage() {
                         <div style={{ padding:'12px 16px 14px', background:'var(--navy3)', borderTop:'1px solid var(--border2)' }}>
                           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px', marginBottom:'10px' }}>
                             {infoItem('고객명', r.customer)}
-                            {infoItem('패키지', r.package_name || r.pkg)}
+                            {infoItem('상품/패키지', componentSummary.packageLabel)}
+                            {infoItem('구역', componentSummary.zoneLabel)}
                             {infoItem('구성', `${componentSummary.zoneCount}구역 / 상품 ${componentSummary.packageCount}건`)}
                             {infoItem('연락처', r.tel)}
                             {infoItem('날짜', `${r.date}${r.end_date && r.end_date !== r.date ? ` ~ ${r.end_date.slice(5)}` : ''}`)}

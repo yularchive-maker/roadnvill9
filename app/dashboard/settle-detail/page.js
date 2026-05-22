@@ -21,12 +21,40 @@ function settledKey(type, vendorKey, it) {
   return [type || '', vendorKey || '', it.no || it.reservation_no || '', it.detail || '', Number(it.amt) || 0].join('|')
 }
 
+function normalizeSettleType(type, vendorKey) {
+  if (vendorKey) return '체험'
+  if (type === '숙박' || type === '픽업' || type === '플랫폼' || type === '여행사' || type === '체험') return type
+  return type || ''
+}
+
+function historyVendorKeys(h, it, vendors = []) {
+  if (h.vendor_key) return [h.vendor_key]
+  const detail = it?.detail || ''
+  const keys = vendors
+    .filter(vendor => (vendor.vendor_programs || []).some(program => program.prog_name === detail))
+    .map(vendor => vendor.key)
+    .filter(Boolean)
+  return keys.length ? keys : ['']
+}
+
+function groupSettleType(g) {
+  if (g.type === '체험' || (!String(g.key).startsWith('lodge-') && !String(g.key).startsWith('pickup-') && !String(g.key).startsWith('platform-') && !String(g.key).startsWith('agency-'))) return '체험'
+  return g.type
+}
+
 function feeAmount(total, percent) {
   return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
-function historyVendorName(h) {
+function historyVendorName(h, vendors = []) {
   if (h.vendors?.name) return h.vendors.name
+  const vendor = vendors.find(v => v.key === h.vendor_key)
+  if (vendor?.name) return vendor.name
+  const firstDetail = h.settle_history_items?.[0]?.detail || ''
+  const detailVendor = vendors.find(v =>
+    (v.vendor_programs || []).some(program => program.prog_name === firstDetail)
+  )
+  if (detailVendor?.name) return detailVendor.name
   if (h.settle_type === '플랫폼' || h.settle_type === '여행사') {
     return h.settle_history_items?.[0]?.detail || h.settle_type
   }
@@ -63,7 +91,12 @@ export default function SettleDetailPage() {
       .from('settle_history')
       .select('*, settle_history_items(*), vendors(name,color)')
       .order('settled_at', { ascending: false })
-    setHistory(data || [])
+    setHistory((data || [])
+      .filter(row => row?.is_deleted !== true)
+      .map(row => ({
+        ...row,
+        settle_history_items: (row.settle_history_items || []).filter(item => item?.is_deleted !== true),
+      })))
   }
 
   const compute = useCallback(async () => {
@@ -84,14 +117,19 @@ export default function SettleDetailPage() {
       supabase.from('reservation_program_snapshots').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
       supabase
         .from('settle_history')
-        .select('vendor_key, settle_type, settle_history_items(reservation_no, detail, amt)'),
+        .select('*, settle_history_items(*)'),
     ])
     const lcs = lcRes.data || []
     const rps = rpRes.data || []
     const settled = new Set()
-    ;(settledRes.data || []).forEach(h => {
-      ;(h.settle_history_items || []).forEach(it => {
+    ;(settledRes.data || []).filter(h => h?.is_deleted !== true).forEach(h => {
+      ;(h.settle_history_items || []).filter(it => it?.is_deleted !== true).forEach(it => {
         settled.add(settledKey(h.settle_type, h.vendor_key, it))
+        const normalizedType = normalizeSettleType(h.settle_type, h.vendor_key)
+        historyVendorKeys(h, it, vendors).forEach(vendorKey => {
+          settled.add(settledKey(normalizedType, vendorKey, it))
+          if (normalizedType === '체험') settled.add(settledKey('체험', vendorKey, it))
+        })
       })
     })
 
@@ -104,9 +142,9 @@ export default function SettleDetailPage() {
       const vendor = vendors.find(v => v.key === snap.vendor_key)
       const amt = Number(snap.vendor_settle_total) || 0
       const item = { no: r.no, customer: r.customer, date: r.date, pax: snap.pax || r.pax, detail: snap.prog_name, amt }
-      if (settled.has(settledKey('泥댄뿕', snap.vendor_key, item))) continue
+      if (settled.has(settledKey('체험', snap.vendor_key, item))) continue
       if (!vMap[snap.vendor_key]) {
-        vMap[snap.vendor_key] = { key: snap.vendor_key, vendor: snap.vendor_name || vendor?.name || snap.vendor_key, color: vendor?.color, type: '泥댄뿕', totalAmt: 0, items: [], nos: new Set() }
+        vMap[snap.vendor_key] = { key: snap.vendor_key, vendor: snap.vendor_name || vendor?.name || snap.vendor_key, color: vendor?.color, type: '체험', totalAmt: 0, items: [], nos: new Set() }
       }
       vMap[snap.vendor_key].items.push(item)
       vMap[snap.vendor_key].totalAmt += amt
@@ -224,10 +262,11 @@ export default function SettleDetailPage() {
     const selectedNos = [...new Set(selectedItems.map(it => it.no))]
     const selectedAmt = selectedItems.reduce((s, it) => s + it.amt, 0)
     const d = dates[g.key] || todayStr()
+    const settleType = groupSettleType(g)
     const body = {
       settled_at: d, period_start: startDate, period_end: endDate,
-      vendor_key: g.type === '체험' ? g.key : null,
-      settle_type: g.type, total_amt: selectedAmt, settled_by: '관리자',
+      vendor_key: settleType === '체험' ? g.key : null,
+      settle_type: settleType, total_amt: selectedAmt, settled_by: '관리자',
       items: selectedItems.map(it => ({ reservation_no: it.no, customer: it.customer, date: it.date, pax: it.pax || null, detail: it.detail, amt: it.amt })),
       reservation_nos: selectedNos,
     }
@@ -263,6 +302,23 @@ export default function SettleDetailPage() {
     for (const g of groups) await doSettle(g, g.items, { recompute: false })
     await fetchHistory()
     await compute()
+  }
+
+  async function cancelSettlement(h) {
+    const itemCount = (h.settle_history_items || []).length
+    if (!confirm(`정산완료 이력을 취소할까요?\n대상: ${historyVendorName(h, vendors)}\n정산일: ${h.settled_at}\n건수: ${itemCount}건\n취소 후 미정산 내역에 다시 표시됩니다.`)) return
+    const res = await fetch(`/api/settle-history?id=${encodeURIComponent(h.id)}`, { method: 'DELETE' })
+    if (!res.ok) {
+      alert('정산취소 실패')
+      return
+    }
+    setHistory(prev => prev.filter(item => item.id !== h.id))
+    const nextStart = h.period_start || startDate
+    const nextEnd = h.period_end || endDate
+    setStartDate(nextStart)
+    setEndDate(nextEnd)
+    await fetchHistory()
+    if (nextStart === startDate && nextEnd === endDate) await compute()
   }
 
   const total = groups.reduce((s, g) => s + g.totalAmt, 0)
@@ -311,6 +367,7 @@ export default function SettleDetailPage() {
               미정산 내역이 없어요 ✓
             </div>
           ) : groups.map(g => {
+            const displayType = TYPE_COLOR[g.type] ? g.type : (g.key && !String(g.key).startsWith('lodge-') && !String(g.key).startsWith('pickup-') && !String(g.key).startsWith('platform-') && !String(g.key).startsWith('agency-') ? '체험' : g.type)
             const checked = getChecked(g)
             const allChecked = g.items.length > 0 && checked.size === g.items.length
             const someChecked = checked.size > 0 && !allChecked
@@ -321,7 +378,7 @@ export default function SettleDetailPage() {
                 <div className="svc-header" onClick={() => setOpen(o => ({ ...o, [g.key]: !o[g.key] }))}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: g.color, flexShrink: 0 }} />
                   <div className="svc-vendor-name">{g.vendor}</div>
-                  <span className="svc-type-badge" style={{ background: TYPE_BG[g.type], color: TYPE_COLOR[g.type] }}>{g.type}</span>
+                  <span className="svc-type-badge" style={{ background: TYPE_BG[displayType], color: TYPE_COLOR[displayType] }}>{displayType}</span>
                   <span className="svc-amount" style={{ color: 'var(--amber)' }}>₩{fmt(g.totalAmt)}</span>
                   <span className="svc-status unsettled">미정산</span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'inline-block', transform: open[g.key] ? 'rotate(180deg)' : '', transition: 'transform .2s' }}>▼</span>
@@ -427,7 +484,7 @@ export default function SettleDetailPage() {
             <div key={h.id} className="settle-history-card">
               <div className="shc-header">
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700 }}>{historyVendorName(h)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700 }}>{historyVendorName(h, vendors)}</div>
                   <div className="shc-date">{h.period_start} ~ {h.period_end}</div>
                 </div>
                 <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '10px', background: 'rgba(92,184,92,0.15)', color: 'var(--green)', fontWeight: 600 }}>정산완료</span>
@@ -440,9 +497,12 @@ export default function SettleDetailPage() {
                   <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '12px' }}>₩{fmt(it.amt)}</span>
                 </div>
               ))}
-              <div style={{ padding: '8px 14px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ padding: '8px 14px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
                 <span>정산일: <span style={{ color: 'var(--text-secondary)' }}>{h.settled_at}</span></span>
-                <span>처리자: {h.settled_by}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>처리자: {h.settled_by}</span>
+                  <button className="btn-outline btn-sm" onClick={() => cancelSettlement(h)} style={{ height: '26px', minWidth: '72px', color: 'var(--red)', borderColor: 'rgba(224,92,92,.35)' }}>정산취소</button>
+                </span>
               </div>
             </div>
           ))}

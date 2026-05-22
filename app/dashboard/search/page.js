@@ -62,7 +62,7 @@ export default function SearchPage() {
       supabase.from('vendor_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
-      supabase.from('settle_history').select('settle_history_items(reservation_no)'),
+      supabase.from('settle_history').select('*, settle_history_items(*)'),
       supabase.from('zones').select('code,name').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,item_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
@@ -75,7 +75,12 @@ export default function SearchPage() {
       setVendorConfirms(vcR.data || [])
       setLodgeConfirms(lcR.data || [])
       setPickups(pkR.data || [])
-      setSettles(stR.data || [])
+      setSettles((stR.data || [])
+        .filter(item => item?.is_deleted !== true)
+        .map(item => ({
+          ...item,
+          settle_history_items: (item.settle_history_items || []).filter(child => child?.is_deleted !== true),
+        })))
       setZones(zoneR.data || [])
       setBudgetUsages(usageR.data || [])
     }

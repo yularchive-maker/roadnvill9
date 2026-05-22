@@ -3,6 +3,10 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { numberInputValue, numberInputChange } from '@/lib/number-format'
 
+function activePackagePrograms(programs) {
+  return (programs || []).filter(program => program && program.is_deleted !== true)
+}
+
 const TABS = ['구역', '체험업체', '일반 패키지', '숙소·객실', '플랫폼·여행사', '픽업수행자', '사업비 패키지']
 
 // ── 공통 모달 래퍼
@@ -86,6 +90,8 @@ function ZonesTab() {
     setZones(data || [])
   }, [])
   useEffect(() => { load() }, [load])
+
+  const activePackagePrograms = programs => (programs || []).filter(program => program && program.is_deleted !== true)
 
   async function openNew() {
     const code = await genZoneCode()
@@ -727,25 +733,41 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
   const [progs,    setProgs]    = useState([])
-  const emptyPackageProgForm = { vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0, vendor_settle_price: '', settle_type: 'per_person', price_note: '' }
+  const emptyPackageProgForm = { zone_code: '', vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0, vendor_settle_price: '', settle_type: 'per_person', price_note: '' }
   const [progForm, setProgForm] = useState(emptyPackageProgForm)
   const [editingProgId, setEditingProgId] = useState(null)
   const [expanded, setExpanded] = useState({})
+  const [businessPackageOptions, setBusinessPackageOptions] = useState([])
 
   const load = useCallback(async () => {
-    const [pkgR, zoneR, vendorR] = await Promise.all([
-      supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
+    const [pkgR, zoneR, vendorR, bizItemR] = await Promise.all([
+      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('*').order('code'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type)').order('key'),
+      packageType === 'business'
+        ? supabase.from('biz_budget_items').select('id,biz_id,item_name,support_unit_amount,planned_people_count').eq('category', 'product_operation').eq('sale_type', 'package').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
+        : Promise.resolve({ data: [] }),
     ])
-    setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType))
+    setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType && pkg.is_deleted !== true))
     setZones(zoneR.data || [])
     setVendors(vendorR.data || [])
+    setBusinessPackageOptions(bizItemR.data || [])
   }, [packageType])
   useEffect(() => { load() }, [load])
 
+  const packageZoneCodes = pkg => {
+    const linked = (pkg?.package_zones || []).filter(z => z && z.is_deleted !== true).map(z => z.zone_code).filter(Boolean)
+    return linked.length ? [...new Set(linked)] : (pkg?.zone_code ? [pkg.zone_code] : [])
+  }
+  const packageZoneLabel = pkg => {
+    const codes = packageZoneCodes(pkg)
+    if (!codes.length) return '-'
+    const names = codes.map(code => zones.find(z => z.code === code)?.name || code)
+    return names.length <= 2 ? names.join(' · ') : `${names.length}구역`
+  }
+
   async function openNew() {
-    setForm({ code: '', zone_code: '', name: '', pax_limit: 0, total_price: 0, package_type: packageType })
+    setForm({ code: '', zone_code: '', zone_codes: [], name: '', pax_limit: 0, total_price: 0, package_type: packageType })
     setProgs([])
     setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
@@ -753,46 +775,89 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   }
 
   function openEdit(p) {
-    setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || '', name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0, package_type: p.package_type || packageType })
-    setProgs(p.package_programs || [])
+    const zoneCodes = packageZoneCodes(p)
+    setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || zoneCodes[0] || '', zone_codes: zoneCodes, name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0, package_type: p.package_type || packageType })
+    setProgs(activePackagePrograms(p.package_programs))
     setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
     setModal({ mode: 'edit', data: p })
   }
 
-  async function onZoneChange(zoneCode) {
-    if (modal?.mode === 'new' && zoneCode) {
-      const code = await genPackageCode(zoneCode)
-      setForm(f => ({ ...f, zone_code: zoneCode, code }))
+  async function togglePackageZone(zoneCode) {
+    const current = Array.isArray(form.zone_codes) ? form.zone_codes : []
+    const nextZones = current.includes(zoneCode)
+      ? current.filter(code => code !== zoneCode)
+      : [...current, zoneCode]
+    const primaryZone = nextZones[0] || ''
+    if (modal?.mode === 'new' && primaryZone && !form.code) {
+      const code = await genPackageCode(primaryZone)
+      setForm(f => ({ ...f, zone_codes: nextZones, zone_code: primaryZone, code }))
     } else {
-      setForm(f => ({ ...f, zone_code: zoneCode }))
+      setForm(f => ({ ...f, zone_codes: nextZones, zone_code: primaryZone }))
+    }
+    setProgForm(f => ({
+      ...f,
+      zone_code: nextZones.includes(f.zone_code) ? f.zone_code : primaryZone,
+    }))
+  }
+
+  async function syncPackageZones(packageId, zoneCodes) {
+    if (!packageId) return
+    const now = new Date().toISOString()
+    await supabase.from('package_zones').update({ is_deleted: true, deleted_at: now, updated_at: now }).eq('package_id', packageId)
+    const rows = [...new Set(zoneCodes || [])].filter(Boolean).map(zone_code => ({
+      package_id: packageId,
+      zone_code,
+      is_deleted: false,
+      deleted_at: null,
+      updated_at: now,
+    }))
+    if (rows.length) {
+      const { error } = await supabase.from('package_zones').insert(rows)
+      if (error) throw error
     }
   }
 
   async function save() {
     if (!form.name) { alert('패키지명을 입력하세요.'); return }
-    const payload = { code: form.code || null, zone_code: form.zone_code || null, name: form.name, pax_limit: Number(form.pax_limit) || 0, total_price: Number(form.total_price) || 0, package_type: packageType }
+    const zoneCodes = Array.isArray(form.zone_codes) ? form.zone_codes.filter(Boolean) : (form.zone_code ? [form.zone_code] : [])
+    const payload = { code: form.code || null, zone_code: zoneCodes[0] || null, name: form.name, pax_limit: Number(form.pax_limit) || 0, total_price: Number(form.total_price) || 0, package_type: packageType }
+    let packageId = form.id
     if (modal.mode === 'new') {
-      const { error } = await supabase.from('packages').insert(payload)
+      const { data, error } = await supabase.from('packages').insert(payload).select('id').single()
       if (error) { alert('저장 실패: ' + error.message); return }
+      packageId = data?.id
     } else {
-      await supabase.from('packages').update(payload).eq('id', form.id)
+      const { error } = await supabase.from('packages').update(payload).eq('id', form.id)
+      if (error) { alert('????ㅽ뙣: ' + error.message); return }
+    }
+    try {
+      await syncPackageZones(packageId, zoneCodes)
+    } catch (error) {
+      alert('구역 저장 실패: ' + error.message)
+      return
     }
     setModal(null); load()
   }
 
   async function del() {
     if (!confirm(`"${modal.data.name}" 패키지를 삭제하시겠습니까?`)) return
-    const { error } = await supabase.from('packages').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
-    if (error) { alert('삭제 실패: 이 패키지를 참조하는 예약이 있습니다.'); return }
+    const now = new Date().toISOString()
+    await supabase.from('package_zones').update({ is_deleted: true, deleted_at: now, updated_at: now }).eq('package_id', modal.data.id)
+    await supabase.from('package_programs').update({ is_deleted: true, deleted_at: now }).eq('package_id', modal.data.id)
+    const { error } = await supabase.from('packages').update({ is_deleted: true, deleted_at: now }).eq('id', modal.data.id)
+    if (error) { alert('삭제 실패: ' + error.message); return }
     setModal(null); load()
   }
 
   async function addProg() {
     if (!modal.data?.id) { alert('패키지를 먼저 저장하세요.'); return }
     if (!progForm.vendor_key || !progForm.prog_name) { alert('업체와 프로그램명을 입력하세요.'); return }
+    const programZoneCode = progForm.zone_code || (form.zone_codes || [])[0] || form.zone_code
+    if (!programZoneCode) { alert('프로그램 구역을 선택하세요.'); return }
+    const { zone_code, ...programFormPayload } = progForm
     const payload = {
-      ...progForm,
+      ...programFormPayload,
       package_id: modal.data.id,
       sort_order: Number(progForm.sort_order) || 0,
       vendor_settle_price: Number(progForm.vendor_settle_price) || 0,
@@ -800,14 +865,19 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
       price_note: progForm.price_note || null,
     }
     if (editingProgId) {
+      const current = progs.find(item => item.id === editingProgId)
+      const currentZoneCode = String(current?.code || '').split('-')[0]
+      if (currentZoneCode !== programZoneCode || current?.vendor_key !== progForm.vendor_key) {
+        payload.code = await genProgCode(programZoneCode, progForm.vendor_key, 'package_programs')
+      }
       const { error } = await supabase.from('package_programs').update(payload).eq('id', editingProgId)
       if (error) { alert('수정 실패: ' + error.message); return }
     } else {
-      const code = await genProgCode(form.zone_code, progForm.vendor_key, 'package_programs')
+      const code = await genProgCode(programZoneCode, progForm.vendor_key, 'package_programs')
       const { error } = await supabase.from('package_programs').insert({ ...payload, code })
       if (error) { alert('추가 실패: ' + error.message); return }
     }
-    const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
+    const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
     setProgs(data || [])
     setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
@@ -815,8 +885,10 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   }
 
   function editProg(p) {
+    const codePrefix = String(p.code || '').split('-')[0]
     setEditingProgId(p.id)
     setProgForm({
+      zone_code: zones.some(z => z.code === codePrefix) ? codePrefix : ((form.zone_codes || [])[0] || form.zone_code || ''),
       vendor_key: p.vendor_key || '',
       prog_name: p.prog_name || '',
       default_start: p.default_start?.slice(0, 5) || '09:00',
@@ -834,15 +906,24 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   }
 
   async function delProg(id) {
-    await supabase.from('package_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
-    const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).order('sort_order')
-    setProgs(data || [])
+    const { error } = await supabase.from('package_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('삭제 실패: ' + error.message); return }
+    setProgs(prev => prev.filter(program => program.id !== id))
     if (editingProgId === id) cancelProgEdit()
     load()
   }
 
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const toggle = id => setExpanded(e => ({ ...e, [id]: !e[id] }))
+  const handlePackageNameSelect = name => {
+    const item = businessPackageOptions.find(option => option.item_name === name)
+    setForm(f => ({
+      ...f,
+      name,
+      total_price: item ? Number(item.support_unit_amount) || f.total_price || 0 : f.total_price,
+      pax_limit: item ? Number(item.planned_people_count) || f.pax_limit || 0 : f.pax_limit,
+    }))
+  }
   const vendorProgramOptions = vendorKey => vendors.find(v => v.key === vendorKey)?.vendor_programs || []
   const findVendorProgram = (vendorKey, progName) => vendorProgramOptions(vendorKey).find(p => p.prog_name === progName)
   const vendorProgramSettlePrice = (vendorKey, progName) => {
@@ -852,6 +933,28 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   const packageProgramSettlePrice = packageProgram => {
     const storedPrice = Number(packageProgram?.vendor_settle_price) || 0
     return storedPrice || vendorProgramSettlePrice(packageProgram?.vendor_key, packageProgram?.prog_name)
+  }
+  const packageProgramZoneCode = packageProgram => String(packageProgram?.code || '').split('-')[0]
+  const zoneTone = zoneCode => {
+    const tones = ['#4ECDC4', '#F7C948', '#7B68EE', '#FF8C42', '#5CB85C', '#B8B8FF']
+    const index = Math.max(0, (form.zone_codes || []).indexOf(zoneCode))
+    return tones[index % tones.length]
+  }
+  const packageProgramZoneName = packageProgram => {
+    const codePrefix = packageProgramZoneCode(packageProgram)
+    return zones.find(z => z.code === codePrefix)?.name || codePrefix || '-'
+  }
+  const groupedPackagePrograms = () => {
+    const selectedCodes = form.zone_codes || []
+    const groups = selectedCodes.map(code => ({ code, name: zones.find(z => z.code === code)?.name || code, programs: [] }))
+    const fallback = { code: 'none', name: '구역 미지정', programs: [] }
+    for (const program of progs) {
+      const code = packageProgramZoneCode(program)
+      const group = groups.find(item => item.code === code)
+      if (group) group.programs.push(program)
+      else fallback.programs.push(program)
+    }
+    return fallback.programs.length ? [...groups, fallback] : groups
   }
   const applyVendorProgramDefaults = (vendorKey, progName) => {
     const vendorProgram = findVendorProgram(vendorKey, progName)
@@ -877,7 +980,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
       <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
         {packages.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>{emptyText}</div>}
         {packages.map(p => {
-          const pp = p.package_programs || []
+          const pp = activePackagePrograms(p.package_programs)
           const vkeys = [...new Set(pp.map(pr => pr.vendor_key))]
           const isOpen = !!expanded[p.id]
           return (
@@ -886,7 +989,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '10px', display: 'inline-block', transition: 'transform .2s', transform: isOpen ? 'rotate(90deg)' : '' }}>▶</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                    {p.zone_code && <span className="no-col">{p.zone_code}</span>}
+                    <span className="no-col">{packageZoneLabel(p)}</span>
                     {p.code && <span style={{ fontSize: '10px', fontFamily: 'DM Mono,monospace', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '4px', padding: '1px 6px', color: 'var(--text-muted)' }}>{p.code}</span>}
                     <span style={{ fontWeight: 600, fontSize: '13px' }}>{p.name}</span>
                     {Number(p.total_price) > 0 && <span style={{ fontSize: '10px', background: 'rgba(78,205,196,0.1)', color: 'var(--accent)', padding: '1px 7px', borderRadius: '10px', fontWeight: 700 }}>판매 ₩{Number(p.total_price).toLocaleString()}</span>}
@@ -938,10 +1041,26 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
       </div>
 
       {modal && (
-        <Modal title={modal.mode === 'new' ? '패키지 추가' : '패키지 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null}>
+        <Modal title={modal.mode === 'new' ? '패키지 추가' : '패키지 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="640px">
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="구역" required>
-              <select className="form-select" value={form.zone_code || ''} onChange={e => onZoneChange(e.target.value)}>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {zones.map(z => {
+                  const active = (form.zone_codes || []).includes(z.code)
+                  return (
+                    <button
+                      key={z.code}
+                      type="button"
+                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                      onClick={() => togglePackageZone(z.code)}
+                      style={{ height: '32px', minWidth: '86px', justifyContent: 'center' }}
+                    >
+                      {z.name}
+                    </button>
+                  )
+                })}
+              </div>
+              <select className="form-select" style={{ display: 'none' }} value={form.zone_code || ''} onChange={e => togglePackageZone(e.target.value)}>
                 <option value="">선택</option>
                 {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
               </select>
@@ -949,10 +1068,18 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
             <Field label="패키지코드" auto={modal.mode === 'new'}>
               <input className="form-input auto-fill" value={form.code || ''} readOnly />
             </Field>
-          </div>
-          <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-            <Field label="패키지명" required>
-              <input className="form-input" value={form.name || ''} onChange={e => inp('name', e.target.value)} placeholder="금양연화" />
+            <Field label={packageType === 'business' ? '사업비 패키지명' : '패키지명'} required>
+              {packageType === 'business' ? (
+                <select className="form-select" value={form.name || ''} onChange={e => handlePackageNameSelect(e.target.value)}>
+                  <option value="">사업비 상품에서 선택</option>
+                  {businessPackageOptions
+                    .map(item => (
+                    <option key={item.id} value={item.item_name}>{item.item_name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input className="form-input" value={form.name || ''} onChange={e => inp('name', e.target.value)} placeholder="금양연화" />
+              )}
             </Field>
             <Field label="인원 알림 기준">
               <input className="form-input" type="number" value={form.pax_limit || 0} onChange={e => inp('pax_limit', e.target.value)} placeholder="0=미설정" />
@@ -970,6 +1097,15 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
                 {editingProgId ? '프로그램 일정 수정' : '프로그램 일정'} <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
               </div>
               <div className="form-grid form-grid-3" style={{ marginBottom: '8px', gap: '8px' }}>
+                <Field label="구성 구역">
+                  <select className="form-select" value={progForm.zone_code || ''} onChange={e => setProgForm(f => ({ ...f, zone_code: e.target.value }))}>
+                    <option value="">패키지 구역 선택</option>
+                    {(form.zone_codes || []).map(code => {
+                      const zone = zones.find(z => z.code === code)
+                      return <option key={code} value={code}>{zone?.name || code}</option>
+                    })}
+                  </select>
+                </Field>
                 <Field label="업체">
                   <select className="form-select" value={progForm.vendor_key} onChange={e => handleProgVendorChange(e.target.value)}>
                     <option value="">선택</option>
@@ -1016,21 +1152,41 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
                 <button className="btn-add-row" onClick={addProg} style={{ flex: 1 }}>{editingProgId ? '수정 저장' : '+ 추가'}</button>
                 {editingProgId && <button className="btn-outline" onClick={cancelProgEdit} style={{ height: '34px' }}>취소</button>}
               </div>
-              <div className="list-box">
-                <div className="list-box-header" style={{ gridTemplateColumns: '30px 58px 104px minmax(120px,1fr) 82px 58px 54px 30px' }}><span>순</span><span>업체</span><span>코드</span><span>프로그램</span><span>정산단가</span><span>방식</span><span>시간</span><span /></div>
+              <div style={{ display: 'grid', gap: '10px' }}>
                 {progs.length === 0 && <div className="list-box-empty">프로그램 없음</div>}
-                {progs.map(p => (
-                  <div key={p.id} className="list-box-row" onClick={() => editProg(p)} style={{ gridTemplateColumns: '30px 58px 104px minmax(120px,1fr) 82px 58px 54px 30px', cursor: 'pointer', background: editingProgId === p.id ? 'rgba(78,205,196,0.08)' : undefined }}>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{p.sort_order}</span>
-                    <span className="no-col">{p.vendor_key}</span>
-                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.code || '-'}</span>
-                    <span style={{ fontSize: '12px' }}>{p.prog_name}</span>
-                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>₩{packageProgramSettlePrice(p).toLocaleString()}</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.settle_type === 'fixed' ? '고정' : '1인'}</span>
-                    <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--text-muted)' }}>{p.default_start?.slice(0, 5)}~{p.default_end?.slice(0, 5)}</span>
-                    <button className="icon-btn" onClick={e => { e.stopPropagation(); delProg(p.id) }}>✕</button>
-                  </div>
-                ))}
+                {groupedPackagePrograms().map(group => {
+                  const tone = zoneTone(group.code)
+                  return (
+                    <div key={group.code} style={{ border: '1px solid var(--border2)', borderRadius: '8px', overflow: 'hidden', background: 'rgba(255,255,255,.015)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '8px 10px', background: 'rgba(255,255,255,.025)', borderBottom: '1px solid var(--border2)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '999px', background: tone, flexShrink: 0 }} />
+                          <span style={{ color: tone, fontWeight: 900, fontSize: '12px' }}>{group.name}</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{group.programs.length}개</span>
+                        </div>
+                      </div>
+                      {group.programs.length === 0 ? (
+                        <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '12px' }}>이 구역에 등록된 프로그램 없음</div>
+                      ) : (
+                        <div className="list-box" style={{ border: 0, borderRadius: 0 }}>
+                          <div className="list-box-header" style={{ gridTemplateColumns: '28px 54px 92px minmax(106px,1fr) 72px 48px 46px 28px', gap: '6px' }}><span>순</span><span>업체</span><span>코드</span><span>프로그램</span><span>정산단가</span><span>방식</span><span>시간</span><span /></div>
+                          {group.programs.map(p => (
+                            <div key={p.id} className="list-box-row" onClick={() => editProg(p)} style={{ gridTemplateColumns: '28px 54px 92px minmax(106px,1fr) 72px 48px 46px 28px', gap: '6px', cursor: 'pointer', background: editingProgId === p.id ? 'rgba(78,205,196,0.08)' : undefined }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{p.sort_order}</span>
+                              <span className="no-col">{p.vendor_key}</span>
+                              <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.code || '-'}</span>
+                              <span style={{ fontSize: '12px' }}>{p.prog_name}</span>
+                              <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '11px', color: 'var(--amber)' }}>₩{packageProgramSettlePrice(p).toLocaleString()}</span>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.settle_type === 'fixed' ? '고정' : '1인'}</span>
+                              <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '10px', color: 'var(--text-muted)' }}>{p.default_start?.slice(0, 5)}</span>
+                              <button className="icon-btn" onClick={e => { e.stopPropagation(); delProg(p.id) }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1612,13 +1768,14 @@ function BizTab() {
   const [bizModal, setBizModal] = useState(null)
   const [form, setForm] = useState({})
   const [bizForm, setBizForm] = useState({})
+  const [selectedBizId, setSelectedBizId] = useState('')
 
   const load = useCallback(async () => {
     const [bizR, itemR, zoneR, pkgR, vendorR] = await Promise.all([
       supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
+      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
     ])
     setBizList(bizR.data || [])
@@ -1629,7 +1786,9 @@ function BizTab() {
   }, [])
   useEffect(() => { load() }, [load])
 
-  const products = items.filter(item => item.category === 'product_operation' && item.is_active !== false)
+  const products = items
+    .filter(item => item.category === 'product_operation' && item.is_active !== false)
+    .filter(item => !selectedBizId || String(item.biz_id || '') === String(selectedBizId))
   const findPromo = product => items.find(item =>
     item.category === 'promotion_discount' &&
     item.item_name === product.item_name &&
@@ -1644,6 +1803,17 @@ function BizTab() {
   const selectedPackage = packages.find(p => String(p.id) === String(form.package_id)) || packages.find(p => p.name === form.item_name)
   const selectedVendor = vendors.find(v => v.key === form.vendor_key)
   const selectedVendorProgram = selectedVendor?.vendor_programs?.find(p => p.prog_name === form.prog_name)
+  const packageZoneCodes = pkg => {
+    const linked = (pkg?.package_zones || []).filter(z => z && z.is_deleted !== true).map(z => z.zone_code).filter(Boolean)
+    return linked.length ? [...new Set(linked)] : (pkg?.zone_code ? [pkg.zone_code] : [])
+  }
+  const packageMatchesZone = (pkg, zoneCode) => !zoneCode || packageZoneCodes(pkg).includes(zoneCode)
+  const packageZoneLabel = pkg => {
+    const codes = packageZoneCodes(pkg)
+    if (!codes.length) return '-'
+    const names = codes.map(code => zones.find(z => z.code === code)?.name || code)
+    return names.length <= 2 ? names.join(' · ') : `${names.length}구역`
+  }
   const normalUnit = Number(form.support_unit_amount) || 0
   const plannedPeople = Number(form.planned_people_count) || 0
   const discountRate = Number(form.discount_rate) || 0
@@ -1673,7 +1843,7 @@ function BizTab() {
   }
 
   function openNew() {
-    setForm(blankForm())
+    setForm({ ...blankForm(), biz_id: selectedBizId || '' })
     setModal({ mode: 'new' })
   }
 
@@ -1694,6 +1864,10 @@ function BizTab() {
   function openEditBiz(biz) {
     setBizForm({ ...biz })
     setBizModal({ mode: 'edit', data: biz })
+  }
+
+  function toggleBizFilter(bizId) {
+    setSelectedBizId(current => current === String(bizId) ? '' : String(bizId))
   }
 
   function openEdit(product) {
@@ -1740,7 +1914,7 @@ function BizTab() {
       ...f,
       package_id: packageId,
       item_name: pkg?.name || '',
-      zone_code: pkg?.zone_code || f.zone_code || '',
+      zone_code: packageZoneCodes(pkg)[0] || f.zone_code || '',
       support_unit_amount: Number(pkg?.total_price) || Number(f.support_unit_amount) || 0,
       vendor_key: '',
       prog_name: '',
@@ -1914,16 +2088,28 @@ function BizTab() {
           </div>
         ) : (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {bizList.map(biz => (
-              <button
-                key={biz.id}
-                className="btn-outline btn-sm"
-                onClick={() => openEditBiz(biz)}
-                style={{ height: '32px', padding: '0 12px' }}
-              >
-                {biz.name}
-              </button>
-            ))}
+            {bizList.map(biz => {
+              const active = selectedBizId === String(biz.id)
+              return (
+                <div key={biz.id} style={{ display: 'inline-flex', alignItems: 'center', border: `1px solid ${active ? 'rgba(78,205,196,.65)' : 'var(--border)'}`, borderRadius: '7px', overflow: 'hidden', background: active ? 'rgba(78,205,196,.14)' : 'transparent' }}>
+                  <button
+                    className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                    onClick={() => toggleBizFilter(biz.id)}
+                    style={{ height: '32px', padding: '0 12px', border: 0, borderRadius: 0 }}
+                  >
+                    {biz.name}
+                  </button>
+                  <button
+                    className="icon-btn"
+                    onClick={() => openEditBiz(biz)}
+                    title="사업명 수정"
+                    style={{ width: '30px', height: '32px', border: 0, borderLeft: '1px solid var(--border2)', borderRadius: 0 }}
+                  >
+                    ✎
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -1935,13 +2121,14 @@ function BizTab() {
         {products.map(product => {
           const promo = findPromo(product)
           const biz = bizList.find(b => String(b.id) === String(product.biz_id))
+          const pkg = packages.find(p => String(p.id) === String(product.package_id)) || packages.find(p => p.name === product.item_name)
           const zone = zones.find(z => z.code === product.zone_code)
           return (
             <div key={product.id} className="list-row" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px', cursor: 'default' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{biz?.name || '-'}</span>
               <span style={{ fontSize: '11px', color: product.sale_type === 'single' ? 'var(--accent)' : 'var(--amber)', fontWeight: 800 }}>{product.sale_type === 'single' ? '단품' : '패키지'}</span>
               <span style={{ fontWeight: 700 }}>{product.item_name}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{zone?.name || product.zone_code || '-'}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{product.sale_type === 'package' ? packageZoneLabel(pkg) : (zone?.name || product.zone_code || '-')}</span>
               <span className="mono" style={{ fontSize: '12px' }}>{money(product.support_unit_amount)}</span>
               <span style={{ fontSize: '12px' }}>{Number(product.planned_people_count || 0).toLocaleString()}명</span>
               <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}% / ${Number(promo.planned_people_count || 0).toLocaleString()}명` : '-'}</span>
@@ -1968,19 +2155,28 @@ function BizTab() {
             </Field>
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-            <Field label="구역">
-              <select className="form-select" value={form.zone_code || ''} onChange={e => inp('zone_code', e.target.value)}>
-                <option value="">선택 안 함</option>
-                {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
-              </select>
-            </Field>
+            {selectedSaleType === 'package' ? (
+              <Field label="연결 구역">
+                <div style={{ minHeight: '34px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '6px 8px', border: '1px solid var(--border)', borderRadius: '6px', background: 'var(--navy2)', color: selectedPackage ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: '12px' }}>
+                  {selectedPackage ? packageZoneCodes(selectedPackage).map(code => (
+                    <span key={code} className="no-col">{zones.find(z => z.code === code)?.name || code}</span>
+                  )) : '연결 패키지를 선택하면 자동 표시됩니다.'}
+                </div>
+              </Field>
+            ) : (
+              <Field label="구역">
+                <select className="form-select" value={form.zone_code || ''} onChange={e => inp('zone_code', e.target.value)}>
+                  <option value="">선택 안함</option>
+                  {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
+                </select>
+              </Field>
+            )}
             {selectedSaleType === 'package' ? (
               <Field label="연결 패키지">
                 <select className="form-select" value={form.package_id || selectedPackage?.id || ''} onChange={e => changeBusinessPackage(e.target.value)}>
                   <option value="">선택</option>
                   {packages
-                    .filter(p => !form.zone_code || p.zone_code === form.zone_code)
-                    .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    .map(p => <option key={p.id} value={p.id}>{p.name}{packageZoneLabel(p) ? ` (${packageZoneLabel(p)})` : ''}</option>)}
                 </select>
               </Field>
             ) : (

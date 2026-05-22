@@ -1,29 +1,26 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMonthTyping } from '@/lib/date-input'
+import { formatDateTyping } from '@/lib/date-input'
 
 const fmt = n => (n || 0).toLocaleString()
 
 function pkgName(r) { return r.package_name || r.pkg }
 
-function curMonth() {
+function monthRange() {
   const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
-function monthBounds(ym) {
-  const [y, m] = ym.split('-').map(Number)
-  const last = new Date(y, m, 0).getDate()
-  return [`${ym}-01`, `${ym}-${String(last).padStart(2, '0')}`]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const last = new Date(y, d.getMonth() + 1, 0).getDate()
+  return [`${y}-${m}-01`, `${y}-${m}-${String(last).padStart(2, '0')}`]
 }
 
 const TYPES = [
-  { key: '체험', title: '월별 체험 정산' },
-  { key: '숙박', title: '월별 숙박 정산' },
-  { key: '픽업', title: '월별 픽업 정산' },
-  { key: '플랫폼', title: '월별 플랫폼 정산' },
-  { key: '여행사', title: '월별 여행사 정산' },
+  { key: '체험', title: '기간별 체험 정산' },
+  { key: '숙박', title: '기간별 숙박 정산' },
+  { key: '픽업', title: '기간별 픽업 정산' },
+  { key: '플랫폼', title: '기간별 플랫폼 정산' },
+  { key: '여행사', title: '기간별 여행사 정산' },
 ]
 
 function emptyRows() {
@@ -57,7 +54,9 @@ function settledKey(type, vendorKey, it) {
 }
 
 export default function SettleSummaryPage() {
-  const [month,    setMonth]    = useState(curMonth())
+  const [s0, e0] = monthRange()
+  const [startDate, setStartDate] = useState(s0)
+  const [endDate, setEndDate] = useState(e0)
   const [loading,  setLoading]  = useState(false)
   const [vendors,  setVendors]  = useState([])
   const [packages, setPackages] = useState([])
@@ -76,8 +75,10 @@ export default function SettleSummaryPage() {
 
   const load = useCallback(async () => {
     if (!vendors.length || !packages.length) return
+    if (!startDate || !endDate) return
     setLoading(true)
-    const [start, end] = monthBounds(month)
+    const start = startDate
+    const end = endDate
 
     // ?뺤궛 ?꾨즺 ?대젰 (???ъ뿉 settled_at 湲곗?)
     const { data: hist } = await supabase
@@ -87,22 +88,23 @@ export default function SettleSummaryPage() {
 
     // settled 湲덉븸 吏묎퀎: type ??vendor ??{count, amt, color}
     const settledMap = emptyMap()
-    for (const h of hist || []) {
+    for (const h of (hist || []).filter(row => row?.is_deleted !== true)) {
+      const historyItems = (h.settle_history_items || []).filter(item => item?.is_deleted !== true)
       const type = normalizeSettleType(h.settle_type, h.vendor_key)
       if (!settledMap[type]) continue
       const name = historyVendorName(h)
       if (!settledMap[type][name]) settledMap[type][name] = { vendor: name, color: h.vendors?.color, count: 0, settled: 0, unsettled: 0 }
-      settledMap[type][name].count += (h.settle_history_items || []).length
-      settledMap[type][name].settled += h.total_amt || 0
+      settledMap[type][name].count += historyItems.length
+      settledMap[type][name].settled += historyItems.reduce((acc, item) => acc + (Number(item.amt) || 0), 0)
     }
 
     const { data: allHist } = await supabase
       .from('settle_history')
-      .select('vendor_key, settle_type, settle_history_items(reservation_no, detail, amt)')
+      .select('*, settle_history_items(*)')
 
     const settled = new Set()
-    ;(allHist || []).forEach(h => {
-      ;(h.settle_history_items || []).forEach(it => {
+    ;(allHist || []).filter(h => h?.is_deleted !== true).forEach(h => {
+      ;(h.settle_history_items || []).filter(it => it?.is_deleted !== true).forEach(it => {
         settled.add(settledKey(h.settle_type, h.vendor_key, it))
         settled.add(settledKey(normalizeSettleType(h.settle_type, h.vendor_key), h.vendor_key, it))
       })
@@ -222,7 +224,7 @@ export default function SettleSummaryPage() {
 
     setRows(Object.fromEntries(TYPES.map(t => [t.key, Object.values(merged[t.key])])))
     setLoading(false)
-  }, [month, vendors, packages])
+  }, [startDate, endDate, vendors, packages])
 
   useEffect(() => { load() }, [load])
 
@@ -237,15 +239,28 @@ export default function SettleSummaryPage() {
     <div>
       {/* ???좏깮 */}
       <div className="search-bar">
+        <label style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700 }}>정산 시작일</label>
         <input
           type="text"
           inputMode="numeric"
-          maxLength={7}
+          maxLength={10}
           className="search-input"
-          style={{ maxWidth: '200px' }}
-          value={month}
-          onChange={e => setMonth(formatMonthTyping(e.target.value))}
-          placeholder="2026-05"
+          style={{ maxWidth: '160px' }}
+          value={startDate}
+          onChange={e => setStartDate(formatDateTyping(e.target.value))}
+          placeholder="2026-05-01"
+        />
+        <span style={{ color: 'var(--text-muted)' }}>~</span>
+        <label style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700 }}>정산 종료일</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={10}
+          className="search-input"
+          style={{ maxWidth: '160px' }}
+          value={endDate}
+          onChange={e => setEndDate(formatDateTyping(e.target.value))}
+          placeholder="2026-05-31"
         />
         <button className="btn-primary" onClick={load}>조회</button>
       </div>

@@ -370,17 +370,19 @@ export default function TimetablePage() {
 
   // ── 공통 스타일 함수
   const tabBtn = active => ({
-    height:'32px', padding:'0 12px', borderRadius:'7px', cursor:'pointer',
+    height:'32px', minWidth:'42px', padding:'0 12px', borderRadius:'7px', cursor:'pointer',
     fontFamily:'Noto Sans KR, sans-serif', fontSize:'12px', fontWeight:'600',
     border: active ? 'none' : '1px solid #2a3a4a',
     background: active ? '#4ecdc4' : '#1a2535',
     color: active ? '#0f1923' : '#8a9ab0',
+    display:'inline-flex', alignItems:'center', justifyContent:'center', textAlign:'center',
+    whiteSpace:'nowrap',
     transition:'all .15s',
   })
 
   // ── 시간축
   const TimeAxis = () => (
-    <div style={{width:'52px',flexShrink:0,position:'relative',height:TOTAL_H}}>
+    <div style={{width:'56px',flexShrink:0,position:'relative',height:TOTAL_H,background:'#122132'}}>
       {Array.from({length: TT_END - TT_START}, (_, i) => (
         <div key={i} style={{position:'absolute',top:i*HOUR_H-8,fontSize:'10px',
                               color:'#8a9ab0',right:'8px',userSelect:'none'}}>
@@ -406,7 +408,8 @@ export default function TimetablePage() {
         ))}
         {isToday && nowPx >= 0 && (
           <div style={{position:'absolute',left:0,right:0,top:nowPx,
-                       borderTop:'2px solid rgba(78,205,196,0.6)',zIndex:1}}/>
+                       borderTop:'2px solid rgba(78,205,196,0.75)',zIndex:1,
+                       boxShadow:'0 0 12px rgba(78,205,196,.25)'}}/>
         )}
       </div>
     )
@@ -437,8 +440,8 @@ export default function TimetablePage() {
                    background: color + '22',
                    border: level ? `2px solid ${borderColor}` : `1px solid ${color}44`,
                    borderLeft:`3px solid ${borderColor}`,
-                   borderRadius:'5px',padding: isCompact ? '2px 5px' : '3px 6px',cursor:'pointer',overflow:'hidden',
-                   boxSizing:'border-box'}}>
+                   borderRadius:'7px',padding: isCompact ? '3px 6px' : '5px 7px',cursor:'pointer',overflow:'hidden',
+                   boxSizing:'border-box',boxShadow:'0 6px 18px rgba(0,0,0,.18)'}}>
         {isCompact ? (
           <>
             <div style={{fontWeight:'700',fontSize:'10px',lineHeight:'11px',color:borderColor,
@@ -578,8 +581,8 @@ export default function TimetablePage() {
         <div style={{display:'flex'}}>
           <TimeAxis/>
           <div style={{flex:1}}>
-            <div style={{padding:'14px 18px',color:'#8a9ab0',fontSize:'13px',
-                         borderBottom:'1px solid #2a3a4a'}}>이 날짜의 일정이 없습니다</div>
+            <div style={{padding:'18px',color:'#8a9ab0',fontSize:'13px',
+                         borderBottom:'1px solid #2a3a4a',textAlign:'center'}}>이 날짜의 일정이 없습니다</div>
             <div style={{position:'relative',height:TOTAL_H}}><Grid isToday={isToday}/></div>
           </div>
         </div>
@@ -602,11 +605,11 @@ export default function TimetablePage() {
         )}
         {/* 헤더 */}
         <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#0f1923'}}>
-          <div style={{width:'52px',flexShrink:0}}/>
+          <div style={{width:'56px',flexShrink:0,background:'#122132'}}/>
           {cols.map(col => (
             <div key={col.key}
-                 style={{flex:1,padding:'10px 14px',borderRight:'1px solid #2a3a4a',
-                         borderTop:`3px solid ${col.topColor||'#4ecdc4'}`}}>
+                 style={{flex:1,minWidth:'164px',padding:'11px 14px',borderRight:'1px solid #2a3a4a',
+                         borderTop:`3px solid ${col.topColor||'#4ecdc4'}`,background:'#132438'}}>
               {col.header}
             </div>
           ))}
@@ -619,10 +622,10 @@ export default function TimetablePage() {
           )}
         </div>
         {/* 바디 */}
-        <div style={{display:'flex',overflowY:'auto',maxHeight:'calc(100vh - 300px)'}}>
+        <div style={{display:'flex',overflow:'auto',maxHeight:'calc(100vh - 330px)',minHeight:'420px'}}>
           <TimeAxis/>
           {cols.map(col => (
-            <div key={col.key} style={{flex:1,position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
+            <div key={col.key} style={{flex:1,minWidth:'164px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
               <Grid isToday={isToday}/>
               {col.evs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={conflictMap}/>)}
             </div>
@@ -648,15 +651,16 @@ export default function TimetablePage() {
     return (
       <div>
         <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#0f1923'}}>
-          <div style={{width:'52px',flexShrink:0}}/>
+          <div style={{width:'56px',flexShrink:0,background:'#122132'}}/>
           {days.map((d, i) => {
             const ds = dateStr(d)
             const isT = ds === todayS
             const cnt = allEvents.filter(e => e.date === ds).length
             return (
               <div key={i} onClick={() => { setCurDate(d); setView('day') }}
-                   style={{flex:1,padding:'10px 0',textAlign:'center',
+                   style={{flex:1,minWidth:'120px',padding:'11px 0',textAlign:'center',
                            borderRight:'1px solid #2a3a4a',cursor:'pointer',
+                           background:isT?'rgba(78,205,196,.06)':'#132438',
                            borderTop: isT ? '3px solid #4ecdc4' : '3px solid transparent'}}>
                 <div style={{fontSize:'11px',color:isT?'#4ecdc4':'#8a9ab0'}}>{dayNames[i]}</div>
                 <div style={{fontSize:'16px',fontWeight:'700',
@@ -666,7 +670,7 @@ export default function TimetablePage() {
             )
           })}
         </div>
-        <div style={{display:'flex',overflowY:'auto',maxHeight:'calc(100vh - 280px)'}}>
+        <div style={{display:'flex',overflow:'auto',maxHeight:'calc(100vh - 330px)',minHeight:'420px'}}>
           <TimeAxis/>
           {days.map((d, i) => {
             const ds = dateStr(d)
@@ -674,7 +678,7 @@ export default function TimetablePage() {
             const evs = allEvents.filter(e => e.date === ds)
             const conflictMap = detectConflicts(evs)
             return (
-              <div key={i} style={{flex:1,position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
+              <div key={i} style={{flex:1,minWidth:'120px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
                 <Grid isToday={isT}/>
                 {evs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={conflictMap}/>)}
               </div>
@@ -710,7 +714,7 @@ export default function TimetablePage() {
 
     return (
       <div style={{padding:'16px'}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'4px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(120px,1fr))',gap:'6px',overflowX:'auto'}}>
           {dows.map(d => (
             <div key={d} style={{textAlign:'center',fontSize:'10px',fontWeight:'600',
                                   color:'#5a7080',padding:'4px 0'}}>{d}</div>
@@ -719,9 +723,9 @@ export default function TimetablePage() {
             <div key={i}
                  onClick={() => cell.date && (setCurDate(new Date(cell.date + 'T00:00:00')), setView('day'))}
                  style={{
-                   background:'#243B55',
+                   background:cell.isToday ? 'rgba(78,205,196,.08)' : '#1f344b',
                    border:`1px solid ${cell.isToday ? '#4ecdc4' : '#2a3a4a'}`,
-                   borderRadius:'8px', minHeight:'80px', padding:'6px',
+                   borderRadius:'8px', minHeight:'92px', padding:'8px',
                    cursor: cell.date ? 'pointer' : 'default',
                    opacity: cell.other ? 0.4 : 1,
                    transition:'border-color .15s',
@@ -763,6 +767,30 @@ export default function TimetablePage() {
     return 0
   })()
 
+  const visibleEvents = (() => {
+    if (view === 'day') {
+      const ds = dateStr(curDate)
+      return allEvents.filter(e => e.date === ds)
+    }
+    if (view === 'week') {
+      const start = dateStr(getMon(curDate))
+      const endDate = new Date(getMon(curDate))
+      endDate.setDate(endDate.getDate() + 6)
+      const end = dateStr(endDate)
+      return allEvents.filter(e => e.date >= start && e.date <= end)
+    }
+    const y = curDate.getFullYear()
+    const m = curDate.getMonth()
+    return allEvents.filter(e => {
+      if (!e.date) return false
+      const d = new Date(e.date + 'T00:00:00')
+      return d.getFullYear() === y && d.getMonth() === m
+    })
+  })()
+  const visibleExpCount = visibleEvents.filter(e => e.type !== 'pickup').length
+  const visiblePickupCount = visibleEvents.filter(e => e.type === 'pickup').length
+  const visibleReservationCount = new Set(visibleEvents.map(e => e.reservation_no).filter(Boolean)).size
+
   if (loading) {
     return <div style={{padding:'60px',textAlign:'center',color:'var(--text-muted)'}}>불러오는 중...</div>
   }
@@ -770,54 +798,72 @@ export default function TimetablePage() {
   return (
     <div>
       {/* ── 툴바 */}
-      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'14px',flexWrap:'wrap'}}>
-        {/* 뷰 전환 */}
-        <div style={{display:'flex',gap:'3px',background:'#1a2535',border:'1px solid #2a3a4a',
-                     borderRadius:'8px',padding:'3px'}}>
-          {[['day','일'],['week','주'],['month','월']].map(([v,l]) => (
-            <button key={v} onClick={() => setView(v)} style={tabBtn(view === v)}>{l}</button>
-          ))}
-        </div>
-        {/* 날짜 네비 */}
-        <div style={{display:'flex',gap:'4px'}}>
-          {['‹','오늘','›'].map((t, i) => (
-            <button key={i} onClick={() => {
-              if (t === '오늘') setCurDate(new Date())
-              else navigate(t === '‹' ? -1 : 1)
-            }} style={{height:'32px',padding:'0 12px',background:'#1a2535',border:'1px solid #2a3a4a',
-                       borderRadius:'7px',color:'#8a9ab0',cursor:'pointer',fontSize:'13px',
-                       fontFamily:'Noto Sans KR, sans-serif'}}>{t}</button>
-          ))}
-        </div>
-        {/* 날짜 표시 */}
-        <div style={{fontSize:'14px',fontWeight:'700',color:'#e8eaed'}}>
-          {view === 'day'   ? formatDay(curDate)
-           : view === 'week' ? `${getMon(curDate).getMonth()+1}월 ${getMon(curDate).getDate()}일 주간`
-           : `${curDate.getFullYear()}년 ${curDate.getMonth()+1}월`}
-        </div>
-
-        <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
-          {/* 그룹 탭 */}
-          <div style={{display:'flex',gap:'3px',background:'#1a2535',border:'1px solid #2a3a4a',
+      <div style={{background:'#1a2535',border:'1px solid #2a3a4a',borderRadius:'12px',
+                   padding:'14px 16px',marginBottom:'14px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
+          <div style={{display:'flex',gap:'3px',background:'#122132',border:'1px solid #2a3a4a',
                        borderRadius:'8px',padding:'3px'}}>
-            {[['all','전체'],['zone','구역별'],['package','패키지별'],['vendor','업체별']].map(([v,l]) => (
-              <button key={v} onClick={() => setGroup(v)} style={tabBtn(group === v)}>{l}</button>
+            {[['day','일'],['week','주'],['month','월']].map(([v,l]) => (
+              <button key={v} onClick={() => setView(v)} style={tabBtn(view === v)}>{l}</button>
             ))}
           </div>
-          {/* 겹침 배지 */}
-          {curConflictCount > 0 && (
-            <div onClick={showConflicts}
-                 style={{padding:'4px 12px',background:'rgba(51,255,51,0.12)',
-                         border:'1px solid rgba(51,255,51,0.25)',borderRadius:'20px',
-                         fontSize:'12px',color:'#33ff33',fontWeight:'700',cursor:'pointer'}}>
-              ⚠ 겹침 {Math.floor(curConflictCount/2)}건
+          <div style={{display:'flex',gap:'4px'}}>
+            {['‹','오늘','›'].map((t, i) => (
+              <button key={i} onClick={() => {
+                if (t === '오늘') setCurDate(new Date())
+                else navigate(t === '‹' ? -1 : 1)
+              }} style={{height:'32px',minWidth:t === '오늘' ? '54px' : '34px',padding:'0 12px',
+                         background:'#122132',border:'1px solid #2a3a4a',
+                         borderRadius:'7px',color:'#8a9ab0',cursor:'pointer',fontSize:'13px',
+                         display:'inline-flex',alignItems:'center',justifyContent:'center',
+                         fontFamily:'Noto Sans KR, sans-serif'}}>{t}</button>
+            ))}
+          </div>
+          <div style={{fontSize:'15px',fontWeight:'800',color:'#e8eaed',minWidth:'180px'}}>
+            {view === 'day'   ? formatDay(curDate)
+             : view === 'week' ? `${getMon(curDate).getMonth()+1}월 ${getMon(curDate).getDate()}일 주간`
+             : `${curDate.getFullYear()}년 ${curDate.getMonth()+1}월`}
+          </div>
+
+          <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:'3px',background:'#122132',border:'1px solid #2a3a4a',
+                         borderRadius:'8px',padding:'3px'}}>
+              {[['all','전체'],['zone','구역별'],['package','패키지별'],['vendor','업체별']].map(([v,l]) => (
+                <button key={v} onClick={() => setGroup(v)} style={tabBtn(group === v)}>{l}</button>
+              ))}
             </div>
-          )}
-          {/* + 일정 */}
-          <button onClick={() => setModal(true)}
-                  style={{height:'32px',padding:'0 16px',background:'#4ecdc4',border:'none',
-                          borderRadius:'8px',color:'#0f1923',fontSize:'12px',fontWeight:'700',
-                          cursor:'pointer',fontFamily:'Noto Sans KR, sans-serif'}}>+ 일정</button>
+            {curConflictCount > 0 && (
+              <div onClick={showConflicts}
+                   style={{height:'32px',padding:'0 12px',background:'rgba(51,255,51,0.12)',
+                           border:'1px solid rgba(51,255,51,0.25)',borderRadius:'20px',
+                           fontSize:'12px',color:'#33ff33',fontWeight:'700',cursor:'pointer',
+                           display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
+                겹침 {Math.floor(curConflictCount/2)}건
+              </div>
+            )}
+            <button onClick={() => setModal(true)}
+                    style={{height:'32px',padding:'0 16px',background:'#4ecdc4',border:'none',
+                            borderRadius:'8px',color:'#0f1923',fontSize:'12px',fontWeight:'700',
+                            cursor:'pointer',fontFamily:'Noto Sans KR, sans-serif',
+                            display:'inline-flex',alignItems:'center',justifyContent:'center'}}>+ 일정</button>
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(120px,1fr))',gap:'10px',
+                     marginTop:'12px'}}>
+          {[
+            ['일정', visibleEvents.length],
+            ['체험', visibleExpCount],
+            ['픽업', visiblePickupCount],
+            ['예약', visibleReservationCount],
+          ].map(([label, value]) => (
+            <div key={label} style={{background:'#122132',border:'1px solid rgba(78,205,196,.1)',
+                                     borderRadius:'8px',padding:'10px 12px'}}>
+              <div style={{fontSize:'11px',color:'#8a9ab0',marginBottom:'4px'}}>{label}</div>
+              <div style={{fontSize:'18px',fontWeight:'800',color:label === '픽업' ? '#B8B8FF' : '#4ecdc4'}}>
+                {value}건
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
