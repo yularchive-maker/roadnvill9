@@ -97,12 +97,41 @@ function nextReservationStatus(reservation, ready, conditions) {
 }
 
 async function evaluate(no, { persist = false } = {}) {
-  const { data: reservation, error: reservationError } = await active(
-    supabase.from('reservations').select('*').eq('no', no)
-  ).single()
+  const { data: activeReservations, error: reservationError } = await active(
+    supabase.from('reservations').select('*').eq('no', no).limit(1)
+  )
 
   if (reservationError) {
     return { error: reservationError, status: 404 }
+  }
+
+  let reservation = activeReservations?.[0]
+  if (!reservation) {
+    const { data: allReservations, error: deletedReservationError } = await supabase
+      .from('reservations')
+      .select('*')
+      .eq('no', no)
+      .limit(1)
+    if (deletedReservationError) return { error: deletedReservationError, status: 404 }
+    reservation = allReservations?.[0]
+  }
+
+  if (!reservation) {
+    return { error: new Error('예약을 찾을 수 없습니다.'), status: 404 }
+  }
+
+  if (reservation.is_deleted || reservation.type === 'cancelled' || reservation.reservation_status === '취소') {
+    return {
+      data: {
+        reservation_no: no,
+        ready: false,
+        reservation_status: '취소',
+        suggested_status: '취소',
+        payment_status: reservation.payment_status || '미결제',
+        payment_type: reservation.payment_type || '전화예약미결제',
+        conditions: [],
+      },
+    }
   }
 
   const [vendorRes, lodgeRes, pickupRes] = await Promise.all([
