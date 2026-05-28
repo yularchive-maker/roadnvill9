@@ -1,7 +1,10 @@
 import { createAdminSupabase } from '@/lib/supabase-admin'
+import { createServerSupabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
+
+export const dynamic = 'force-dynamic'
 
 const REPLY_MAP = {
   possible: { reply_status: '가능', final_decision: '확정 가능', label: '가능' },
@@ -20,6 +23,12 @@ function getSupabase() {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured.')
   }
   return supabase
+}
+
+async function requireUser() {
+  const supabase = createServerSupabase()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  return error || !user ? null : user
 }
 
 function parseCallbackData(value) {
@@ -160,6 +169,9 @@ export async function POST(req) {
 }
 
 export async function GET() {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const token = getToken()
   if (!token) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN is not configured.' }, { status: 500 })

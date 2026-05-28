@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
+import { createServerSupabase } from '@/lib/supabase-server'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
+
+export const dynamic = 'force-dynamic'
 
 function fmt(n) {
   return (Number(n) || 0).toLocaleString('ko-KR')
@@ -48,7 +51,16 @@ async function sendTelegramMessage(token, chatId, text) {
   return payload.result
 }
 
+async function requireUser() {
+  const supabase = createServerSupabase()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  return error || !user ? null : user
+}
+
 export async function POST(req) {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const token = process.env.TELEGRAM_BOT_TOKEN
   const chatId = process.env.TELEGRAM_AGENCY_CHAT_ID
 

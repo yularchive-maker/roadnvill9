@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
 
+export const dynamic = 'force-dynamic'
+
 const REPLY_BUTTONS = [
   [{ text: '가능', code: 'possible' }, { text: '불가능', code: 'impossible' }],
   [{ text: '시간조정 필요', code: 'time_adjust' }, { text: '인원조정 필요', code: 'people_adjust' }],
@@ -111,6 +113,11 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup) {
 }
 
 export async function POST(req) {
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN is not configured.' }, { status: 500 })

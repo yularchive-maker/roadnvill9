@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
+import { createServerSupabase } from '@/lib/supabase-server'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
+
+export const dynamic = 'force-dynamic'
 
 function getToken() {
   return process.env.TELEGRAM_BOT_TOKEN
@@ -8,6 +11,12 @@ function getToken() {
 
 function getWebhookSecret() {
   return process.env.TELEGRAM_WEBHOOK_SECRET
+}
+
+async function requireUser() {
+  const supabase = createServerSupabase()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  return error || !user ? null : user
 }
 
 async function telegram(method, body) {
@@ -45,12 +54,18 @@ function webhookUrlFromRequest(req, bodyUrl) {
 }
 
 export async function GET() {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const result = await telegram('getWebhookInfo')
   if (!result.ok) return NextResponse.json(result.payload, { status: result.status })
   return NextResponse.json({ webhook: result.payload })
 }
 
 export async function POST(req) {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json().catch(() => ({}))
   const url = webhookUrlFromRequest(req, body.url)
   const secret = getWebhookSecret()
@@ -71,6 +86,9 @@ export async function POST(req) {
 }
 
 export async function DELETE() {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const result = await telegram('deleteWebhook', { drop_pending_updates: false })
   if (!result.ok) return NextResponse.json(result.payload, { status: result.status })
   return NextResponse.json({ ok: true })
