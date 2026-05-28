@@ -28,13 +28,98 @@ function formatDay(d) {
 }
 
 // 예약 × package_programs → 타임테이블 자동 이벤트 생성
-function buildAutoEvents(reservations, packages) {
+function packageZoneCodes(pkg) {
+  const linked = (pkg?.package_zones || [])
+    .filter(z => z && z.is_deleted !== true)
+    .map(z => z.zone_code)
+    .filter(Boolean)
+  return linked.length ? [...new Set(linked)] : (pkg?.zone_code ? [pkg.zone_code] : [])
+}
+
+function findPackageForUsage(packages, row, reservation) {
+  return packages.find(p => String(p.id) === String(row?.package_id || '')) ||
+    packages.find(p => p.name === row?.package_name) ||
+    packages.find(p => p.name === row?.item_name) ||
+    packages.find(p => p.name === (reservation?.package_name || reservation?.pkg))
+}
+
+function activeProductUsages(usages, reservationNo) {
+  return (usages || []).filter(row =>
+    row.reservation_no === reservationNo &&
+    row.usage_type === 'product_operation' &&
+    row.is_deleted !== true
+  )
+}
+
+function buildAutoEvents(reservations, packages, usages = [], vendors = []) {
   const events = []
   let counter = 0
   reservations.forEach(r => {
     if (r.type === 'cancelled') return
-    const packageName = r.package_name || r.pkg
     const zoneCode = r.zone_code || r.zone
+    const rows = activeProductUsages(usages, r.no)
+
+    if (rows.length) {
+      rows.forEach(row => {
+        const rowZones = Array.isArray(row.zone_codes) && row.zone_codes.length
+          ? row.zone_codes.filter(Boolean)
+          : (row.zone_code ? [row.zone_code] : [])
+        const rowZoneCode = row.zone_code || rowZones[0] || zoneCode
+
+        if ((row.sale_type || 'package') === 'single') {
+          if (!row.start_time || !row.end_time) return
+          const vendor = vendors.find(v => String(v.key) === String(row.vendor_key || ''))
+          events.push({
+            id: `auto_component_${r.no}_${row.component_uid || row.id || counter++}`,
+            date: r.date,
+            start_time: row.start_time.slice(0, 5),
+            end_time: row.end_time.slice(0, 5),
+            type: 'exp',
+            vendor_key: row.vendor_key,
+            vendor_name: vendor?.name || row.vendor_name || row.vendor_key || '',
+            vendor_color: vendor?.color || row.vendor_color || '#4ECDC4',
+            prog_name: row.prog_name || row.item_name || 'custom',
+            reservation_no: r.no,
+            pkg_name: row.item_name || row.package_name || 'custom',
+            customer: r.customer,
+            pax: Number(row.people_count) || Number(r.pax) || 0,
+            zone_code: rowZoneCode,
+            memo: row.place ? `place: ${row.place}` : '',
+            is_manual: false,
+          })
+          return
+        }
+
+        const pkg = findPackageForUsage(packages, row, r)
+        if (!pkg) return
+        ;(pkg.package_programs || []).forEach(pp => {
+          if (!pp.default_start || !pp.default_end) return
+          if (rowZones.length && pp.zone_code && !rowZones.includes(pp.zone_code)) return
+          const vendor = pp.vendors
+          events.push({
+            id: `auto_component_${r.no}_${row.component_uid || row.id || counter++}_${pp.id || pp.prog_name}`,
+            date: r.date,
+            start_time: pp.default_start.slice(0, 5),
+            end_time: pp.default_end.slice(0, 5),
+            type: 'exp',
+            vendor_key: pp.vendor_key,
+            vendor_name: vendor?.name || pp.prog_name,
+            vendor_color: vendor?.color || '#4ECDC4',
+            prog_name: pp.prog_name,
+            reservation_no: r.no,
+            pkg_name: row.item_name || row.package_name || pkg.name,
+            customer: r.customer,
+            pax: Number(row.people_count) || Number(r.pax) || 0,
+            zone_code: pp.zone_code || rowZoneCode || packageZoneCodes(pkg)[0] || '',
+            memo: '',
+            is_manual: false,
+          })
+        })
+      })
+      return
+    }
+
+    const packageName = r.package_name || r.pkg
     const pkg = packages.find(p => p.name === packageName)
     if (!pkg) return
     ;(pkg.package_programs || []).forEach(pp => {
@@ -54,7 +139,7 @@ function buildAutoEvents(reservations, packages) {
         pkg_name: packageName,
         customer: r.customer,
         pax: r.pax,
-        zone_code: zoneCode,
+        zone_code: pp.zone_code || zoneCode,
         memo: '',
         is_manual: false,
       })
@@ -258,6 +343,7 @@ export default function TimetablePage() {
   const [vendors,      setVendors]      = useState([])
   const [reservations, setReservations] = useState([])
   const [packages,     setPackages]     = useState([])
+  const [budgetUsages, setBudgetUsages] = useState([])
   const [zones,        setZones]        = useState([])
   const [manualEvents, setManualEvents] = useState([])
   const [loading,      setLoading]      = useState(true)
@@ -275,12 +361,14 @@ export default function TimetablePage() {
     Promise.all([
       supabase.from('vendors').select('*').order('key'),
       supabase.from('reservations').select('*').order('date', { ascending: false }),
-      supabase.from('packages').select('*, package_programs(*, vendors(key,name,color))').order('name'),
+      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
+      supabase.from('reservation_budget_usages').select('id,reservation_no,usage_type,operation_type,sale_type,item_name,component_uid,zone_code,zone_codes,package_id,package_name,vendor_key,prog_name,people_count,start_time,end_time,place,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('zones').select('*').order('code'),
-    ]).then(([vR, rR, pR, zR]) => {
+    ]).then(([vR, rR, pR, uR, zR]) => {
       setVendors(vR.data || [])
       setReservations(rR.data || [])
       setPackages(pR.data || [])
+      setBudgetUsages(uR.data || [])
       const zd = zR.data || []
       setZones(zd)
       if (zd.length) setSelZone(zd[0].code)
@@ -306,7 +394,7 @@ export default function TimetablePage() {
   useEffect(() => { if (!loading) fetchManual() }, [loading, fetchManual])
 
   // ── 전체 이벤트 = 자동 + 수동
-  const autoEvents = buildAutoEvents(reservations, packages)
+  const autoEvents = buildAutoEvents(reservations, packages, budgetUsages, vendors)
   const allEvents = [
     ...autoEvents.map(e => ({ ...e, id: String(e.id) })),
     ...manualEvents.map(e => ({ ...e, id: String(e.id), vendor_name: e.vendor_name || e.vendor_key || '' })),

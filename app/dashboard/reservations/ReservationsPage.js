@@ -314,8 +314,9 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   useEffect(() => {
     async function loadVendorChecks() {
+      const componentPrograms = vendorProgramsForCheck()
       const pkg = packages.find(p => p.name === form.package_name)
-      if (!pkg?.id) {
+      if (!componentPrograms.length && !pkg?.id) {
         setPackagePrograms([])
         setVendorConfirms([])
         setSameDayEvents([])
@@ -325,12 +326,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
       setVendorCheckLoading(true)
       const [programRes, confirmRes, reservationRes, eventRes] = await Promise.all([
-        supabase
-          .from('package_programs')
-          .select('id, vendor_key, prog_name, sort_order, vendors(key,name,color)')
-          .eq('package_id', pkg.id)
-          .or('is_deleted.is.null,is_deleted.eq.false')
-          .order('sort_order'),
+        componentPrograms.length
+          ? Promise.resolve({ data: componentPrograms, error: null })
+          : supabase
+            .from('package_programs')
+            .select('id, vendor_key, prog_name, sort_order, vendors(key,name,color)')
+            .eq('package_id', pkg.id)
+            .or('is_deleted.is.null,is_deleted.eq.false')
+            .order('sort_order'),
         isEdit && form.no
           ? supabase.from('vendor_confirms').select('*').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
           : Promise.resolve({ data: [], error: null }),
@@ -349,7 +352,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       setVendorCheckLoading(false)
     }
     loadVendorChecks()
-  }, [form.package_name, form.date, form.no, isEdit, packages])
+  }, [form.package_name, form.date, form.no, isEdit, packages, componentRows, vendors])
 
   const inp = (k,v) => setForm(f => {
     const next = { ...f, [k]: v }
@@ -449,6 +452,43 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function componentVendorProgram(row) {
     return componentVendor(row)?.vendor_programs?.find(p => p.prog_name === row.prog_name)
+  }
+
+  function vendorProgramsForCheck() {
+    const rows = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
+    if (!rows.length) return []
+
+    const programs = []
+    rows.forEach((row, index) => {
+      const selectedZones = rowZoneCodes(row)
+
+      if ((row.sale_type || 'package') === 'single') {
+        if (!row.vendor_key) return
+        const vendor = vendors.find(v => String(v.key) === String(row.vendor_key))
+        programs.push({
+          id: row.component_uid || row.id || `single-${index}`,
+          vendor_key: row.vendor_key,
+          prog_name: row.prog_name || row.item_name || row.package_name || 'custom',
+          sort_order: index,
+          people_count: Number(row.people_count) || 0,
+          vendors: vendor ? { key: vendor.key, name: vendor.name, color: vendor.color } : null,
+        })
+        return
+      }
+
+      const pkg = componentPackage(row)
+      ;(pkg?.package_programs || []).forEach((program, programIndex) => {
+        if (selectedZones.length && program.zone_code && !selectedZones.includes(program.zone_code)) return
+        programs.push({
+          ...program,
+          id: `${row.component_uid || row.id || index}-${program.id || programIndex}`,
+          sort_order: Number(program.sort_order) || programIndex,
+          people_count: Number(row.people_count) || 0,
+        })
+      })
+    })
+
+    return programs
   }
 
   function componentBudgetItem(row, category) {
@@ -884,6 +924,57 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   }
 
   // 결제처 선택 → 수수료 자동입력
+  async function syncVendorConfirmSeeds(reservationNo, payload) {
+    const programs = vendorProgramsForCheck()
+    if (!programs.length) return
+
+    const grouped = Object.values(programs.reduce((map, program) => {
+      const key = program.vendor_key || 'unknown'
+      if (!map[key]) {
+        map[key] = {
+          vendor_key: key,
+          vendor_name: program.vendors?.name || key,
+          programs: [],
+          request_people_count: 0,
+        }
+      }
+      if (program.prog_name && !map[key].programs.includes(program.prog_name)) map[key].programs.push(program.prog_name)
+      map[key].request_people_count = Math.max(map[key].request_people_count, Number(program.people_count) || 0)
+      return map
+    }, {}))
+
+    const { data: existing, error: existingError } = await supabase
+      .from('vendor_confirms')
+      .select('vendor_key')
+      .eq('reservation_no', reservationNo)
+      .or('is_deleted.is.null,is_deleted.eq.false')
+    if (existingError) throw existingError
+
+    const existingKeys = new Set((existing || []).map(row => row.vendor_key))
+    const insertRows = grouped
+      .filter(row => row.vendor_key && !existingKeys.has(row.vendor_key))
+      .map(row => ({
+        reservation_no: reservationNo,
+        vendor_key: row.vendor_key,
+        vendor_name: row.vendor_name,
+        program_name: row.programs.join(', ') || null,
+        request_date: payload.date,
+        request_people_count: row.request_people_count || Number(payload.pax) || null,
+        day_confirmed_people_count: dayConfirmedPeople,
+        day_pending_people_count: dayPendingPeople,
+        day_max_expected_people_count: dayMaxExpectedPeople,
+        send_status: '미발송',
+        reply_status: '회신대기',
+        final_decision: '미회신',
+        status: 'wait',
+        is_deleted: false,
+      }))
+
+    if (!insertRows.length) return
+    const { error } = await supabase.from('vendor_confirms').insert(insertRows)
+    if (error) throw error
+  }
+
   function onPaytoChange(val) {
     const plat = platforms.find(p => p.name === val && p.type === '플랫폼')
     const agnt = platforms.find(p => p.name === val && p.type === '여행사')
@@ -1065,6 +1156,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
     try {
       await saveComponentRows(no)
+      await syncVendorConfirmSeeds(no, payload)
     } catch (error) {
       alert('구성 패키지 저장 실패: ' + error.message)
       setSaving(false)
@@ -1164,11 +1256,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         vendor_key: key,
         vendor_name: confirm?.vendor_name || program.vendors?.name || key,
         programs: [],
+        request_people_count: 0,
         confirm,
         events: sameDayEvents.filter(ev => ev.vendor_key === key),
       }
     }
     if (program.prog_name && !map[key].programs.includes(program.prog_name)) map[key].programs.push(program.prog_name)
+    map[key].request_people_count = Math.max(map[key].request_people_count, Number(program.people_count) || 0)
     return map
   }, {}))
 
@@ -1255,7 +1349,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       request_date: form.date || null,
       request_start_time: row.confirm?.request_start_time || null,
       request_end_time: row.confirm?.request_end_time || null,
-      request_people_count: Number(form.pax) || null,
+      request_people_count: Number(row.request_people_count) || Number(form.pax) || null,
       day_confirmed_people_count: dayConfirmedPeople,
       day_pending_people_count: dayPendingPeople,
       day_max_expected_people_count: dayMaxExpectedPeople,
