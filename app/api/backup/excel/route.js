@@ -126,7 +126,7 @@ export async function GET() {
         created_at: new Date().toISOString(),
         created_by: user.email || user.id,
         format: 'Excel XML',
-        note: '서버에서 즉시 생성된 수동 백업 파일입니다. 서버에는 저장되지 않습니다.',
+        note: '서버에서 즉시 생성한 수동 백업 파일입니다. 서버에는 저장되지 않습니다.',
       }],
     },
     ...sheets,
