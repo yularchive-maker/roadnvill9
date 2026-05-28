@@ -1,7 +1,12 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { searchParams } = new URL(req.url)
   const type = searchParams.get('type')
   const month = searchParams.get('month')
@@ -16,6 +21,8 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const body = await req.json()
 
   // ?덉빟踰덊샇 ?먮룞?앹꽦

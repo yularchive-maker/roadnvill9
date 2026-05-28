@@ -1,11 +1,16 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+
+export const dynamic = 'force-dynamic'
 
 function active(q) {
   return q.or('is_deleted.is.null,is_deleted.eq.false')
 }
 
 export async function GET(_, { params }) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { data, error } = await active(
     supabase
       .from('reservations')
@@ -17,6 +22,8 @@ export async function GET(_, { params }) {
 }
 
 export async function PUT(req, { params }) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const body = await req.json()
   const { data, error } = await supabase
     .from('reservations').update(body).eq('no', params.no).select().single()
@@ -25,6 +32,8 @@ export async function PUT(req, { params }) {
 }
 
 export async function DELETE(_, { params }) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const deletedAt = new Date().toISOString()
   await supabase.from('vendor_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)
   await supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)

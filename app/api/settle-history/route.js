@@ -1,8 +1,13 @@
 import { supabase } from '@/lib/supabase-server'
 import { createAdminSupabase } from '@/lib/supabase-admin'
 import { NextResponse } from 'next/server'
+import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { searchParams } = new URL(req.url)
   const vendorKey = searchParams.get('vendor_key')
   let q = supabase
@@ -22,6 +27,8 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const body = await req.json()
   const { items, reservation_nos, update_reservations, ...historyBody } = body
 
@@ -47,6 +54,8 @@ export async function POST(req) {
 }
 
 export async function DELETE(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })

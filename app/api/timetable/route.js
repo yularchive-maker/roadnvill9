@@ -1,7 +1,12 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { searchParams } = new URL(req.url)
   const date = searchParams.get('date')
   const week = searchParams.get('week')
@@ -27,6 +32,8 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const body = await req.json()
   const { data, error } = await supabase
     .from('timetable_events')
@@ -38,6 +45,8 @@ export async function POST(req) {
 }
 
 export async function PUT(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { id, ...body } = await req.json()
   const { data, error } = await supabase
     .from('timetable_events')
@@ -50,6 +59,8 @@ export async function PUT(req) {
 }
 
 export async function DELETE(req) {
+  if (!await requireApiUser()) return unauthorizedResponse()
+
   const { id } = await req.json()
   const { error } = await supabase.from('timetable_events').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
   if (error) return NextResponse.json({ error }, { status: 500 })
