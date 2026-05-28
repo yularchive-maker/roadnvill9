@@ -1,8 +1,15 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 function active(query) {
   return query.or('is_deleted.is.null,is_deleted.eq.false')
+}
+
+async function requireUser() {
+  const { data: { user }, error } = await supabase.auth.getUser()
+  return error || !user ? null : user
 }
 
 function vendorCondition(rows) {
@@ -177,12 +184,18 @@ async function evaluate(no, { persist = false } = {}) {
 }
 
 export async function GET(_, { params }) {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const result = await evaluate(params.no)
   if (result.error) return NextResponse.json({ error: result.error.message || result.error }, { status: result.status })
   return NextResponse.json(result.data)
 }
 
 export async function POST(_, { params }) {
+  const user = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const result = await evaluate(params.no, { persist: true })
   if (result.error) return NextResponse.json({ error: result.error.message || result.error }, { status: result.status })
   return NextResponse.json(result.data)
