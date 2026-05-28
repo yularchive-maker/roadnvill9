@@ -107,13 +107,14 @@ export default function SettleDetailPage() {
       .from('reservations').select('*')
       .gte('date', startDate).lte('date', endDate)
       .neq('type', 'cancelled')
+      .or('is_deleted.is.null,is_deleted.eq.false')
 
     if (!resv?.length) { setGroups([]); setCheckedItems({}); setLoading(false); return }
 
     const nos = resv.map(r => r.no)
     const [lcRes, rpRes, snapRes, settledRes] = await Promise.all([
-      supabase.from('lodge_confirms').select('*').in('reservation_no', nos),
-      supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos),
+      supabase.from('lodge_confirms').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_program_snapshots').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
       supabase
         .from('settle_history')

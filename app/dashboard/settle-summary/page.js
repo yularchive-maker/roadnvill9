@@ -115,31 +115,32 @@ export default function SettleSummaryPage() {
       .from('reservations').select('*')
       .gte('date', start).lte('date', end)
       .neq('type', 'cancelled')
+      .or('is_deleted.is.null,is_deleted.eq.false')
 
     const unsettledMap = emptyMap()
 
     if (resv?.length) {
       const nos = resv.map(r => r.no)
       const [lcRes, rpRes, snapRes] = await Promise.all([
-        supabase.from('lodge_confirms').select('*').in('reservation_no', nos),
-        supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos),
+        supabase.from('lodge_confirms').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
+        supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
         supabase.from('reservation_program_snapshots').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
       ])
 
       // 泥댄뿕 誘몄젙??      for (const r of resv) {
-        const snapshots = snapRes.data || []
-        const snapNos = new Set(snapshots.map(s => s.reservation_no))
-        const experienceType = TYPES[0].key
-        for (const snap of snapshots) {
-          const amt = Number(snap.vendor_settle_total) || 0
-          const item = { no: snap.reservation_no, detail: snap.prog_name, amt }
-          if (settled.has(settledKey(experienceType, snap.vendor_key, item))) continue
-          const vendor = vendors.find(v => v.key === snap.vendor_key)
-          const k = snap.vendor_name || vendor?.name || snap.vendor_key
-          if (!unsettledMap[experienceType][k]) unsettledMap[experienceType][k] = { vendor: k, color: vendor?.color, count: 0, settled: 0, unsettled: 0 }
-          unsettledMap[experienceType][k].count += 1
-          unsettledMap[experienceType][k].unsettled += amt
-        }
+      const snapshots = snapRes.data || []
+      const snapNos = new Set(snapshots.map(s => s.reservation_no))
+      const experienceType = TYPES[0].key
+      for (const snap of snapshots) {
+        const amt = Number(snap.vendor_settle_total) || 0
+        const item = { no: snap.reservation_no, detail: snap.prog_name, amt }
+        if (settled.has(settledKey(experienceType, snap.vendor_key, item))) continue
+        const vendor = vendors.find(v => v.key === snap.vendor_key)
+        const k = snap.vendor_name || vendor?.name || snap.vendor_key
+        if (!unsettledMap[experienceType][k]) unsettledMap[experienceType][k] = { vendor: k, color: vendor?.color, count: 0, settled: 0, unsettled: 0 }
+        unsettledMap[experienceType][k].count += 1
+        unsettledMap[experienceType][k].unsettled += amt
+      }
 
       for (const r of resv) {
         if (snapNos.has(r.no)) continue
