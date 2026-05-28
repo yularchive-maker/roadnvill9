@@ -68,10 +68,32 @@ function StatusBadge({ children }) {
   return <span className="badge" style={{ ...badgeStyle(children), ...CENTER_BADGE }}>{children || '-'}</span>
 }
 
+function productLabelForReservation(reservationNo, reservation, usages) {
+  const components = usages
+    .filter(item =>
+      item.reservation_no === reservationNo &&
+      item.usage_type === 'product_operation' &&
+      item.is_deleted !== true
+    )
+    .map(item => item.item_name || item.package_name)
+    .filter(Boolean)
+
+  const unique = [...new Set(components)]
+  if (!unique.length) return {
+    label: reservation?.package_name || '-',
+    title: reservation?.package_name || '-',
+  }
+  return {
+    label: unique.length === 1 ? unique[0] : `${unique.length}개 상품 구성`,
+    title: unique.join(' / '),
+  }
+}
+
 export default function VendorConfirmsPage() {
   const [rows, setRows] = useState([])
   const [reservations, setReservations] = useState([])
   const [vendors, setVendors] = useState([])
+  const [budgetUsages, setBudgetUsages] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState({ date: '', vendor_key: '전체', reply_status: '전체', send_status: '전체', decision: '전체', q: '' })
@@ -95,13 +117,14 @@ export default function VendorConfirmsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [confirmRes, reservationRes, vendorRes] = await Promise.all([
+    const [confirmRes, reservationRes, vendorRes, usageRes] = await Promise.all([
       supabase.from('vendor_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('request_date', { ascending: false }).order('updated_at', { ascending: false }),
       supabase.from('reservations').select('no,date,customer,package_name,pax,type,reservation_status').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('vendors').select('key,name,color').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,item_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
 
-    const firstError = confirmRes.error || reservationRes.error || vendorRes.error
+    const firstError = confirmRes.error || reservationRes.error || vendorRes.error || usageRes.error
     if (firstError) {
       setError(firstError.message || '업체 회신 데이터를 불러오지 못했습니다.')
       setRows([])
@@ -109,6 +132,7 @@ export default function VendorConfirmsPage() {
       setRows(confirmRes.data || [])
       setReservations(reservationRes.data || [])
       setVendors(vendorRes.data || [])
+      setBudgetUsages(usageRes.data || [])
     }
     setLoading(false)
   }, [])
@@ -124,7 +148,8 @@ export default function VendorConfirmsPage() {
       const vendorName = row.vendor_name || vendor?.name || row.vendor_key || ''
       const programName = row.program_name || row.prog_name || row.program || ''
       const customer = reservation?.customer || ''
-      const packageName = reservation?.package_name || ''
+      const packageInfo = productLabelForReservation(row.reservation_no, reservation, budgetUsages)
+      const packageName = packageInfo.title || reservation?.package_name || ''
 
       if (filters.date && rowDate !== filters.date) return false
       if (filters.vendor_key !== '전체' && row.vendor_key !== filters.vendor_key) return false
@@ -136,7 +161,7 @@ export default function VendorConfirmsPage() {
         .filter(Boolean)
         .some(v => String(v).toLowerCase().includes(q))
     })
-  }, [filters, reservationMap, rows, vendorMap])
+  }, [budgetUsages, filters, reservationMap, rows, vendorMap])
 
   const summary = useMemo(() => {
     return {
@@ -275,13 +300,14 @@ export default function VendorConfirmsPage() {
           const rowDate = row.request_date || reservation?.date || '-'
           const vendorName = row.vendor_name || vendor?.name || row.vendor_key || '-'
           const programName = row.program_name || row.prog_name || row.program || '-'
+          const packageInfo = productLabelForReservation(row.reservation_no, reservation, budgetUsages)
           const requestTime = [row.request_start_time, row.request_end_time].filter(Boolean).join(' ~ ')
           return (
             <div key={row.id || `${row.reservation_no}-${row.vendor_key}`} className="list-row" style={{ gridTemplateColumns: LIST_GRID, gap: '10px', cursor: 'default' }}>
               <span className="no-col">#{row.reservation_no}</span>
               <span>{rowDate}</span>
               <span>{reservation?.customer || '-'}</span>
-              <span>{reservation?.package_name || '-'}</span>
+              <span title={packageInfo.title}>{packageInfo.label}</span>
               <span title={requestTime}>{programName}</span>
               <span>{vendorName}</span>
               <span style={CENTER_CELL}>{row.request_people_count ?? reservation?.pax ?? '-'}</span>

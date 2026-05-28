@@ -29,6 +29,59 @@ function Badge({ children }) {
   return <span className="badge" style={{ ...statusBadgeStyle(children), minWidth:'74px', justifyContent:'center' }}>{children || '-'}</span>
 }
 
+function componentSummary(row, budgetUsages, zones) {
+  const zoneNameMap = Object.fromEntries(zones.map(zone => [zone.code, zone.name]))
+  const components = budgetUsages.filter(item =>
+    item.reservation_no === row.no &&
+    item.usage_type === 'product_operation' &&
+    item.is_deleted !== true
+  )
+  if (!components.length) {
+    const zoneLabel = row.zone_code ? (zoneNameMap[row.zone_code] || row.zone_code) : '-'
+    const packageLabel = row.package_name || row.pkg || '-'
+    return {
+      packageLabel,
+      packageTitle: packageLabel,
+      zoneLabel,
+      zoneTitle: zoneLabel,
+      peopleLabel: `${Number(row.pax) || 0}명`,
+      peopleValue: Number(row.pax) || 0,
+      componentNames: packageLabel === '-' ? [] : [packageLabel],
+    }
+  }
+
+  const zoneNames = new Set()
+  const componentNames = []
+  const peopleValues = []
+  components.forEach(item => {
+    const name = item.item_name || item.package_name
+    if (name && !componentNames.includes(name)) componentNames.push(name)
+
+    const codes = Array.isArray(item.zone_codes) && item.zone_codes.length
+      ? item.zone_codes.filter(Boolean)
+      : (item.zone_code ? [item.zone_code] : [])
+    if (codes.length) {
+      codes.forEach(code => zoneNames.add(zoneNameMap[code] || code))
+    } else if (item.zone_name) {
+      zoneNames.add(item.zone_name)
+    }
+
+    if (Number(item.people_count) > 0) peopleValues.push(Number(item.people_count))
+  })
+
+  const maxPeople = peopleValues.length ? Math.max(...peopleValues) : Number(row.pax) || 0
+  const zoneList = [...zoneNames]
+  return {
+    packageLabel: componentNames.length === 1 ? componentNames[0] : `${componentNames.length}개 상품 구성`,
+    packageTitle: componentNames.join(' / '),
+    zoneLabel: zoneList.length <= 2 ? zoneList.join(' · ') : `${zoneList.length}구역`,
+    zoneTitle: zoneList.join(' / '),
+    peopleLabel: `${maxPeople}명`,
+    peopleValue: maxPeople,
+    componentNames,
+  }
+}
+
 export default function SearchPage() {
   const router = useRouter()
   const [rows, setRows] = useState([])
@@ -64,7 +117,7 @@ export default function SearchPage() {
       supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('settle_history').select('*, settle_history_items(*)'),
       supabase.from('zones').select('code,name').or('is_deleted.is.null,is_deleted.eq.false'),
-      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,item_name,package_name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('reservation_no,usage_type,item_name,package_name,zone_code,zone_codes,zone_name,people_count,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     const firstError = resR.error || vcR.error || lcR.error || pkR.error || stR.error || zoneR.error || usageR.error
     if (firstError) {
@@ -94,10 +147,8 @@ export default function SearchPage() {
     const zone = zones.find(item => item.code === row.zone_code)
     const lodges = lodgeConfirms.filter(item => item.reservation_no === row.no)
     const pickupRows = pickups.filter(item => item.reservation_no === row.no)
-    const componentNames = budgetUsages
-      .filter(item => item.reservation_no === row.no && item.usage_type === 'product_operation' && item.is_deleted !== true)
-      .map(item => item.item_name || item.package_name)
-      .filter(Boolean)
+    const components = componentSummary(row, budgetUsages, zones)
+    const componentNames = components.componentNames
     const settledRows = settles.filter(item =>
       (item.settle_history_items || []).some(child => child.reservation_no === row.no)
     )
@@ -124,6 +175,7 @@ export default function SearchPage() {
       ...row,
       vendors,
       componentNames,
+      componentSummary: components,
       zone_name: zone?.name || '',
       replySummary,
       reply_status_rollup: vendorImpossible ? '불가능' : vendorAdjust ? '시간조정 필요' : vendorWaiting ? '회신대기' : allVendorsOk ? '가능' : '전체',
@@ -137,6 +189,20 @@ export default function SearchPage() {
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase()
+    const hasActiveFilter =
+      !!q ||
+      !!filters.start ||
+      !!filters.end ||
+      filters.reservation_status !== '전체' ||
+      filters.payment_status !== '전체' ||
+      filters.reply_status !== '전체' ||
+      filters.lodging_status !== '전체' ||
+      filters.pickup_status !== '전체' ||
+      filters.unsettled !== '전체' ||
+      filters.need_action !== '전체' ||
+      filters.ready !== '전체'
+    if (!hasActiveFilter) return []
+
     return enriched.filter(row => {
       if (filters.start && row.date < filters.start) return false
       if (filters.end && row.date > filters.end) return false
@@ -156,6 +222,8 @@ export default function SearchPage() {
         row.no,
         row.customer,
         row.package_name,
+        row.componentSummary?.packageTitle,
+        row.componentSummary?.zoneTitle,
         ...row.componentNames,
         row.zone_code,
         row.zone_name,
@@ -266,14 +334,28 @@ export default function SearchPage() {
         ) : error ? (
           <div style={{ padding:'42px', textAlign:'center', color:'var(--red)', fontSize:'13px' }}>{error}</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding:'42px', textAlign:'center', color:'var(--text-muted)', fontSize:'13px' }}>조건에 맞는 예약이 없습니다.</div>
+          <div style={{ padding:'42px', textAlign:'center', color:'var(--text-muted)', fontSize:'13px' }}>
+            {summary.total === 0 && !(
+              filters.q.trim() ||
+              filters.start ||
+              filters.end ||
+              filters.reservation_status !== '전체' ||
+              filters.payment_status !== '전체' ||
+              filters.reply_status !== '전체' ||
+              filters.lodging_status !== '전체' ||
+              filters.pickup_status !== '전체' ||
+              filters.unsettled !== '전체' ||
+              filters.need_action !== '전체' ||
+              filters.ready !== '전체'
+            ) ? '검색어 또는 조건을 입력하면 결과가 표시됩니다.' : '조건에 맞는 예약이 없습니다.'}
+          </div>
         ) : filtered.map(row => (
           <div key={row.no} className="list-row" style={{ gridTemplateColumns:GRID, gap:'10px' }} onClick={() => router.push(`/dashboard/reservations?no=${encodeURIComponent(row.no)}`)}>
             <span className="no-col" style={CENTER}>#{row.no}</span>
             <span style={{ ...CENTER, fontSize:'12px', fontFamily:'DM Mono,monospace', color:'var(--text-secondary)' }}>{row.date || '-'}</span>
             <span style={{ ...NOWRAP, fontWeight:600 }} title={row.customer}>{row.customer || '-'}</span>
-            <span style={{ ...NOWRAP, fontSize:'12px', color:'var(--text-secondary)' }} title={row.package_name || '-'}>{row.package_name || '-'}</span>
-            <span style={{ ...CENTER, fontWeight:700 }}>{row.pax || 0}명</span>
+            <span style={{ ...NOWRAP, fontSize:'12px', color:'var(--text-secondary)' }} title={row.componentSummary?.packageTitle || row.package_name || '-'}>{row.componentSummary?.packageLabel || row.package_name || '-'}</span>
+            <span style={{ ...CENTER, fontWeight:700 }} title={row.componentSummary?.zoneTitle || ''}>{row.componentSummary?.peopleLabel || `${row.pax || 0}명`}</span>
             <span style={CENTER}><Badge>{row.reservation_status || '-'}</Badge></span>
             <span style={CENTER}><Badge>{row.payment_status || '미결제'}</Badge></span>
             <span style={{ ...NOWRAP, fontSize:'12px', color:'var(--text-secondary)' }} title={row.replySummary}>{row.replySummary}</span>
