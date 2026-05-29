@@ -13,6 +13,12 @@ const TOTAL_H  = (TT_END - TT_START) * HOUR_H
 function timeToMin(t) { const [h, m] = t.slice(0,5).split(':').map(Number); return h * 60 + m }
 function timeToPx(t)  { return (timeToMin(t) - TT_START * 60) / 60 * HOUR_H }
 function durPx(s, e)  { return Math.max((timeToMin(e) - timeToMin(s)) / 60 * HOUR_H, 16) }
+function minToTime(min) {
+  if (min >= 24 * 60) return '23:59'
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
+}
 function dateStr(d)   {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
@@ -347,7 +353,7 @@ function EventModal({ open, onClose, onSave, vendors, reservations, defaultDate 
 // ────────────────────────────────────────────────────────────────
 // 이벤트 상세 팝업
 // ────────────────────────────────────────────────────────────────
-function NoticeEventModal({ open, onClose, onSave, defaultDate }) {
+function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime, defaultEndTime, defaultAllDay }) {
   const [form, setForm] = useState({
     date: '', end_date: '', title: '', start_time: '09:00', end_time: '10:00',
     is_all_day: false, place: '', content: '', special: '', color: '#6E8DFB', notice_type: '일반',
@@ -356,9 +362,20 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate }) {
   useEffect(() => {
     if (open) setForm(f => {
       const date = defaultDate || f.date || ''
-      return { ...f, date, end_date: f.end_date || date }
+      return {
+        ...f,
+        date,
+        end_date: date,
+        title: '',
+        start_time: defaultStartTime || f.start_time || '09:00',
+        end_time: defaultEndTime || f.end_time || '10:00',
+        is_all_day: defaultAllDay ?? false,
+        place: '',
+        content: '',
+        special: '',
+      }
     })
-  }, [open, defaultDate])
+  }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultAllDay])
 
   if (!open) return null
 
@@ -556,9 +573,12 @@ export default function TimetablePage() {
   const [curDate,      setCurDate]      = useState(new Date())
   const [selZone,      setSelZone]      = useState('')
   const [modal,        setModal]        = useState(false)
+  const [modalDefaults,setModalDefaults]= useState({})
+  const [dragDraft,    setDragDraft]    = useState(null)
   const [popup,        setPopup]        = useState(null)   // { ev, pos }
   const [conflictPopup,setConflictPopup]= useState(false)
   const lastConflictsRef = useRef([])
+  const dragRef = useRef(null)
 
   // ── 기준 데이터 로드 (1회)
   useEffect(() => {
@@ -634,7 +654,67 @@ export default function TimetablePage() {
       body: JSON.stringify(form),
     })
     setModal(false)
+    setModalDefaults({})
     await refreshNotices()
+  }
+
+  const openNoticeModal = (defaults = {}) => {
+    setModalDefaults(defaults)
+    setModal(true)
+  }
+
+  const timeFromPointer = (e, el) => {
+    const rect = el.getBoundingClientRect()
+    const y = Math.min(Math.max(e.clientY - rect.top, 0), TOTAL_H)
+    const raw = TT_START * 60 + (y / HOUR_H) * 60
+    const snapped = Math.round(raw / 15) * 15
+    return Math.min(Math.max(snapped, TT_START * 60), TT_END * 60)
+  }
+
+  const beginTimeDrag = (e, date) => {
+    if (e.button !== 0 || e.target.closest('[data-event-block="true"]')) return
+    const startMin = timeFromPointer(e, e.currentTarget)
+    dragRef.current = { date, startMin, currentMin: startMin }
+    setDragDraft({ date, startMin, endMin: Math.min(startMin + 15, TT_END * 60) })
+  }
+
+  const moveTimeDrag = e => {
+    if (!dragRef.current) return
+    const currentMin = timeFromPointer(e, e.currentTarget)
+    dragRef.current.currentMin = currentMin
+    const startMin = Math.min(dragRef.current.startMin, currentMin)
+    const endMin = Math.max(dragRef.current.startMin, currentMin)
+    setDragDraft({ date: dragRef.current.date, startMin, endMin: Math.max(endMin, startMin + 15) })
+  }
+
+  const endTimeDrag = () => {
+    if (!dragRef.current) return
+    const { date, startMin: rawStart, currentMin } = dragRef.current
+    dragRef.current = null
+    const startMin = Math.min(rawStart, currentMin)
+    let endMin = Math.max(rawStart, currentMin)
+    if (endMin - startMin < 15) endMin = startMin + 60
+    endMin = Math.min(endMin, TT_END * 60)
+    setDragDraft(null)
+    openNoticeModal({
+      date,
+      start_time: minToTime(startMin),
+      end_time: minToTime(endMin),
+      is_all_day: false,
+    })
+  }
+
+  const DragSelection = ({ date }) => {
+    if (!dragDraft || dragDraft.date !== date) return null
+    const top = ((dragDraft.startMin - TT_START * 60) / 60) * HOUR_H
+    const height = Math.max(((dragDraft.endMin - dragDraft.startMin) / 60) * HOUR_H, 16)
+    return (
+      <div style={{
+        position:'absolute', left:'4px', right:'4px', top, height,
+        background:'rgba(110,141,251,.24)', border:'1px solid rgba(110,141,251,.75)',
+        borderRadius:'7px', pointerEvents:'none', zIndex:4,
+      }}/>
+    )
   }
 
   // ── 수동 이벤트 삭제
@@ -751,7 +831,7 @@ export default function TimetablePage() {
     }
 
     return (
-      <div onClick={handleClick}
+      <div data-event-block="true" onClick={handleClick}
            style={{position:'absolute',left:'3px',right:'3px',top,height:h,
                    background: color + '22',
                    border: level ? `2px solid ${borderColor}` : `1px solid ${color}44`,
@@ -981,7 +1061,16 @@ export default function TimetablePage() {
           <div style={{flex:1}}>
             <div style={{padding:'18px',color:'#8a9ab0',fontSize:'13px',
                          borderBottom:'1px solid #2a3a4a',textAlign:'center'}}>이 날짜의 일정이 없습니다</div>
-            <div style={{position:'relative',height:TOTAL_H}}><Grid isToday={isToday}/></div>
+            <div
+              onMouseDown={e => beginTimeDrag(e, ds)}
+              onMouseMove={moveTimeDrag}
+              onMouseUp={endTimeDrag}
+              onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
+              style={{position:'relative',height:TOTAL_H,cursor:'crosshair'}}
+            >
+              <Grid isToday={isToday}/>
+              <DragSelection date={ds}/>
+            </div>
           </div>
           </div>
         </div>
@@ -1025,14 +1114,29 @@ export default function TimetablePage() {
         <div style={{display:'flex',overflow:'auto',maxHeight:'calc(100vh - 330px)',minHeight:'420px'}}>
           <TimeAxis/>
           {cols.map(col => (
-            <div key={col.key} style={{flex:1,minWidth:'164px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
+            <div
+              key={col.key}
+              onMouseDown={e => beginTimeDrag(e, ds)}
+              onMouseMove={moveTimeDrag}
+              onMouseUp={endTimeDrag}
+              onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
+              style={{flex:1,minWidth:'164px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a',cursor:'crosshair'}}
+            >
               <Grid isToday={isToday}/>
+              <DragSelection date={ds}/>
               {col.evs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={conflictMap}/>)}
             </div>
           ))}
           {pickupEvs.length > 0 && (
-            <div style={{width:'130px',flexShrink:0,position:'relative',height:TOTAL_H}}>
+            <div
+              onMouseDown={e => beginTimeDrag(e, ds)}
+              onMouseMove={moveTimeDrag}
+              onMouseUp={endTimeDrag}
+              onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
+              style={{width:'130px',flexShrink:0,position:'relative',height:TOTAL_H,cursor:'crosshair'}}
+            >
               <Grid isToday={isToday}/>
+              <DragSelection date={ds}/>
               {pickupEvs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={new Map()}/>)}
             </div>
           )}
@@ -1080,8 +1184,16 @@ export default function TimetablePage() {
             const evs = allEvents.filter(e => eventActiveOn(e, ds) && !isAllDayEvent(e))
             const conflictMap = detectConflicts(evs)
             return (
-              <div key={i} style={{flex:1,minWidth:'120px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
+              <div
+                key={i}
+                onMouseDown={e => beginTimeDrag(e, ds)}
+                onMouseMove={moveTimeDrag}
+                onMouseUp={endTimeDrag}
+                onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
+                style={{flex:1,minWidth:'120px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a',cursor:'crosshair'}}
+              >
                 <Grid isToday={isT}/>
+                <DragSelection date={ds}/>
                 {evs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={conflictMap}/>)}
               </div>
             )
@@ -1263,7 +1375,7 @@ export default function TimetablePage() {
                 겹침 {Math.floor(curConflictCount/2)}건
               </div>
             )}
-            <button onClick={() => setModal(true)}
+            <button onClick={() => openNoticeModal({ date: dateStr(curDate), start_time:'09:00', end_time:'10:00', is_all_day:false })}
                     style={{height:'32px',padding:'0 16px',background:'#4ecdc4',border:'none',
                             borderRadius:'8px',color:'#0f1923',fontSize:'12px',fontWeight:'700',
                             cursor:'pointer',fontFamily:'Noto Sans KR, sans-serif',
@@ -1321,8 +1433,13 @@ export default function TimetablePage() {
 
       {/* ── 모달 */}
       <NoticeEventModal
-        open={modal} onClose={() => setModal(false)} onSave={handleSave}
-        defaultDate={dateStr(curDate)}
+        open={modal}
+        onClose={() => { setModal(false); setModalDefaults({}) }}
+        onSave={handleSave}
+        defaultDate={modalDefaults.date || dateStr(curDate)}
+        defaultStartTime={modalDefaults.start_time}
+        defaultEndTime={modalDefaults.end_time}
+        defaultAllDay={modalDefaults.is_all_day}
       />
 
       {/* ── 이벤트 상세 팝업 */}
