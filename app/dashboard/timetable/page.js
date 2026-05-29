@@ -4,8 +4,8 @@ import { supabase } from '@/lib/supabase'
 import { formatDateTyping } from '@/lib/date-input'
 
 // ── 상수
-const TT_START = 7
-const TT_END   = 22
+const TT_START = 0
+const TT_END   = 24
 const HOUR_H   = 52
 const TOTAL_H  = (TT_END - TT_START) * HOUR_H
 
@@ -15,6 +15,25 @@ function timeToPx(t)  { return (timeToMin(t) - TT_START * 60) / 60 * HOUR_H }
 function durPx(s, e)  { return Math.max((timeToMin(e) - timeToMin(s)) / 60 * HOUR_H, 16) }
 function dateStr(d)   {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+function addDaysStr(baseDate, days) {
+  const d = new Date(baseDate + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return dateStr(d)
+}
+function eventEndDate(ev) {
+  return ev?.end_date || ev?.date
+}
+function eventActiveOn(ev, ds) {
+  if (!ev?.date || !ds) return false
+  return ev.date <= ds && eventEndDate(ev) >= ds
+}
+function eventOverlapsRange(ev, start, end) {
+  if (!ev?.date || !start || !end) return false
+  return ev.date <= end && eventEndDate(ev) >= start
+}
+function isAllDayEvent(ev) {
+  return ev?.type === 'notice' && ev?.is_all_day_notice
 }
 function getMon(d) {
   const day = d.getDay()
@@ -148,6 +167,42 @@ function buildAutoEvents(reservations, packages, usages = [], vendors = []) {
   return events
 }
 
+function noticeTitle(n) {
+  return n.title || (n.content || '').split('\n')[0] || n.special || '알림'
+}
+
+function buildNoticeEvents(notices = []) {
+  return notices
+    .filter(n => n && n.is_deleted !== true && n.date)
+    .map(n => ({
+      id: `notice_${n.id}`,
+      notice_id: n.id,
+      date: n.date,
+      end_date: n.end_date || n.date,
+      start_time: (n.is_all_day === true || !n.start_time || !n.end_time) ? '00:00' : n.start_time.slice(0, 5),
+      end_time: (n.is_all_day === true || !n.start_time || !n.end_time) ? '24:00' : n.end_time.slice(0, 5),
+      type: 'notice',
+      vendor_key: 'NOTICE',
+      vendor_name: n.notice_type || '일반 일정',
+      vendor_color: n.color || '#6E8DFB',
+      prog_name: noticeTitle(n),
+      pkg_name: 'NOTICE',
+      memo: [n.place ? `장소: ${n.place}` : '', n.content || '', n.special ? `특이사항: ${n.special}` : ''].filter(Boolean).join('\n'),
+      place: n.place || '',
+      is_manual: true,
+      is_notice: true,
+      is_all_day_notice: n.is_all_day === true || !n.start_time || !n.end_time,
+    }))
+}
+
+function dateOnlyNotices(notices = [], date) {
+  return notices.filter(n => (
+    n && n.is_deleted !== true && n.date &&
+    n.date <= date && (n.end_date || n.date) >= date &&
+    (n.is_all_day === true || !n.start_time || !n.end_time)
+  ))
+}
+
 // 겹침 감지: 같은 업체 + 시간 겹침
 // 같은 구역 → real(형광연두), 다른 구역 → warn(amber)
 function detectConflicts(evs) {
@@ -155,7 +210,7 @@ function detectConflicts(evs) {
   for (let i = 0; i < evs.length; i++) {
     for (let j = i + 1; j < evs.length; j++) {
       const a = evs[i], b = evs[j]
-      if (a.type === 'pickup' || b.type === 'pickup') continue
+      if (a.type === 'pickup' || b.type === 'pickup' || a.type === 'notice' || b.type === 'notice') continue
       if (a.vendor_key !== b.vendor_key) continue
       if (!(timeToMin(a.start_time) < timeToMin(b.end_time) &&
             timeToMin(b.start_time) < timeToMin(a.end_time))) continue
@@ -292,9 +347,156 @@ function EventModal({ open, onClose, onSave, vendors, reservations, defaultDate 
 // ────────────────────────────────────────────────────────────────
 // 이벤트 상세 팝업
 // ────────────────────────────────────────────────────────────────
+function NoticeEventModal({ open, onClose, onSave, defaultDate }) {
+  const [form, setForm] = useState({
+    date: '', end_date: '', title: '', start_time: '09:00', end_time: '10:00',
+    is_all_day: false, place: '', content: '', special: '', color: '#6E8DFB', notice_type: '일반',
+  })
+
+  useEffect(() => {
+    if (open) setForm(f => {
+      const date = defaultDate || f.date || ''
+      return { ...f, date, end_date: f.end_date || date }
+    })
+  }, [open, defaultDate])
+
+  if (!open) return null
+
+  const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
+  const colors = ['#6E8DFB', '#4ECDC4', '#F7C948', '#FF6B6B', '#B8B8FF']
+  const input = {
+    width:'100%', height:'38px', background:'#203a54', border:'1px solid #31516d',
+    borderRadius:'8px', padding:'0 12px', fontSize:'13px', color:'#e8eaed', outline:'none',
+    fontFamily:'Noto Sans KR, sans-serif', boxSizing:'border-box',
+  }
+  const label = { fontSize:'11px', color:'#8a9ab0', display:'block', marginBottom:'5px', fontWeight:'700' }
+
+  const handleSave = () => {
+    if (!form.date) return alert('날짜를 입력해주세요.')
+    const endDate = form.end_date || form.date
+    if (endDate < form.date) return alert('종료일은 시작일보다 빠를 수 없습니다.')
+    if (!form.title.trim()) return alert('일정 제목을 입력해주세요.')
+    if (!form.is_all_day && (!form.start_time || !form.end_time)) return alert('시간 일정은 시작/종료 시간을 입력해주세요.')
+    onSave({
+      date: form.date,
+      end_date: endDate,
+      title: form.title.trim(),
+      start_time: form.is_all_day ? null : form.start_time,
+      end_time: form.is_all_day ? null : form.end_time,
+      is_all_day: !!form.is_all_day,
+      place: form.place.trim() || null,
+      content: form.content.trim() || null,
+      special: form.special.trim() || null,
+      color: form.color || '#6E8DFB',
+      notice_type: form.notice_type || '일반',
+    })
+  }
+  const dateRangeLabel = form.date
+    ? `${form.date}${(form.end_date || form.date) !== form.date ? ` ~ ${form.end_date || form.date}` : ''}`
+    : '시작일과 종료일을 입력하세요'
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',
+                 alignItems:'center',justifyContent:'center',zIndex:1000,padding:'20px'}}
+         onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{background:'#1a2535',border:'1px solid #2a3a4a',borderRadius:'14px',
+                   width:'100%',maxWidth:'520px',boxShadow:'0 20px 50px rgba(0,0,0,.45)'}}>
+        <div style={{padding:'16px 20px',borderBottom:'1px solid #2a3a4a',
+                     display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontWeight:'800',fontSize:'14px'}}>일반 일정 추가</span>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#8a9ab0',
+                                            fontSize:'20px',cursor:'pointer'}}>×</button>
+        </div>
+        <div style={{padding:'20px',display:'flex',flexDirection:'column',gap:'13px'}}>
+          <div>
+            <input
+              style={{...input,height:'46px',background:'transparent',border:'none',borderBottom:'1px solid #5a7080',borderRadius:0,padding:'0 2px',fontSize:'22px',fontWeight:'800'}}
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
+              placeholder="일정 제목"
+            />
+          </div>
+          <div style={{fontSize:'13px',fontWeight:'800',color:'#dce6ef'}}>{dateRangeLabel}</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+            <div>
+              <label style={label}>시작일 *</label>
+              <input type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" style={input} value={form.date} onChange={e => set('date', formatDateTyping(e.target.value))}/>
+            </div>
+            <div>
+              <label style={label}>종료일</label>
+              <input type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" style={input} value={form.end_date} onChange={e => set('end_date', formatDateTyping(e.target.value))}/>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+            <div>
+              <label style={label}>구분</label>
+              <select style={input} value={form.notice_type} onChange={e => set('notice_type', e.target.value)}>
+                <option value="일반">일반</option>
+                <option value="공지">공지</option>
+                <option value="운영">운영</option>
+                <option value="휴무">휴무</option>
+                <option value="특일">특일</option>
+              </select>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'auto 1fr 1fr',gap:'10px',alignItems:'end'}}>
+            <label style={{height:'38px',display:'inline-flex',alignItems:'center',gap:'8px',fontSize:'12px',fontWeight:'700',color:'#dce6ef',whiteSpace:'nowrap'}}>
+              <input type="checkbox" checked={form.is_all_day} onChange={e => set('is_all_day', e.target.checked)}/>
+              종일
+            </label>
+            <div>
+              <label style={label}>시작</label>
+              <input type="time" style={input} value={form.start_time} disabled={form.is_all_day} onChange={e => set('start_time', e.target.value)}/>
+            </div>
+            <div>
+              <label style={label}>종료</label>
+              <input type="time" style={input} value={form.end_time} disabled={form.is_all_day} onChange={e => set('end_time', e.target.value)}/>
+            </div>
+          </div>
+          <div>
+            <label style={label}>장소</label>
+            <input style={input} value={form.place} onChange={e => set('place', e.target.value)} placeholder="장소"/>
+          </div>
+          <div>
+            <label style={label}>색상</label>
+            <div style={{display:'flex',gap:'8px'}}>
+              {colors.map(color => (
+                <button key={color} onClick={() => set('color', color)} title={color}
+                  style={{width:'28px',height:'28px',borderRadius:'50%',background:color,border:form.color === color ? '2px solid #fff' : '1px solid #2a3a4a',cursor:'pointer'}} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={label}>메모</label>
+            <textarea style={{...input,height:'76px',padding:'16px 12px 8px',lineHeight:'1.45',resize:'vertical'}} value={form.content} onChange={e => set('content', e.target.value)} placeholder="상세 내용"/>
+          </div>
+          <div>
+            <label style={label}>특이사항</label>
+            <input style={input} value={form.special} onChange={e => set('special', e.target.value)} placeholder="휴무, 행사, 준비 필요 등"/>
+          </div>
+        </div>
+        <div style={{padding:'14px 20px',borderTop:'1px solid #2a3a4a',
+                     display:'flex',justifyContent:'flex-end',gap:'8px'}}>
+          <button onClick={onClose}
+                  style={{height:'36px',padding:'0 16px',background:'none',border:'1px solid #2a3a4a',
+                          borderRadius:'8px',color:'#8a9ab0',cursor:'pointer',
+                          fontFamily:'Noto Sans KR, sans-serif',fontSize:'13px'}}>취소</button>
+          <button onClick={handleSave}
+                  style={{height:'36px',padding:'0 20px',background:'#4ecdc4',border:'none',
+                          borderRadius:'8px',color:'#0f1923',fontWeight:'800',cursor:'pointer',
+                          fontFamily:'Noto Sans KR, sans-serif',fontSize:'13px'}}>저장</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EventPopup({ ev, pos, onClose, onDelete, zones }) {
   if (!ev) return null
   const zone = zones.find(z => z.code === ev.zone_code)
+  const popupDateLabel = ev.end_date && ev.end_date !== ev.date ? `${ev.date} ~ ${ev.end_date}` : ev.date
+  const popupTimeLabel = ev.is_all_day_notice ? '00:00 ~ 24:00' : `${ev.start_time?.slice(0,5)} ~ ${ev.end_time?.slice(0,5)}`
+  const popupKind = ev.type === 'notice' ? '일반 일정' : ev.type === 'pickup' ? '🚐 픽업/드랍 일정' : '체험 일정'
   return (
     <div style={{position:'fixed',inset:0,zIndex:900}} onClick={onClose}>
       <div style={{position:'fixed', top: pos.y, left: pos.x,
@@ -304,20 +506,21 @@ function EventPopup({ ev, pos, onClose, onDelete, zones }) {
            onClick={e => e.stopPropagation()}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
           <span style={{fontWeight:'700',fontSize:'13px',color:ev.vendor_color||'#4ecdc4'}}>
-            {ev.type==='pickup'?'🚐 픽업/드랍':'체험'} 일정
+            {popupKind}
           </span>
           <button onClick={onClose} style={{background:'none',border:'none',color:'#8a9ab0',
                                             fontSize:'15px',cursor:'pointer',padding:'0'}}>✕</button>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:'5px',fontSize:'12px'}}>
-          <div><span style={{color:'#8a9ab0'}}>업체 </span><span style={{color:'#e8eaed'}}>{ev.vendor_name}</span></div>
-          {ev.prog_name && <div><span style={{color:'#8a9ab0'}}>프로그램 </span><span style={{color:'#e8eaed'}}>{ev.prog_name}</span></div>}
+          <div><span style={{color:'#8a9ab0'}}>{ev.type === 'notice' ? '구분 ' : '업체 '} </span><span style={{color:'#e8eaed'}}>{ev.vendor_name}</span></div>
+          {ev.prog_name && <div><span style={{color:'#8a9ab0'}}>{ev.type === 'notice' ? '제목 ' : '프로그램 '} </span><span style={{color:'#e8eaed'}}>{ev.prog_name}</span></div>}
           {ev.customer && <div><span style={{color:'#8a9ab0'}}>고객 </span><span style={{color:'#e8eaed'}}>{ev.customer}{ev.pax?` (${ev.pax}명)`:''}</span></div>}
           {ev.pkg_name && <div><span style={{color:'#8a9ab0'}}>패키지 </span><span style={{color:'#e8eaed'}}>{ev.pkg_name}</span></div>}
           {ev.reservation_no && <div><span style={{color:'#8a9ab0'}}>예약 </span><span style={{color:'#e8eaed'}}>#{ev.reservation_no}</span></div>}
           {zone && <div><span style={{color:'#8a9ab0'}}>구역 </span><span style={{color:'#e8eaed'}}>{zone.code} · {zone.name}</span></div>}
-          <div><span style={{color:'#8a9ab0'}}>시간 </span><span style={{color:'#e8eaed'}}>{ev.start_time?.slice(0,5)} ~ {ev.end_time?.slice(0,5)}</span></div>
-          {ev.memo && <div><span style={{color:'#8a9ab0'}}>메모 </span><span style={{color:'#e8eaed'}}>{ev.memo}</span></div>}
+          {ev.date && <div><span style={{color:'#8a9ab0'}}>기간 </span><span style={{color:'#e8eaed'}}>{popupDateLabel}</span></div>}
+          <div><span style={{color:'#8a9ab0'}}>시간 </span><span style={{color:'#e8eaed'}}>{popupTimeLabel}</span></div>
+          {ev.memo && <div><span style={{color:'#8a9ab0'}}>메모 </span><span style={{color:'#e8eaed',whiteSpace:'pre-wrap'}}>{ev.memo}</span></div>}
         </div>
         {ev.is_manual && (
           <button onClick={() => onDelete(ev.id)}
@@ -345,6 +548,7 @@ export default function TimetablePage() {
   const [packages,     setPackages]     = useState([])
   const [budgetUsages, setBudgetUsages] = useState([])
   const [zones,        setZones]        = useState([])
+  const [notices,      setNotices]      = useState([])
   const [manualEvents, setManualEvents] = useState([])
   const [loading,      setLoading]      = useState(true)
   const [view,         setView]         = useState('day')
@@ -364,11 +568,13 @@ export default function TimetablePage() {
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
       supabase.from('reservation_budget_usages').select('id,reservation_no,usage_type,operation_type,sale_type,item_name,component_uid,zone_code,zone_codes,package_id,package_name,vendor_key,prog_name,people_count,start_time,end_time,place,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('zones').select('*').order('code'),
-    ]).then(([vR, rR, pR, uR, zR]) => {
+      supabase.from('notices').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date').order('start_time', { nullsFirst: true }),
+    ]).then(([vR, rR, pR, uR, zR, nR]) => {
       setVendors(vR.data || [])
       setReservations(rR.data || [])
       setPackages(pR.data || [])
       setBudgetUsages(uR.data || [])
+      setNotices(nR.data || [])
       const zd = zR.data || []
       setZones(zd)
       if (zd.length) setSelZone(zd[0].code)
@@ -395,8 +601,10 @@ export default function TimetablePage() {
 
   // ── 전체 이벤트 = 자동 + 수동
   const autoEvents = buildAutoEvents(reservations, packages, budgetUsages, vendors)
+  const noticeEvents = buildNoticeEvents(notices)
   const allEvents = [
     ...autoEvents.map(e => ({ ...e, id: String(e.id) })),
+    ...noticeEvents.map(e => ({ ...e, id: String(e.id) })),
     ...manualEvents.map(e => ({ ...e, id: String(e.id), vendor_name: e.vendor_name || e.vendor_key || '' })),
   ]
 
@@ -410,17 +618,37 @@ export default function TimetablePage() {
   }
 
   // ── 수동 이벤트 저장
+  const refreshNotices = async () => {
+    const { data } = await supabase
+      .from('notices')
+      .select('*')
+      .or('is_deleted.is.null,is_deleted.eq.false')
+      .order('date')
+      .order('start_time', { nullsFirst: true })
+    setNotices(data || [])
+  }
+
   const handleSave = async form => {
-    await fetch('/api/timetable', {
+    await fetch('/api/notices', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     })
     setModal(false)
-    await fetchManual()
+    await refreshNotices()
   }
 
   // ── 수동 이벤트 삭제
   const handleDelete = async id => {
+    if (String(id).startsWith('notice_')) {
+      if (!confirm('일정을 삭제하시겠습니까?')) return
+      await fetch('/api/notices', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: String(id).replace(/^notice_/, '') }),
+      })
+      setPopup(null)
+      await refreshNotices()
+      return
+    }
     if (!confirm('이 수동 일정을 삭제하시겠습니까?')) return
     await fetch('/api/timetable', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
@@ -572,18 +800,97 @@ export default function TimetablePage() {
     key, header, evs, conflictMap, isToday, flex,
   })
 
+  const AllDayLane = ({ dates }) => {
+    const dateList = Array.isArray(dates) ? dates : [dates]
+    const rows = buildNoticeEvents(notices)
+      .filter(ev => isAllDayEvent(ev) && dateList.some(ds => eventActiveOn(ev, ds)))
+      .map(ev => {
+        const startIdx = dateList.findIndex(ds => eventActiveOn(ev, ds))
+        let endIdx = dateList.length - 1
+        for (let i = dateList.length - 1; i >= 0; i--) {
+          if (eventActiveOn(ev, dateList[i])) { endIdx = i; break }
+        }
+        return { ev, startIdx: Math.max(startIdx, 0), endIdx: Math.max(endIdx, Math.max(startIdx, 0)) }
+      })
+    if (!rows.length) return (
+      <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#122132'}}>
+        <div style={{width:'56px',flexShrink:0,padding:'7px 8px 7px 0',fontSize:'10px',fontWeight:'800',color:'#8a9ab0',boxSizing:'border-box',textAlign:'right'}}>종일</div>
+        <div style={{flex:1,minHeight:'30px'}}/>
+      </div>
+    )
+
+    const lanes = []
+    rows.forEach(row => {
+      let placed = false
+      for (const lane of lanes) {
+        if (!lane.some(other => !(row.endIdx < other.startIdx || row.startIdx > other.endIdx))) {
+          lane.push(row)
+          placed = true
+          break
+        }
+      }
+      if (!placed) lanes.push([row])
+    })
+
+    return (
+      <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#122132'}}>
+        <div style={{width:'56px',flexShrink:0,padding:'7px 8px 7px 0',fontSize:'10px',fontWeight:'800',color:'#8a9ab0',boxSizing:'border-box',textAlign:'right'}}>종일</div>
+        <div style={{flex:1,display:'grid',gridTemplateColumns:`repeat(${dateList.length}, minmax(0, 1fr))`,gap:'0',padding:'5px 0'}}>
+          {lanes.map((lane, laneIdx) => lane.map(({ ev, startIdx, endIdx }) => {
+            const color = ev.vendor_color || '#6E8DFB'
+            return (
+              <button
+                key={`${ev.id}-${laneIdx}`}
+                onClick={e => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setPopup({
+                    ev,
+                    pos: { x: Math.min(rect.right + 4, window.innerWidth - 320), y: rect.top },
+                  })
+                }}
+                style={{
+                  gridColumn:`${startIdx + 1} / ${endIdx + 2}`,
+                  gridRow: laneIdx + 1,
+                  minWidth:0,
+                  height:'22px',
+                  margin:'2px 3px',
+                  padding:'0 8px',
+                  border:'none',
+                  borderRadius:'4px',
+                  background:color,
+                  color:'#0f1923',
+                  fontSize:'11px',
+                  fontWeight:'800',
+                  textAlign:'left',
+                  overflow:'hidden',
+                  textOverflow:'ellipsis',
+                  whiteSpace:'nowrap',
+                  cursor:'pointer',
+                  fontFamily:'Noto Sans KR, sans-serif',
+                }}
+              >
+                {ev.prog_name}
+              </button>
+            )
+          }))}
+        </div>
+      </div>
+    )
+  }
+
   // ── 일간 뷰
   const DayView = () => {
     const ds = dateStr(curDate)
     const isToday = ds === dateStr(new Date())
-    let dayEvs = allEvents.filter(e => e.date === ds)
+    let dayEvs = allEvents.filter(e => eventActiveOn(e, ds))
 
     if (group === 'zone' && selZone) {
       dayEvs = dayEvs.filter(e => e.zone_code === selZone || !e.zone_code)
     }
 
-    const expEvs    = dayEvs.filter(e => e.type !== 'pickup')
-    const pickupEvs = dayEvs.filter(e => e.type === 'pickup')
+    const timedEvs  = dayEvs.filter(e => !isAllDayEvent(e))
+    const expEvs    = timedEvs.filter(e => e.type !== 'pickup')
+    const pickupEvs = timedEvs.filter(e => e.type === 'pickup')
 
     // 겹침 감지 (expEvs 기준)
     const conflictMap = detectConflicts(expEvs)
@@ -593,6 +900,7 @@ export default function TimetablePage() {
     for (let i = 0; i < expEvs.length; i++) {
       for (let j = i + 1; j < expEvs.length; j++) {
         const a = expEvs[i], b = expEvs[j]
+        if (a.type === 'notice' || b.type === 'notice') continue
         if (a.vendor_key !== b.vendor_key) continue
         if (!(timeToMin(a.start_time) < timeToMin(b.end_time) &&
               timeToMin(b.start_time) < timeToMin(a.end_time))) continue
@@ -666,12 +974,15 @@ export default function TimetablePage() {
 
     if (!cols.length && !pickupEvs.length) {
       return (
-        <div style={{display:'flex'}}>
+        <div>
+          <AllDayLane dates={[ds]}/>
+          <div style={{display:'flex'}}>
           <TimeAxis/>
           <div style={{flex:1}}>
             <div style={{padding:'18px',color:'#8a9ab0',fontSize:'13px',
                          borderBottom:'1px solid #2a3a4a',textAlign:'center'}}>이 날짜의 일정이 없습니다</div>
             <div style={{position:'relative',height:TOTAL_H}}><Grid isToday={isToday}/></div>
+          </div>
           </div>
         </div>
       )
@@ -680,6 +991,7 @@ export default function TimetablePage() {
     return (
       <div>
         {/* 겹침 알림 바 */}
+        <AllDayLane dates={[ds]}/>
         {totalConflict > 0 && (
           <div onClick={showConflicts}
                style={{margin:'0 0 0 0',padding:'8px 16px',cursor:'pointer',
@@ -733,6 +1045,7 @@ export default function TimetablePage() {
   const WeekView = () => {
     const mon = getMon(curDate)
     const days = Array.from({length:7}, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate()+i); return d })
+    const dateList = days.map(d => dateStr(d))
     const dayNames = ['월','화','수','목','금','토','일']
     const todayS = dateStr(new Date())
 
@@ -743,7 +1056,7 @@ export default function TimetablePage() {
           {days.map((d, i) => {
             const ds = dateStr(d)
             const isT = ds === todayS
-            const cnt = allEvents.filter(e => e.date === ds).length
+            const cnt = allEvents.filter(e => eventActiveOn(e, ds)).length
             return (
               <div key={i} onClick={() => { setCurDate(d); setView('day') }}
                    style={{flex:1,minWidth:'120px',padding:'11px 0',textAlign:'center',
@@ -758,12 +1071,13 @@ export default function TimetablePage() {
             )
           })}
         </div>
+        <AllDayLane dates={dateList}/>
         <div style={{display:'flex',overflow:'auto',maxHeight:'calc(100vh - 330px)',minHeight:'420px'}}>
           <TimeAxis/>
           {days.map((d, i) => {
             const ds = dateStr(d)
             const isT = ds === dateStr(new Date())
-            const evs = allEvents.filter(e => e.date === ds)
+            const evs = allEvents.filter(e => eventActiveOn(e, ds) && !isAllDayEvent(e))
             const conflictMap = detectConflicts(evs)
             return (
               <div key={i} style={{flex:1,minWidth:'120px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a'}}>
@@ -782,23 +1096,22 @@ export default function TimetablePage() {
     const y = curDate.getFullYear()
     const m = curDate.getMonth()
     const first    = new Date(y, m, 1).getDay()
-    const last     = new Date(y, m+1, 0).getDate()
-    const prevLast = new Date(y, m, 0).getDate()
     const dows     = ['일','월','화','수','목','금','토']
     const adj      = first === 0 ? 6 : first - 1
     const todayS   = dateStr(new Date())
 
-    const cells = []
-    for (let i = 0; i < adj; i++)
-      cells.push({ day: prevLast - adj + i + 1, date: null, other: true })
-    for (let d = 1; d <= last; d++) {
-      const ds = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-      cells.push({ day: d, date: ds, other: false, isToday: ds === todayS,
-                   evs: allEvents.filter(e => e.date === ds) })
-    }
-    const rem = (adj + last) % 7
-    if (rem > 0) for (let i = 1; i <= 7 - rem; i++)
-      cells.push({ day: i, date: null, other: true })
+    const firstCellDate = dateStr(new Date(y, m, 1 - adj))
+    const cells = Array.from({ length: 42 }, (_, i) => {
+      const ds = addDaysStr(firstCellDate, i)
+      const d = new Date(ds + 'T00:00:00')
+      return {
+        day: d.getDate(),
+        date: ds,
+        other: d.getMonth() !== m,
+        isToday: ds === todayS,
+        evs: allEvents.filter(e => eventActiveOn(e, ds)),
+      }
+    })
 
     return (
       <div style={{padding:'16px'}}>
@@ -822,18 +1135,38 @@ export default function TimetablePage() {
               <div style={{fontSize:'12px',fontWeight: cell.isToday ? '700' : '500',
                            marginBottom:'4px',
                            color: cell.isToday ? '#4ecdc4' : '#e8eaed'}}>{cell.day}</div>
-              {!cell.other && cell.evs?.slice(0,3).map((ev, j) => {
+              {cell.evs?.slice(0,3).map((ev, j) => {
                 const color = ev.vendor_color || '#4ECDC4'
+                const end = eventEndDate(ev)
+                const isRange = end !== ev.date
+                const starts = ev.date === cell.date
+                const ends = end === cell.date
+                const isNotice = ev.type === 'notice'
+                const prevCell = cells[i - 1]
+                const showRangeTitle = starts || i % 7 === 0 || !prevCell || !eventActiveOn(ev, prevCell.date)
+                const label = isNotice
+                  ? (showRangeTitle ? ev.prog_name : '')
+                  : `${ev.start_time?.slice(0,5)} ${ev.vendor_name}`
                 return (
-                  <div key={j} style={{
-                    fontSize:'10px', padding:'2px 5px', borderRadius:'3px',
+                  <div key={j} onClick={e => { e.stopPropagation(); setPopup({ ev, pos:{ x:e.clientX, y:e.clientY } }) }} style={{
+                    fontSize:'10px',
+                    height:'18px',
+                    lineHeight:'18px',
+                    padding:'0 6px',
+                    borderRadius: isRange ? (starts ? '4px 0 0 4px' : ends ? '0 4px 4px 0' : '0') : '4px',
                     marginBottom:'2px', whiteSpace:'nowrap', overflow:'hidden',
-                    textOverflow:'ellipsis', fontWeight:'500',
-                    background: color + '22', color,
-                  }}>{ev.start_time?.slice(0,5)} {ev.vendor_name}</div>
+                    textOverflow:'ellipsis', fontWeight:isNotice ? '800' : '500',
+                    background: isNotice ? color : color + '22',
+                    color: isNotice ? '#0f1923' : color,
+                    marginLeft: isRange && !starts ? '-17px' : 0,
+                    marginRight: isRange && !ends ? '-17px' : 0,
+                    cursor:'pointer',
+                    position:'relative',
+                    zIndex:isRange ? 3 : 1,
+                  }}>{label}</div>
                 )
               })}
-              {!cell.other && cell.evs?.length > 3 && (
+              {cell.evs?.length > 3 && (
                 <div style={{fontSize:'10px',color:'#5a7080',padding:'1px 4px'}}>
                   +{cell.evs.length - 3}개
                 </div>
@@ -849,7 +1182,7 @@ export default function TimetablePage() {
   const curConflictCount = (() => {
     if (view === 'day') {
       const ds = dateStr(curDate)
-      const evs = allEvents.filter(e => e.date === ds && e.type !== 'pickup')
+      const evs = allEvents.filter(e => eventActiveOn(e, ds) && e.type !== 'pickup')
       return detectConflicts(evs).size
     }
     return 0
@@ -858,24 +1191,25 @@ export default function TimetablePage() {
   const visibleEvents = (() => {
     if (view === 'day') {
       const ds = dateStr(curDate)
-      return allEvents.filter(e => e.date === ds)
+      return allEvents.filter(e => eventActiveOn(e, ds))
     }
     if (view === 'week') {
       const start = dateStr(getMon(curDate))
       const endDate = new Date(getMon(curDate))
       endDate.setDate(endDate.getDate() + 6)
       const end = dateStr(endDate)
-      return allEvents.filter(e => e.date >= start && e.date <= end)
+      return allEvents.filter(e => eventOverlapsRange(e, start, end))
     }
     const y = curDate.getFullYear()
     const m = curDate.getMonth()
+    const start = `${y}-${String(m+1).padStart(2,'0')}-01`
+    const end = `${y}-${String(m+1).padStart(2,'0')}-${String(new Date(y, m+1, 0).getDate()).padStart(2,'0')}`
     return allEvents.filter(e => {
       if (!e.date) return false
-      const d = new Date(e.date + 'T00:00:00')
-      return d.getFullYear() === y && d.getMonth() === m
+      return eventOverlapsRange(e, start, end)
     })
   })()
-  const visibleExpCount = visibleEvents.filter(e => e.type !== 'pickup').length
+  const visibleExpCount = visibleEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
   const visiblePickupCount = visibleEvents.filter(e => e.type === 'pickup').length
   const visibleReservationCount = new Set(visibleEvents.map(e => e.reservation_no).filter(Boolean)).size
 
@@ -933,7 +1267,7 @@ export default function TimetablePage() {
                     style={{height:'32px',padding:'0 16px',background:'#4ecdc4',border:'none',
                             borderRadius:'8px',color:'#0f1923',fontSize:'12px',fontWeight:'700',
                             cursor:'pointer',fontFamily:'Noto Sans KR, sans-serif',
-                            display:'inline-flex',alignItems:'center',justifyContent:'center'}}>+ 일정</button>
+                            display:'inline-flex',alignItems:'center',justifyContent:'center'}}>+ 일반 일정</button>
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(120px,1fr))',gap:'10px',
@@ -986,9 +1320,9 @@ export default function TimetablePage() {
       </div>
 
       {/* ── 모달 */}
-      <EventModal
+      <NoticeEventModal
         open={modal} onClose={() => setModal(false)} onSave={handleSave}
-        vendors={vendors} reservations={reservations} defaultDate={dateStr(curDate)}
+        defaultDate={dateStr(curDate)}
       />
 
       {/* ── 이벤트 상세 팝업 */}

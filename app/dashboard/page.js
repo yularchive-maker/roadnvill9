@@ -8,6 +8,11 @@ const STATUS_COLOR = { confirmed:'var(--green)', pending:'var(--amber)', cancell
 const DAYS = ['일','월','화','수','목','금','토']
 
 function todayStr() { return new Date().toISOString().slice(0,10) }
+function addDaysStr(baseDate, days) {
+  const d = new Date(baseDate + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
 
 function fmtMoney(n) {
   if (!n && n !== 0) return '-'
@@ -209,12 +214,23 @@ export default function DashboardPage() {
     return getDateLimitWarnings(ds).some(item => item.level === 'caution')
   }
 
-  function getDateNotices(ds) { return notices.filter(n => n.date === ds) }
-
-  function getDateSpecial(ds) {
-    const ns = getDateNotices(ds)
-    const specials = [...new Set(ns.map(n => n.special).filter(Boolean))]
-    return specials[0] || ''
+  function getDateNotices(ds) {
+    return notices.filter(n => n.date <= ds && (n.end_date || n.date) >= ds && n.is_deleted !== true)
+  }
+  function isNoticeStartOn(n, ds) {
+    return n.date === ds || !getDateNotices(addDaysStr(ds, -1)).some(prev => String(prev.id) === String(n.id))
+  }
+  function isNoticeEndOn(n, ds) {
+    const end = n.end_date || n.date
+    return end === ds || !getDateNotices(addDaysStr(ds, 1)).some(next => String(next.id) === String(n.id))
+  }
+  function noticeTitle(n) {
+    return n.title || (n.content || '').split('\n')[0] || n.special || '알림'
+  }
+  function noticeTimeLabel(n) {
+    if (n.is_all_day || (!n.start_time && !n.end_time)) return '종일'
+    if (n.start_time && n.end_time) return `${n.start_time.slice(0,5)} ~ ${n.end_time.slice(0,5)}`
+    return (n.start_time || n.end_time || '').slice(0,5)
   }
 
   // 달력 셀 생성
@@ -303,8 +319,7 @@ export default function DashboardPage() {
   function openNoticePopup(ds) {
     const ns = getDateNotices(ds)
     if (!ns.length) return
-    const specials = [...new Set(ns.map(n => n.special).filter(Boolean))]
-    setNoticePopup({ date: ds, special: specials[0] || '', notices: ns })
+    setNoticePopup({ date: ds, notices: ns })
   }
 
   if (loading) return (
@@ -333,7 +348,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'minmax(520px, .86fr) minmax(380px, 1fr)', gap:'16px', marginBottom:'18px' }}>
+      <div className="dashboard-main-grid">
         {/* 달력 */}
         <div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
@@ -381,7 +396,6 @@ export default function DashboardPage() {
                 const pax      = getDatePax(ds)
                 const over     = isOverLimit(ds)
                 const caution  = !over && isCautionLimit(ds)
-                const special  = getDateSpecial(ds)
                 const ntcList  = getDateNotices(ds)
                 const isToday  = ds === today
                 const isSel    = ds === selectedDate
@@ -397,7 +411,26 @@ export default function DashboardPage() {
                     onClick={() => { setSelectedDate(ds); setOpenResNo('') }}
                     onDoubleClick={() => router.push(`/dashboard/reservations?new=1&date=${ds}&from=dashboard`)}
                   >
-                    {special ? <div className="cal-special">{special}</div> : <div style={{ height:'12px' }} />}
+                    <div
+                      className="cal-notice-list cal-notice-top"
+                      onClick={e => { e.stopPropagation(); openNoticePopup(ds) }}
+                    >
+                      {ntcList.slice(0,2).map(n => {
+                        const start = isNoticeStartOn(n, ds)
+                        const end = isNoticeEndOn(n, ds)
+                        const isRange = (n.end_date || n.date) !== n.date
+                        return (
+                          <div
+                            key={n.id}
+                            className={`cal-notice-title${isRange ? ' cal-notice-range' : ''}${start ? ' range-start' : ''}${end ? ' range-end' : ''}`}
+                            title={noticeTitle(n)}
+                          >
+                            {start ? noticeTitle(n) : ''}
+                          </div>
+                        )
+                      })}
+                      {ntcList.length > 2 && <div className="cal-notice-more">+{ntcList.length - 2}</div>}
+                    </div>
                     <div className="cal-day-num">{c.day}</div>
                     {cnt > 0 ? <div className="cal-res-count">예약{cnt}건</div> : <div style={{ height:'13px' }} />}
                     {pax > 0 ? (
@@ -405,12 +438,6 @@ export default function DashboardPage() {
                         {over ? '초과 ' : caution ? '주의 ' : '총 '}{pax}명
                       </div>
                     ) : <div style={{ height:'13px' }} />}
-                    <div
-                      className="cal-notice-dots"
-                      onClick={e => { e.stopPropagation(); openNoticePopup(ds) }}
-                    >
-                      {ntcList.slice(0,5).map((_,j) => <div key={j} className="cal-notice-dot"/>)}
-                    </div>
                   </div>
                 )
               })}
@@ -617,15 +644,16 @@ export default function DashboardPage() {
               <button className="close-btn" onClick={() => setNoticePopup(null)}>✕</button>
             </div>
             <div style={{ padding:'16px 20px' }}>
-              {noticePopup.special && (
-                <div className="notice-special-banner">
-                  <span>⭐</span><span>{noticePopup.special}</span>
-                </div>
-              )}
               {noticePopup.notices.map((n, i) => (
                 <div key={n.id} className="notice-item">
                   <div className="notice-item-num">{i+1}</div>
-                  <div className="notice-item-content">{n.content}</div>
+                  <div className="notice-item-content">
+                    <div style={{fontWeight:800,color:'var(--text-primary)',marginBottom:'3px'}}>{noticeTitle(n)}</div>
+                    <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>
+                      {noticeTimeLabel(n)}{n.place ? ` · ${n.place}` : ''}
+                    </div>
+                    {n.content && <div>{n.content}</div>}
+                  </div>
                 </div>
               ))}
             </div>
