@@ -194,6 +194,11 @@ function buildNoticeEvents(notices = []) {
       prog_name: noticeTitle(n),
       pkg_name: 'NOTICE',
       memo: [n.place ? `장소: ${n.place}` : '', n.content || '', n.special ? `특이사항: ${n.special}` : ''].filter(Boolean).join('\n'),
+      title: n.title || '',
+      content: n.content || '',
+      special: n.special || '',
+      notice_type: n.notice_type || '',
+      color: n.color || '#6E8DFB',
       place: n.place || '',
       is_manual: true,
       is_notice: true,
@@ -353,17 +358,37 @@ function EventModal({ open, onClose, onSave, vendors, reservations, defaultDate 
 // ────────────────────────────────────────────────────────────────
 // 이벤트 상세 팝업
 // ────────────────────────────────────────────────────────────────
-function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime, defaultEndTime, defaultAllDay }) {
+function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime, defaultEndTime, defaultAllDay, initialNotice }) {
   const [form, setForm] = useState({
+    id: null,
     date: '', end_date: '', title: '', start_time: '09:00', end_time: '10:00',
     is_all_day: false, place: '', content: '', special: '', color: '#6E8DFB', notice_type: '일반',
   })
 
   useEffect(() => {
     if (open) setForm(f => {
+      if (initialNotice) {
+        const isAllDay = initialNotice.is_all_day_notice === true
+        return {
+          ...f,
+          id: initialNotice.notice_id || null,
+          date: initialNotice.date || '',
+          end_date: initialNotice.end_date || initialNotice.date || '',
+          title: initialNotice.title || initialNotice.prog_name || '',
+          start_time: isAllDay ? '09:00' : (initialNotice.start_time || '09:00'),
+          end_time: isAllDay ? '10:00' : (initialNotice.end_time || '10:00'),
+          is_all_day: isAllDay,
+          place: initialNotice.place || '',
+          content: initialNotice.content || '',
+          special: initialNotice.special || '',
+          color: initialNotice.color || initialNotice.vendor_color || '#6E8DFB',
+          notice_type: initialNotice.notice_type || initialNotice.vendor_name || '일반',
+        }
+      }
       const date = defaultDate || f.date || ''
       return {
         ...f,
+        id: null,
         date,
         end_date: date,
         title: '',
@@ -373,9 +398,11 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
         place: '',
         content: '',
         special: '',
+        color: '#6E8DFB',
+        notice_type: '일반',
       }
     })
-  }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultAllDay])
+  }, [open, defaultDate, defaultStartTime, defaultEndTime, defaultAllDay, initialNotice])
 
   if (!open) return null
 
@@ -395,6 +422,7 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
     if (!form.title.trim()) return alert('일정 제목을 입력해주세요.')
     if (!form.is_all_day && (!form.start_time || !form.end_time)) return alert('시간 일정은 시작/종료 시간을 입력해주세요.')
     onSave({
+      id: form.id || undefined,
       date: form.date,
       end_date: endDate,
       title: form.title.trim(),
@@ -420,7 +448,7 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
                    width:'100%',maxWidth:'520px',boxShadow:'0 20px 50px rgba(0,0,0,.45)'}}>
         <div style={{padding:'16px 20px',borderBottom:'1px solid #2a3a4a',
                      display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <span style={{fontWeight:'800',fontSize:'14px'}}>일반 일정 추가</span>
+          <span style={{fontWeight:'800',fontSize:'14px'}}>{form.id ? '일반 일정 수정' : '일반 일정 추가'}</span>
           <button onClick={onClose} style={{background:'none',border:'none',color:'#8a9ab0',
                                             fontSize:'20px',cursor:'pointer'}}>×</button>
         </div>
@@ -501,14 +529,14 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
           <button onClick={handleSave}
                   style={{height:'36px',padding:'0 20px',background:'#4ecdc4',border:'none',
                           borderRadius:'8px',color:'#0f1923',fontWeight:'800',cursor:'pointer',
-                          fontFamily:'Noto Sans KR, sans-serif',fontSize:'13px'}}>저장</button>
+                          fontFamily:'Noto Sans KR, sans-serif',fontSize:'13px'}}>{form.id ? '수정 저장' : '저장'}</button>
         </div>
       </div>
     </div>
   )
 }
 
-function EventPopup({ ev, pos, onClose, onDelete, zones }) {
+function EventPopup({ ev, pos, onClose, onEdit, onDelete, zones }) {
   if (!ev) return null
   const zone = zones.find(z => z.code === ev.zone_code)
   const popupDateLabel = ev.end_date && ev.end_date !== ev.date ? `${ev.date} ~ ${ev.end_date}` : ev.date
@@ -540,11 +568,21 @@ function EventPopup({ ev, pos, onClose, onDelete, zones }) {
           {ev.memo && <div><span style={{color:'#8a9ab0'}}>메모 </span><span style={{color:'#e8eaed',whiteSpace:'pre-wrap'}}>{ev.memo}</span></div>}
         </div>
         {ev.is_manual && (
-          <button onClick={() => onDelete(ev.id)}
-                  style={{marginTop:'10px',width:'100%',height:'30px',background:'rgba(224,92,92,0.15)',
-                          border:'1px solid rgba(224,92,92,0.3)',borderRadius:'6px',color:'#e05c5c',
-                          cursor:'pointer',fontSize:'12px',fontWeight:'600',
-                          fontFamily:'Noto Sans KR, sans-serif'}}>삭제</button>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'10px'}}>
+            {ev.is_notice && (
+              <button onClick={() => onEdit(ev)}
+                      style={{height:'30px',background:'rgba(78,205,196,0.14)',
+                              border:'1px solid rgba(78,205,196,0.32)',borderRadius:'6px',color:'#4ecdc4',
+                              cursor:'pointer',fontSize:'12px',fontWeight:'700',
+                              fontFamily:'Noto Sans KR, sans-serif'}}>수정</button>
+            )}
+            <button onClick={() => onDelete(ev.id)}
+                    style={{height:'30px',background:'rgba(224,92,92,0.15)',
+                            border:'1px solid rgba(224,92,92,0.3)',borderRadius:'6px',color:'#e05c5c',
+                            cursor:'pointer',fontSize:'12px',fontWeight:'600',
+                            fontFamily:'Noto Sans KR, sans-serif',
+                            gridColumn: ev.is_notice ? 'auto' : '1 / -1'}}>삭제</button>
+          </div>
         )}
         {!ev.is_manual && (
           <div style={{marginTop:'8px',fontSize:'11px',color:'#5a7080',textAlign:'center'}}>
@@ -574,6 +612,7 @@ export default function TimetablePage() {
   const [selZone,      setSelZone]      = useState('')
   const [modal,        setModal]        = useState(false)
   const [modalDefaults,setModalDefaults]= useState({})
+  const [editingNotice,setEditingNotice]= useState(null)
   const [dragDraft,    setDragDraft]    = useState(null)
   const [popup,        setPopup]        = useState(null)   // { ev, pos }
   const [conflictPopup,setConflictPopup]= useState(false)
@@ -649,17 +688,34 @@ export default function TimetablePage() {
   }
 
   const handleSave = async form => {
-    await fetch('/api/notices', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+    const { id, ...payload } = form
+    const res = await fetch('/api/notices', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(id ? { id, ...payload } : payload),
     })
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      alert(`일정 저장 실패: ${data?.error?.message || data?.error || '알 수 없는 오류'}`)
+      return
+    }
     setModal(false)
     setModalDefaults({})
+    setEditingNotice(null)
+    setPopup(null)
     await refreshNotices()
   }
 
   const openNoticeModal = (defaults = {}) => {
+    setEditingNotice(null)
     setModalDefaults(defaults)
+    setModal(true)
+  }
+
+  const openNoticeEditModal = ev => {
+    setModalDefaults({})
+    setEditingNotice(ev)
+    setPopup(null)
     setModal(true)
   }
 
@@ -1434,12 +1490,13 @@ export default function TimetablePage() {
       {/* ── 모달 */}
       <NoticeEventModal
         open={modal}
-        onClose={() => { setModal(false); setModalDefaults({}) }}
+        onClose={() => { setModal(false); setModalDefaults({}); setEditingNotice(null) }}
         onSave={handleSave}
         defaultDate={modalDefaults.date || dateStr(curDate)}
         defaultStartTime={modalDefaults.start_time}
         defaultEndTime={modalDefaults.end_time}
         defaultAllDay={modalDefaults.is_all_day}
+        initialNotice={editingNotice}
       />
 
       {/* ── 이벤트 상세 팝업 */}
@@ -1447,6 +1504,7 @@ export default function TimetablePage() {
         <EventPopup
           ev={popup.ev} pos={popup.pos}
           onClose={() => setPopup(null)}
+          onEdit={openNoticeEditModal}
           onDelete={handleDelete}
           zones={zones}
         />
