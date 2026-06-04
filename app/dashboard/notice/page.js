@@ -104,7 +104,7 @@ export default function NoticePage() {
       date: form.date,
       end_date: endDate,
       title: form.title.trim(),
-      content: form.content.trim() || null,
+      content: form.content.trim(),
       special: form.special.trim() || null,
       start_time: form.is_all_day ? null : form.start_time,
       end_time: form.is_all_day ? null : form.end_time,

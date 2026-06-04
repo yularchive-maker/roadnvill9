@@ -4,6 +4,13 @@ import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
+function normalizeNoticePayload(body) {
+  return {
+    ...body,
+    content: body?.content ?? '',
+  }
+}
+
 export async function GET(req) {
   if (!await requireApiUser()) return unauthorizedResponse()
 
@@ -24,7 +31,7 @@ export async function POST(req) {
   if (!await requireApiUser()) return unauthorizedResponse()
 
   const body = await req.json()
-  const { data, error } = await supabase.from('notices').insert(body).select().single()
+  const { data, error } = await supabase.from('notices').insert(normalizeNoticePayload(body)).select().single()
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }
@@ -34,7 +41,7 @@ export async function PUT(req) {
 
   const body = await req.json()
   const { id, ...rest } = body
-  const { data, error } = await supabase.from('notices').update(rest).eq('id', id).select().single()
+  const { data, error } = await supabase.from('notices').update(normalizeNoticePayload(rest)).eq('id', id).select().single()
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }

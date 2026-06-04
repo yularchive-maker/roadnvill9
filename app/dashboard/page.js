@@ -235,14 +235,22 @@ export default function DashboardPage() {
 
   // 달력 셀 생성
   const cells = []
+  const prevMonthDate = calMonth === 1
+    ? { year: calYear - 1, month: 12 }
+    : { year: calYear, month: calMonth - 1 }
+  const nextMonthDate = calMonth === 12
+    ? { year: calYear + 1, month: 1 }
+    : { year: calYear, month: calMonth + 1 }
   for (let i = 0; i < first; i++) {
-    cells.push({ day: prevLast - first + i + 1, cur: false, ds: null })
+    const day = prevLast - first + i + 1
+    cells.push({ day, cur: false, ds: dateStr(prevMonthDate.year, prevMonthDate.month, day) })
   }
   for (let d = 1; d <= lastDay; d++) {
     cells.push({ day: d, cur: true, ds: dateStr(calYear, calMonth, d) })
   }
   while (cells.length % 7 !== 0) {
-    cells.push({ day: cells.length - lastDay - first + 1, cur: false, ds: null })
+    const day = cells.length - lastDay - first + 1
+    cells.push({ day, cur: false, ds: dateStr(nextMonthDate.year, nextMonthDate.month, day) })
   }
 
   // 선택 날짜 예약 목록
@@ -385,11 +393,6 @@ export default function DashboardPage() {
             <div className="cal-grid">
               {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
               {cells.map((c, i) => {
-                if (!c.cur) return (
-                  <div key={i} className="cal-day other-month">
-                    <div className="cal-day-num">{c.day}</div>
-                  </div>
-                )
                 const ds       = c.ds
                 const today    = todayStr()
                 const cnt      = getDateRes(ds).length
@@ -402,7 +405,7 @@ export default function DashboardPage() {
                 return (
                   <div
                     key={i}
-                    className={`cal-day${isToday?' today':''}${isSel?' cal-selected':''}`}
+                    className={`cal-day${c.cur?'':' other-month'}${isToday?' today':''}${isSel?' cal-selected':''}`}
                     style={over
                       ? { boxShadow:'inset 0 0 0 2px rgba(255,107,107,0.62)' }
                       : caution

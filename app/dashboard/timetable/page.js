@@ -414,6 +414,7 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
     fontFamily:'Noto Sans KR, sans-serif', boxSizing:'border-box',
   }
   const label = { fontSize:'11px', color:'#8a9ab0', display:'block', marginBottom:'5px', fontWeight:'700' }
+  const Required = () => <span style={{ color:'#ff6b6b', marginLeft:'3px' }}>*</span>
 
   const handleSave = () => {
     if (!form.date) return alert('날짜를 입력해주세요.')
@@ -430,7 +431,7 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
       end_time: form.is_all_day ? null : form.end_time,
       is_all_day: !!form.is_all_day,
       place: form.place.trim() || null,
-      content: form.content.trim() || null,
+      content: form.content.trim(),
       special: form.special.trim() || null,
       color: form.color || '#6E8DFB',
       notice_type: form.notice_type || '일반',
@@ -458,13 +459,13 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
               style={{...input,height:'46px',background:'transparent',border:'none',borderBottom:'1px solid #5a7080',borderRadius:0,padding:'0 2px',fontSize:'22px',fontWeight:'800'}}
               value={form.title}
               onChange={e => set('title', e.target.value)}
-              placeholder="일정 제목"
+              placeholder="일정 제목 *"
             />
           </div>
           <div style={{fontSize:'13px',fontWeight:'800',color:'#dce6ef'}}>{dateRangeLabel}</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
             <div>
-              <label style={label}>시작일 *</label>
+              <label style={label}>시작일<Required /></label>
               <input type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" style={input} value={form.date} onChange={e => set('date', formatDateTyping(e.target.value))}/>
             </div>
             <div>
@@ -490,11 +491,11 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
               종일
             </label>
             <div>
-              <label style={label}>시작</label>
+              <label style={label}>시작{!form.is_all_day && <Required />}</label>
               <input type="time" style={input} value={form.start_time} disabled={form.is_all_day} onChange={e => set('start_time', e.target.value)}/>
             </div>
             <div>
-              <label style={label}>종료</label>
+              <label style={label}>종료{!form.is_all_day && <Required />}</label>
               <input type="time" style={input} value={form.end_time} disabled={form.is_all_day} onChange={e => set('end_time', e.target.value)}/>
             </div>
           </div>

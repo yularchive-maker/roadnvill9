@@ -286,6 +286,8 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .cal-day {
   border-radius: 8px; display: flex; flex-direction: column; align-items: center;
   padding: 4px 3px 5px; cursor: pointer; font-size: 12px; transition: background .15s; min-height: 58px;
+  overflow: visible;
+  position: relative;
 }
 .cal-day:hover { background: rgba(78,205,196,.08); }
 .cal-day.today { background: rgba(78,205,196,.15); }
@@ -302,14 +304,14 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .cal-notice-top { width: 100%; max-width: 100%; margin-top: 0; margin-bottom: 2px; align-self: stretch; }
 .cal-notice-title {
   width: auto;
-  max-width: 52px;
+  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(247,201,72,.13);
-  border: 1px solid rgba(247,201,72,.2);
+  background: transparent;
+  border: 1px solid rgba(247,201,72,.72);
   color: var(--amber);
   font-size: 9px;
   font-weight: 700;
@@ -317,13 +319,13 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   text-align: center;
 }
 .cal-notice-title.cal-notice-range {
-  width: calc(100% + 12px);
+  width: calc(100% + 16px);
   max-width: none;
   height: 15px;
   line-height: 14px;
   padding: 0 5px;
-  margin-left: -7px;
-  margin-right: -7px;
+  margin-left: -8px;
+  margin-right: -8px;
   border-radius: 0;
   background: #6E8DFB;
   border-color: #6E8DFB;
@@ -332,14 +334,21 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   z-index: 2;
 }
 .cal-notice-title.cal-notice-range.range-start {
+  width: calc(100% + 8px);
   margin-left: 0;
+  margin-right: -8px;
   border-radius: 4px 0 0 4px;
 }
 .cal-notice-title.cal-notice-range.range-end {
+  width: calc(100% + 8px);
+  margin-left: -8px;
   margin-right: 0;
   border-radius: 0 4px 4px 0;
 }
 .cal-notice-title.cal-notice-range.range-start.range-end {
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
   border-radius: 4px;
 }
 .cal-notice-more {
