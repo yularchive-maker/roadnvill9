@@ -1,11 +1,19 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+
+import Link from 'next/link'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatDateTyping } from '@/lib/date-input'
 
-const fmt = n => (n || 0).toLocaleString()
+const fmt = n => (Number(n) || 0).toLocaleString()
 
-function pkgName(r) { return r.package_name || r.pkg }
+const SETTLE_TYPES = [
+  { key: '체험', title: '체험 정산', color: 'var(--accent)' },
+  { key: '숙박', title: '숙박 정산', color: 'var(--amber)' },
+  { key: '픽업', title: '픽업 정산', color: 'var(--pickup)' },
+  { key: '플랫폼', title: '플랫폼 정산', color: 'var(--purple)' },
+  { key: '여행사', title: '여행사 정산', color: 'var(--green)' },
+]
 
 function monthRange() {
   const d = new Date()
@@ -15,270 +23,324 @@ function monthRange() {
   return [`${y}-${m}-01`, `${y}-${m}-${String(last).padStart(2, '0')}`]
 }
 
-const TYPES = [
-  { key: '체험', title: '기간별 체험 정산' },
-  { key: '숙박', title: '기간별 숙박 정산' },
-  { key: '픽업', title: '기간별 픽업 정산' },
-  { key: '플랫폼', title: '기간별 플랫폼 정산' },
-  { key: '여행사', title: '기간별 여행사 정산' },
-]
-
 function emptyRows() {
-  return Object.fromEntries(TYPES.map(t => [t.key, []]))
+  return Object.fromEntries(SETTLE_TYPES.map(type => [type.key, []]))
 }
 
 function emptyMap() {
-  return Object.fromEntries(TYPES.map(t => [t.key, {}]))
+  return Object.fromEntries(SETTLE_TYPES.map(type => [type.key, {}]))
+}
+
+function pkgName(reservation) {
+  return reservation.package_name || reservation.pkg
 }
 
 function feeAmount(total, percent) {
   return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
-function historyVendorName(h) {
-  if (h.vendors?.name) return h.vendors.name
-  if (h.settle_type === '플랫폼' || h.settle_type === '여행사') {
-    return h.settle_history_items?.[0]?.detail || h.settle_type
-  }
-  return h.settle_type
-}
-
 function normalizeSettleType(type, vendorKey) {
-  if (TYPES.some(t => t.key === type)) return type
   if (vendorKey) return '체험'
-  return type
+  if (SETTLE_TYPES.some(item => item.key === type)) return type
+  return type || ''
 }
 
-function settledKey(type, vendorKey, it) {
-  return [type || '', vendorKey || '', it.no || it.reservation_no || '', it.detail || '', Number(it.amt) || 0].join('|')
+function settledKey(type, vendorKey, item) {
+  return [
+    type || '',
+    vendorKey || '',
+    item.no || item.reservation_no || '',
+    item.detail || '',
+    Number(item.amt) || 0,
+  ].join('|')
+}
+
+function inDateRange(value, start, end) {
+  if (!value) return false
+  const date = String(value).slice(0, 10)
+  return date >= start && date <= end
+}
+
+function historyVendorName(history, vendors = []) {
+  if (history.vendors?.name) return history.vendors.name
+  const vendor = vendors.find(item => item.key === history.vendor_key)
+  if (vendor?.name) return vendor.name
+  if (history.settle_type === '플랫폼' || history.settle_type === '여행사') {
+    return history.settle_history_items?.[0]?.detail || history.settle_type
+  }
+  return history.settle_type || '기타'
+}
+
+function historyVendorKeys(history, item, vendors = []) {
+  if (history.vendor_key) return [history.vendor_key]
+  const detail = item?.detail || ''
+  const keys = vendors
+    .filter(vendor => (vendor.vendor_programs || []).some(program => program.prog_name === detail))
+    .map(vendor => vendor.key)
+    .filter(Boolean)
+  return keys.length ? keys : ['']
+}
+
+function addAmount(map, type, name, amount, color) {
+  if (!map[type] || !name) return
+  if (!map[type][name]) {
+    map[type][name] = { vendor: name, color, count: 0, settled: 0, unsettled: 0 }
+  }
+  map[type][name].count += 1
+  map[type][name].unsettled += Number(amount) || 0
 }
 
 export default function SettleSummaryPage() {
-  const [s0, e0] = monthRange()
-  const [startDate, setStartDate] = useState(s0)
-  const [endDate, setEndDate] = useState(e0)
-  const [loading,  setLoading]  = useState(false)
-  const [vendors,  setVendors]  = useState([])
+  const [defaultStart, defaultEnd] = monthRange()
+  const [startDate, setStartDate] = useState(defaultStart)
+  const [endDate, setEndDate] = useState(defaultEnd)
+  const [loading, setLoading] = useState(false)
+  const [vendors, setVendors] = useState([])
   const [packages, setPackages] = useState([])
-  const [rows,     setRows]     = useState(emptyRows())
-  const [activeType, setActiveType] = useState(TYPES[0].key)
+  const [rows, setRows] = useState(emptyRows())
+  const [activeType, setActiveType] = useState(SETTLE_TYPES[0].key)
 
   useEffect(() => {
     Promise.all([
       supabase.from('vendors').select('*, vendor_programs(*)').order('key'),
       supabase.from('packages').select('*, package_programs(*)').order('name'),
-    ]).then(([v, p]) => {
-      setVendors(v.data || [])
-      setPackages(p.data || [])
+    ]).then(([vendorRes, packageRes]) => {
+      setVendors(vendorRes.data || [])
+      setPackages(packageRes.data || [])
     })
   }, [])
 
   const load = useCallback(async () => {
-    if (!vendors.length || !packages.length) return
-    if (!startDate || !endDate) return
+    if (!vendors.length || !packages.length || !startDate || !endDate) return
     setLoading(true)
-    const start = startDate
-    const end = endDate
 
-    // ?뺤궛 ?꾨즺 ?대젰 (???ъ뿉 settled_at 湲곗?)
-    const { data: hist } = await supabase
+    const { data: historyRows } = await supabase
       .from('settle_history')
       .select('*, settle_history_items(*), vendors(name,color)')
-      .gte('settled_at', start).lte('settled_at', end)
 
-    // settled 湲덉븸 吏묎퀎: type ??vendor ??{count, amt, color}
+    const activeHistory = (historyRows || []).filter(row => row?.is_deleted !== true)
     const settledMap = emptyMap()
-    for (const h of (hist || []).filter(row => row?.is_deleted !== true)) {
-      const historyItems = (h.settle_history_items || []).filter(item => item?.is_deleted !== true)
-      const type = normalizeSettleType(h.settle_type, h.vendor_key)
-      if (!settledMap[type]) continue
-      const name = historyVendorName(h)
-      if (!settledMap[type][name]) settledMap[type][name] = { vendor: name, color: h.vendors?.color, count: 0, settled: 0, unsettled: 0 }
-      settledMap[type][name].count += historyItems.length
-      settledMap[type][name].settled += historyItems.reduce((acc, item) => acc + (Number(item.amt) || 0), 0)
+    const settled = new Set()
+
+    for (const history of activeHistory) {
+      const items = (history.settle_history_items || []).filter(item => item?.is_deleted !== true)
+      const type = normalizeSettleType(history.settle_type, history.vendor_key)
+
+      for (const item of items) {
+        settled.add(settledKey(history.settle_type, history.vendor_key, item))
+        settled.add(settledKey(type, history.vendor_key, item))
+        historyVendorKeys(history, item, vendors).forEach(vendorKey => {
+          settled.add(settledKey(type, vendorKey, item))
+          if (type === '체험') settled.add(settledKey('체험', vendorKey, item))
+        })
+
+        if (!inDateRange(item.date, startDate, endDate)) continue
+        if (!settledMap[type]) continue
+
+        const name = historyVendorName(history, vendors)
+        if (!settledMap[type][name]) {
+          settledMap[type][name] = {
+            vendor: name,
+            color: history.vendors?.color,
+            count: 0,
+            settled: 0,
+            unsettled: 0,
+          }
+        }
+        settledMap[type][name].count += 1
+        settledMap[type][name].settled += Number(item.amt) || 0
+      }
     }
 
-    const { data: allHist } = await supabase
-      .from('settle_history')
-      .select('*, settle_history_items(*)')
-
-    const settled = new Set()
-    ;(allHist || []).filter(h => h?.is_deleted !== true).forEach(h => {
-      ;(h.settle_history_items || []).filter(it => it?.is_deleted !== true).forEach(it => {
-        settled.add(settledKey(h.settle_type, h.vendor_key, it))
-        settled.add(settledKey(normalizeSettleType(h.settle_type, h.vendor_key), h.vendor_key, it))
-      })
-    })
-
-    // 誘몄젙??湲덉븸 吏묎퀎 (????reservations, unsettled)
-    const { data: resv } = await supabase
-      .from('reservations').select('*')
-      .gte('date', start).lte('date', end)
+    const { data: reservations } = await supabase
+      .from('reservations')
+      .select('*')
+      .gte('date', startDate)
+      .lte('date', endDate)
       .neq('type', 'cancelled')
       .or('is_deleted.is.null,is_deleted.eq.false')
 
     const unsettledMap = emptyMap()
 
-    if (resv?.length) {
-      const nos = resv.map(r => r.no)
-      const [lcRes, rpRes, snapRes] = await Promise.all([
-        supabase.from('lodge_confirms').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
-        supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
-        supabase.from('reservation_program_snapshots').select('*').in('reservation_no', nos).or('is_deleted.is.null,is_deleted.eq.false'),
+    if (reservations?.length) {
+      const reservationNos = reservations.map(item => item.no)
+      const [lodgeRes, pickupRes, snapshotRes] = await Promise.all([
+        supabase.from('lodge_confirms').select('*').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
+        supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
+        supabase.from('reservation_program_snapshots').select('*').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
       ])
 
-      // 泥댄뿕 誘몄젙??      for (const r of resv) {
-      const snapshots = snapRes.data || []
-      const snapNos = new Set(snapshots.map(s => s.reservation_no))
-      const experienceType = TYPES[0].key
-      for (const snap of snapshots) {
-        const amt = Number(snap.vendor_settle_total) || 0
-        const item = { no: snap.reservation_no, detail: snap.prog_name, amt }
-        if (settled.has(settledKey(experienceType, snap.vendor_key, item))) continue
-        const vendor = vendors.find(v => v.key === snap.vendor_key)
-        const k = snap.vendor_name || vendor?.name || snap.vendor_key
-        if (!unsettledMap[experienceType][k]) unsettledMap[experienceType][k] = { vendor: k, color: vendor?.color, count: 0, settled: 0, unsettled: 0 }
-        unsettledMap[experienceType][k].count += 1
-        unsettledMap[experienceType][k].unsettled += amt
+      const snapshots = snapshotRes.data || []
+      const snapshotNos = new Set(snapshots.map(item => item.reservation_no))
+
+      for (const snapshot of snapshots) {
+        const amount = Number(snapshot.vendor_settle_total) || 0
+        const item = { no: snapshot.reservation_no, detail: snapshot.prog_name, amt: amount }
+        if (settled.has(settledKey('체험', snapshot.vendor_key, item))) continue
+        const vendor = vendors.find(vendorItem => vendorItem.key === snapshot.vendor_key)
+        const name = snapshot.vendor_name || vendor?.name || snapshot.vendor_key
+        addAmount(unsettledMap, '체험', name, amount, vendor?.color)
       }
 
-      for (const r of resv) {
-        if (snapNos.has(r.no)) continue
-        const pkg = packages.find(p => p.name === pkgName(r))
-        if (!pkg) continue
-        for (const pp of pkg.package_programs || []) {
-          const vendor = vendors.find(v => v.key === pp.vendor_key)
+      for (const reservation of reservations) {
+        if (snapshotNos.has(reservation.no)) continue
+        const pack = packages.find(item => item.name === pkgName(reservation))
+        if (!pack) continue
+
+        for (const program of pack.package_programs || []) {
+          const vendor = vendors.find(item => item.key === program.vendor_key)
           if (!vendor) continue
-          const vp = vendor.vendor_programs?.find(x => x.prog_name === pp.prog_name)
-          if (!vp) continue
-          const amt = vp.settle_type === 'per_person' ? vp.unit_price * (r.pax || 0) : vp.unit_price
-          const item = { no: r.no, detail: pp.prog_name, amt }
-          if (settled.has(settledKey('체험', pp.vendor_key, item))) continue
-          const k = vendor.name
-          if (!unsettledMap['체험'][k]) unsettledMap['체험'][k] = { vendor: k, color: vendor.color, count: 0, settled: 0, unsettled: 0 }
-          unsettledMap['체험'][k].count += 1
-          unsettledMap['체험'][k].unsettled += amt
+          const vendorProgram = vendor.vendor_programs?.find(item => item.prog_name === program.prog_name)
+          if (!vendorProgram) continue
+
+          const amount = vendorProgram.settle_type === 'per_person'
+            ? (Number(vendorProgram.unit_price) || 0) * (Number(reservation.pax) || 0)
+            : Number(vendorProgram.unit_price) || 0
+          const item = { no: reservation.no, detail: program.prog_name, amt: amount }
+          if (settled.has(settledKey('체험', program.vendor_key, item))) continue
+          addAmount(unsettledMap, '체험', vendor.name, amount, vendor.color)
         }
       }
 
-      for (const lc of lcRes.data || []) {
-        if (!lc.lodge_name || !lc.room_price) continue
-        const item = { no: lc.reservation_no, detail: lc.room_name || '', amt: lc.room_price }
+      for (const lodge of lodgeRes.data || []) {
+        if (!lodge.lodge_name || !lodge.room_price) continue
+        const item = { no: lodge.reservation_no, detail: lodge.room_name || '', amt: lodge.room_price }
         if (settled.has(settledKey('숙박', null, item))) continue
-        const k = lc.lodge_name
-        if (!unsettledMap['숙박'][k]) unsettledMap['숙박'][k] = { vendor: k, color: 'var(--amber)', count: 0, settled: 0, unsettled: 0 }
-        unsettledMap['숙박'][k].count += 1
-        unsettledMap['숙박'][k].unsettled += lc.room_price
+        addAmount(unsettledMap, '숙박', lodge.lodge_name, lodge.room_price, 'var(--amber)')
       }
 
-      for (const rp of rpRes.data || []) {
-        if (!rp.pickup_fee) continue
-        const item = { no: rp.reservation_no, detail: rp.pickup_place || '', amt: rp.pickup_fee }
+      for (const pickup of pickupRes.data || []) {
+        if (!pickup.pickup_fee) continue
+        const item = { no: pickup.reservation_no, detail: pickup.pickup_place || '', amt: pickup.pickup_fee }
         if (settled.has(settledKey('픽업', null, item))) continue
-        const k = rp.drivers?.name || '픽업수행자'
-        if (!unsettledMap['픽업'][k]) unsettledMap['픽업'][k] = { vendor: k, color: 'var(--pickup)', count: 0, settled: 0, unsettled: 0 }
-        unsettledMap['픽업'][k].count += 1
-        unsettledMap['픽업'][k].unsettled += rp.pickup_fee
+        addAmount(unsettledMap, '픽업', pickup.drivers?.name || '픽업 수행자', pickup.pickup_fee, 'var(--pickup)')
       }
 
-      for (const r of resv) {
-        const platformAmt = feeAmount(r.total, r.plat_fee)
-        if (r.platform_name) {
-          const item = { no: r.no, detail: r.platform_name, amt: platformAmt }
+      for (const reservation of reservations) {
+        const platformAmount = feeAmount(reservation.total, reservation.plat_fee)
+        if (reservation.platform_name && platformAmount > 0) {
+          const item = { no: reservation.no, detail: reservation.platform_name, amt: platformAmount }
           if (!settled.has(settledKey('플랫폼', null, item))) {
-            const k = r.platform_name
-            if (!unsettledMap['플랫폼'][k]) unsettledMap['플랫폼'][k] = { vendor: k, color: 'var(--purple)', count: 0, settled: 0, unsettled: 0 }
-            unsettledMap['플랫폼'][k].count += 1
-            unsettledMap['플랫폼'][k].unsettled += platformAmt
+            addAmount(unsettledMap, '플랫폼', reservation.platform_name, platformAmount, 'var(--purple)')
           }
         }
 
-        const agencyAmt = feeAmount(r.total, r.ag_fee)
-        if (r.agency_name) {
-          const item = { no: r.no, detail: r.agency_name, amt: agencyAmt }
+        const agencyAmount = feeAmount(reservation.total, reservation.ag_fee)
+        if (reservation.agency_name && agencyAmount > 0) {
+          const item = { no: reservation.no, detail: reservation.agency_name, amt: agencyAmount }
           if (!settled.has(settledKey('여행사', null, item))) {
-            const k = r.agency_name
-            if (!unsettledMap['여행사'][k]) unsettledMap['여행사'][k] = { vendor: k, color: 'var(--green)', count: 0, settled: 0, unsettled: 0 }
-            unsettledMap['여행사'][k].count += 1
-            unsettledMap['여행사'][k].unsettled += agencyAmt
+            addAmount(unsettledMap, '여행사', reservation.agency_name, agencyAmount, 'var(--green)')
           }
         }
       }
     }
 
-    // ??留?蹂묓빀
     const merged = emptyMap()
-    for (const type of TYPES.map(t => t.key)) {
+    for (const type of SETTLE_TYPES.map(item => item.key)) {
       const names = new Set([...Object.keys(settledMap[type]), ...Object.keys(unsettledMap[type])])
       for (const name of names) {
-        const s = settledMap[type][name] || {}
-        const u = unsettledMap[type][name] || {}
+        const settledRow = settledMap[type][name] || {}
+        const unsettledRow = unsettledMap[type][name] || {}
         merged[type][name] = {
-          vendor:   name,
-          color:    s.color || u.color,
-          count:    (s.count || 0) + (u.count || 0),
-          settled:  s.settled || 0,
-          unsettled: u.unsettled || 0,
+          vendor: name,
+          color: settledRow.color || unsettledRow.color,
+          count: (settledRow.count || 0) + (unsettledRow.count || 0),
+          settled: settledRow.settled || 0,
+          unsettled: unsettledRow.unsettled || 0,
         }
       }
     }
 
-    setRows(Object.fromEntries(TYPES.map(t => [t.key, Object.values(merged[t.key])])))
+    setRows(Object.fromEntries(
+      SETTLE_TYPES.map(type => [
+        type.key,
+        Object.values(merged[type.key]).sort((a, b) => a.vendor.localeCompare(b.vendor, 'ko')),
+      ])
+    ))
     setLoading(false)
   }, [startDate, endDate, vendors, packages])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
-  const activeMeta = TYPES.find(t => t.key === activeType) || TYPES[0]
+  const activeMeta = SETTLE_TYPES.find(type => type.key === activeType) || SETTLE_TYPES[0]
   const activeData = rows[activeType] || []
-  const totalAmt = activeData.reduce((s, r) => s + r.settled + r.unsettled, 0)
-  const totalUnsettled = activeData.reduce((s, r) => s + r.unsettled, 0)
-  const totalSettled = activeData.reduce((s, r) => s + r.settled, 0)
-  const totalCount = activeData.reduce((s, r) => s + r.count, 0)
+  const allRows = useMemo(() => Object.values(rows).flat(), [rows])
+  const totalAmount = activeData.reduce((sum, row) => sum + row.settled + row.unsettled, 0)
+  const totalUnsettled = activeData.reduce((sum, row) => sum + row.unsettled, 0)
+  const totalSettled = activeData.reduce((sum, row) => sum + row.settled, 0)
+  const totalCount = activeData.reduce((sum, row) => sum + row.count, 0)
+  const overallAmount = allRows.reduce((sum, row) => sum + row.settled + row.unsettled, 0)
+  const overallUnsettled = allRows.reduce((sum, row) => sum + row.unsettled, 0)
+  const overallSettled = allRows.reduce((sum, row) => sum + row.settled, 0)
+  const overallCount = allRows.reduce((sum, row) => sum + row.count, 0)
 
   return (
     <div>
-      {/* ???좏깮 */}
-      <div className="search-bar">
-        <label style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700 }}>정산 시작일</label>
+      <div className="settle-period-bar" style={{ marginBottom: '14px' }}>
+        <label>정산 시작일</label>
         <input
           type="text"
           inputMode="numeric"
           maxLength={10}
-          className="search-input"
-          style={{ maxWidth: '160px' }}
+          className="form-input"
+          style={{ width: '140px', height: '34px' }}
           value={startDate}
-          onChange={e => setStartDate(formatDateTyping(e.target.value))}
+          onChange={event => setStartDate(formatDateTyping(event.target.value))}
           placeholder="2026-05-01"
         />
         <span style={{ color: 'var(--text-muted)' }}>~</span>
-        <label style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700 }}>정산 종료일</label>
+        <label>정산 종료일</label>
         <input
           type="text"
           inputMode="numeric"
           maxLength={10}
-          className="search-input"
-          style={{ maxWidth: '160px' }}
+          className="form-input"
+          style={{ width: '140px', height: '34px' }}
           value={endDate}
-          onChange={e => setEndDate(formatDateTyping(e.target.value))}
+          onChange={event => setEndDate(formatDateTyping(event.target.value))}
           placeholder="2026-05-31"
         />
-        <button className="btn-primary" onClick={load}>조회</button>
+        <button className="btn-primary" style={{ height: '34px' }} onClick={load}>조회</button>
+        <Link href="/dashboard/settle-detail" className="btn-outline" style={{ height: '34px', display: 'inline-flex', alignItems: 'center' }}>
+          업체별 정산내역
+        </Link>
+      </div>
+
+      <div className="summary-cards" style={{ marginBottom: '14px' }}>
+        <div className="summary-card">
+          <div className="summary-label">기간 내 전체 건수</div>
+          <div className="summary-value">{overallCount}건</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">기간 내 정산 대상</div>
+          <div className="summary-value">₩{fmt(overallAmount)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">미정산 합계</div>
+          <div className="summary-value" style={{ color: 'var(--amber)' }}>₩{fmt(overallUnsettled)}</div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-label">정산완료 합계</div>
+          <div className="summary-value" style={{ color: 'var(--green)' }}>₩{fmt(overallSettled)}</div>
+        </div>
       </div>
 
       <div className="tab-bar" style={{ marginBottom: '16px' }}>
-        {TYPES.map(t => {
-          const data = rows[t.key] || []
-          const count = data.reduce((s, r) => s + r.count, 0)
+        {SETTLE_TYPES.map(type => {
+          const data = rows[type.key] || []
+          const count = data.reduce((sum, row) => sum + row.count, 0)
+          const amount = data.reduce((sum, row) => sum + row.settled + row.unsettled, 0)
           return (
             <button
-              key={t.key}
-              className={`tab-btn${activeType === t.key ? ' active' : ''}`}
-              onClick={() => setActiveType(t.key)}
+              key={type.key}
+              className={`tab-btn${activeType === type.key ? ' active' : ''}`}
+              onClick={() => setActiveType(type.key)}
             >
-              {t.key}
-              <span style={{ marginLeft: '6px', fontSize: '11px', color: activeType === t.key ? 'var(--accent)' : 'var(--text-muted)' }}>
-                {count}건
+              {type.key}
+              <span style={{ marginLeft: '6px', fontSize: '11px', color: activeType === type.key ? 'var(--accent)' : 'var(--text-muted)' }}>
+                {count}건 · ₩{fmt(amount)}
               </span>
             </button>
           )
@@ -290,40 +352,45 @@ export default function SettleSummaryPage() {
       ) : (
         <div className="list-card">
           <div className="master-card-header">
-            <div className="master-card-title">{activeMeta.title}</div>
+            <div>
+              <div className="master-card-title">{activeMeta.title}</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                예약/사용일 기준 {startDate} ~ {endDate}
+              </div>
+            </div>
             <div style={{ display: 'flex', gap: '14px', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
               <span>{totalCount}건</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '13px', fontWeight: 700, color: 'var(--accent)' }}>
-                ₩{fmt(totalAmt)}
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '13px', fontWeight: 700, color: activeMeta.color }}>
+                ₩{fmt(totalAmount)}
               </span>
             </div>
           </div>
-          <div className="list-header" style={{ gridTemplateColumns: '1fr 70px 120px 110px 110px', fontSize: '10px' }}>
-            <span>업체</span><span>건수</span><span>합계</span><span>미정산</span><span>완료</span>
+          <div className="list-header" style={{ gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '10px' }}>
+            <span>대상</span><span>건수</span><span>합계</span><span>미정산</span><span>완료</span>
           </div>
           {activeData.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
               내역 없음
             </div>
-          ) : activeData.map((r, i) => (
-            <div key={i} className="list-row" style={{ gridTemplateColumns: '1fr 70px 120px 110px 110px', fontSize: '13px' }}>
-              <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {r.color && (
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: r.color, display: 'inline-block', flexShrink: 0 }} />
+          ) : activeData.map((row, index) => (
+            <div key={`${row.vendor}-${index}`} className="list-row" style={{ gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '13px' }}>
+              <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                {row.color && (
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: row.color, display: 'inline-block', flexShrink: 0 }} />
                 )}
-                {r.vendor}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.vendor}</span>
               </span>
-              <span style={{ color: 'var(--text-muted)' }}>{r.count}건</span>
-              <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(r.settled + r.unsettled)}</span>
-              <span style={{ color: r.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(r.unsettled)}</span>
-              <span style={{ color: r.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(r.settled)}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{row.count}건</span>
+              <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(row.settled + row.unsettled)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(row.unsettled)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(row.settled)}</span>
             </div>
           ))}
           {activeData.length > 0 && (
-            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: '1fr 70px 120px 110px 110px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
               <span>합계</span>
               <span>{totalCount}건</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: 'var(--accent)' }}>₩{fmt(totalAmt)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: activeMeta.color }}>₩{fmt(totalAmount)}</span>
               <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(totalUnsettled)}</span>
               <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(totalSettled)}</span>
             </div>

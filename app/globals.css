@@ -230,6 +230,11 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .kpi-value { font-size: 26px; font-weight: 700; letter-spacing: -1px; margin-bottom: 4px; }
 .kpi-sub   { font-size: 11px; color: var(--text-muted); }
 
+.summary-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.summary-card { background: var(--navy2); border: 1px solid var(--border2); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.summary-label { font-size: 11px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; }
+.summary-value { font-family: 'DM Mono', monospace; font-size: 20px; line-height: 1.15; font-weight: 800; color: var(--text-primary); overflow-wrap: anywhere; }
+
 /* ══ 리스트 카드 */
 .list-card { background: var(--navy2); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden; }
 .list-header {
@@ -292,7 +297,10 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .cal-day:hover { background: rgba(78,205,196,.08); }
 .cal-day.today { background: rgba(78,205,196,.15); }
 .cal-day.today .cal-day-num { font-weight: 700; color: var(--accent); }
-.cal-day.other-month { opacity: .3; }
+.cal-day.other-month .cal-day-num,
+.cal-day.other-month .cal-res-count {
+  opacity: .35;
+}
 .cal-day.cal-selected { background: rgba(78,205,196,.22); box-shadow: inset 0 0 0 2px var(--accent); }
 .cal-day.cal-selected .cal-day-num { font-weight: 700; color: var(--accent); }
 .cal-day-num { width: 100%; font-size: 11px; font-weight: 500; margin-bottom: 1px; line-height: 1; text-align: left; }
@@ -303,8 +311,8 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .cal-notice-list { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin-top: 1px; min-height: 18px; overflow: visible; width: 100%; }
 .cal-notice-top { width: 100%; max-width: 100%; margin-top: 0; margin-bottom: 2px; align-self: stretch; }
 .cal-notice-title {
-  width: auto;
-  max-width: 72px;
+  width: 100%;
+  max-width: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -327,9 +335,9 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   margin-left: -8px;
   margin-right: -8px;
   border-radius: 0;
-  background: #6E8DFB;
-  border-color: #6E8DFB;
-  color: #0f1923;
+  background: transparent;
+  border-color: rgba(247,201,72,.72);
+  color: var(--amber);
   position: relative;
   z-index: 2;
 }
@@ -337,18 +345,25 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   width: calc(100% + 8px);
   margin-left: 0;
   margin-right: -8px;
+  border-right-color: transparent;
   border-radius: 4px 0 0 4px;
 }
 .cal-notice-title.cal-notice-range.range-end {
   width: calc(100% + 8px);
   margin-left: -8px;
   margin-right: 0;
+  border-left-color: transparent;
   border-radius: 0 4px 4px 0;
+}
+.cal-notice-title.cal-notice-range:not(.range-start):not(.range-end) {
+  border-left-color: transparent;
+  border-right-color: transparent;
 }
 .cal-notice-title.cal-notice-range.range-start.range-end {
   width: 100%;
   margin-left: 0;
   margin-right: 0;
+  border-color: rgba(247,201,72,.72);
   border-radius: 4px;
 }
 .cal-notice-more {

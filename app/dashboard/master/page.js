@@ -7,6 +7,10 @@ function activePackagePrograms(programs) {
   return (programs || []).filter(program => program && program.is_deleted !== true)
 }
 
+function activeVendorPrograms(programs) {
+  return (programs || []).filter(program => program && program.is_deleted !== true)
+}
+
 const TABS = ['구역', '체험업체', '일반 패키지', '숙소·객실', '플랫폼·여행사', '픽업수행자', '사업비 패키지']
 
 // ── 공통 모달 래퍼
@@ -181,7 +185,10 @@ function VendorsTab() {
       supabase.from('vendors').select('*, vendor_programs(*)').order('key'),
       supabase.from('zones').select('*').order('code'),
     ])
-    setVendors(vendorR.data || [])
+    setVendors((vendorR.data || []).map(vendor => ({
+      ...vendor,
+      vendor_programs: activeVendorPrograms(vendor.vendor_programs),
+    })))
     setZones(zoneR.data || [])
   }, [])
   useEffect(() => { load() }, [load])
@@ -206,8 +213,9 @@ function VendorsTab() {
       telegram_chat_id: v.telegram_chat_id || '',
       telegram_username: v.telegram_username || '',
     })
-    setPrograms(v.vendor_programs || [])
-    setOriginalPrograms(v.vendor_programs || [])
+    const activePrograms = activeVendorPrograms(v.vendor_programs)
+    setPrograms(activePrograms)
+    setOriginalPrograms(activePrograms)
     setProgForm(emptyProgForm)
     setModal({ mode: 'edit', data: v })
   }
@@ -314,18 +322,28 @@ function VendorsTab() {
       settle_type: progForm.settle_type,
     })
     setProgForm(emptyProgForm)
-    const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vendorKey).order('code')
+    const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vendorKey).or('is_deleted.is.null,is_deleted.eq.false').order('code')
     setPrograms(data || [])
     setOriginalPrograms(data || [])
     load()
   }
 
   async function delProg(id) {
-    await supabase.from('vendor_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
+    if (!confirm('이 프로그램을 삭제하시겠습니까?')) return
+    const { error } = await supabase.from('vendor_programs').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('프로그램 삭제 실패: ' + error.message); return }
     const vk = modal.mode === 'edit' ? modal.data.key : form.key
-    const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).order('code')
+    const { data } = await supabase.from('vendor_programs').select('*').eq('vendor_key', vk).or('is_deleted.is.null,is_deleted.eq.false').order('code')
     setPrograms(data || [])
     setOriginalPrograms(data || [])
+    setVendors(list => list.map(vendor => vendor.key === vk
+      ? { ...vendor, vendor_programs: (vendor.vendor_programs || []).filter(program => program.id !== id) }
+      : vendor
+    ))
+    setModal(current => current?.mode === 'edit' && current.data.key === vk
+      ? { ...current, data: { ...current.data, vendor_programs: (current.data.vendor_programs || []).filter(program => program.id !== id) } }
+      : current
+    )
     load()
   }
 
