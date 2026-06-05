@@ -73,6 +73,8 @@ export default function SettleDetailPage() {
   const [s0, e0] = monthRange()
   const [startDate, setStartDate] = useState(s0)
   const [endDate,   setEndDate]   = useState(e0)
+  const [draftStartDate, setDraftStartDate] = useState(s0)
+  const [draftEndDate,   setDraftEndDate]   = useState(e0)
 
   const [vendors,      setVendors]      = useState([])
   const [packages,     setPackages]     = useState([])
@@ -251,6 +253,16 @@ export default function SettleDetailPage() {
 
   useEffect(() => { compute() }, [compute])
 
+  function applyPeriod() {
+    if (!draftStartDate || !draftEndDate) return
+    if (draftStartDate === startDate && draftEndDate === endDate) {
+      compute()
+      return
+    }
+    setStartDate(draftStartDate)
+    setEndDate(draftEndDate)
+  }
+
   // 체크박스 헬퍼
   function getChecked(g) { return checkedItems[g.key] || new Set() }
 
@@ -330,6 +342,8 @@ export default function SettleDetailPage() {
     const nextEnd = h.period_end || endDate
     setStartDate(nextStart)
     setEndDate(nextEnd)
+    setDraftStartDate(nextStart)
+    setDraftEndDate(nextEnd)
     await fetchHistory()
     if (nextStart === startDate && nextEnd === endDate) await compute()
   }
@@ -342,12 +356,12 @@ export default function SettleDetailPage() {
       <div className="settle-period-bar">
         <label>정산 시작일</label>
         <input type="text" inputMode="numeric" maxLength={10} className="form-input" style={{ width: '140px', height: '34px' }}
-          value={startDate} onChange={e => setStartDate(formatDateTyping(e.target.value))} placeholder="2026-05-09" />
+          value={draftStartDate} onChange={e => setDraftStartDate(formatDateTyping(e.target.value))} placeholder="2026-05-09" />
         <span style={{ color: 'var(--text-muted)' }}>~</span>
         <label>정산 종료일</label>
         <input type="text" inputMode="numeric" maxLength={10} className="form-input" style={{ width: '140px', height: '34px' }}
-          value={endDate} onChange={e => setEndDate(formatDateTyping(e.target.value))} placeholder="2026-05-09" />
-        <button className="btn-primary" style={{ height: '34px' }} onClick={compute}>조회</button>
+          value={draftEndDate} onChange={e => setDraftEndDate(formatDateTyping(e.target.value))} placeholder="2026-05-09" />
+        <button className="btn-primary" style={{ height: '34px' }} onClick={applyPeriod}>조회</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>미정산 합계:</span>
           <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '14px', fontWeight: 700, color: 'var(--amber)' }}>

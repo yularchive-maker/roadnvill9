@@ -105,6 +105,8 @@ export default function SettleSummaryPage() {
   const [defaultStart, defaultEnd] = monthRange()
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
+  const [draftStartDate, setDraftStartDate] = useState(defaultStart)
+  const [draftEndDate, setDraftEndDate] = useState(defaultEnd)
   const [loading, setLoading] = useState(false)
   const [vendors, setVendors] = useState([])
   const [packages, setPackages] = useState([])
@@ -343,6 +345,15 @@ export default function SettleSummaryPage() {
   const overallSettled = allRows.reduce((sum, row) => sum + row.settled, 0)
   const overallCount = allRows.reduce((sum, row) => sum + row.count, 0)
   const toggleRow = key => setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }))
+  const applyPeriod = () => {
+    if (!draftStartDate || !draftEndDate) return
+    if (draftStartDate === startDate && draftEndDate === endDate) {
+      load()
+      return
+    }
+    setStartDate(draftStartDate)
+    setEndDate(draftEndDate)
+  }
 
   return (
     <div>
@@ -354,8 +365,8 @@ export default function SettleSummaryPage() {
           maxLength={10}
           className="form-input"
           style={{ width: '140px', height: '34px' }}
-          value={startDate}
-          onChange={event => setStartDate(formatDateTyping(event.target.value))}
+          value={draftStartDate}
+          onChange={event => setDraftStartDate(formatDateTyping(event.target.value))}
           placeholder="2026-05-01"
         />
         <span style={{ color: 'var(--text-muted)' }}>~</span>
@@ -366,11 +377,11 @@ export default function SettleSummaryPage() {
           maxLength={10}
           className="form-input"
           style={{ width: '140px', height: '34px' }}
-          value={endDate}
-          onChange={event => setEndDate(formatDateTyping(event.target.value))}
+          value={draftEndDate}
+          onChange={event => setDraftEndDate(formatDateTyping(event.target.value))}
           placeholder="2026-05-31"
         />
-        <button className="btn-primary" style={{ height: '34px' }} onClick={load}>조회</button>
+        <button className="btn-primary" style={{ height: '34px' }} onClick={applyPeriod}>조회</button>
         <Link href="/dashboard/settle-detail" className="btn-outline" style={{ height: '34px', display: 'inline-flex', alignItems: 'center' }}>
           업체별 정산내역
         </Link>
