@@ -2479,7 +2479,14 @@ export default function ReservationsPage() {
         {Object.entries(STATUS_LABEL).map(([type,label])=>{
           const cnt = activeReservations.filter(r=>r.type===type).length
           return (
-            <div key={type} onClick={()=>setFilterType(filterType===type?'':type)} style={{cursor:'pointer',padding:'4px 12px',borderRadius:'20px',fontSize:'12px',fontWeight:600,background: filterType===type ? 'rgba(78,205,196,.15)' : 'var(--navy2)',border:`1px solid ${filterType===type?'var(--accent)':'var(--border2)'}`,color: filterType===type?'var(--accent)':'var(--text-secondary)'}}>
+            <div
+              key={type}
+              onClick={() => {
+                setShowCancelledHistory(false)
+                setFilterType(filterType===type?'':type)
+              }}
+              style={{cursor:'pointer',padding:'4px 12px',borderRadius:'20px',fontSize:'12px',fontWeight:600,background: !showCancelledHistory && filterType===type ? 'rgba(78,205,196,.15)' : 'var(--navy2)',border:`1px solid ${!showCancelledHistory && filterType===type?'var(--accent)':'var(--border2)'}`,color: !showCancelledHistory && filterType===type?'var(--accent)':'var(--text-secondary)'}}
+            >
               <span className={`badge ${type}`} style={{marginRight:'6px'}}>{label}</span>{cnt}
             </div>
           )
