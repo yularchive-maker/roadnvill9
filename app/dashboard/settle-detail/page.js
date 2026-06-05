@@ -142,6 +142,7 @@ export default function SettleDetailPage() {
       if (!r) continue
       const vendor = vendors.find(v => v.key === snap.vendor_key)
       const amt = Number(snap.vendor_settle_total) || 0
+      if (amt <= 0) continue
       const item = { no: r.no, customer: r.customer, date: r.date, pax: snap.pax || r.pax, detail: snap.prog_name, amt }
       if (settled.has(settledKey('체험', snap.vendor_key, item))) continue
       if (!vMap[snap.vendor_key]) {
@@ -162,6 +163,7 @@ export default function SettleDetailPage() {
         const vp = vendor.vendor_programs?.find(x => x.prog_name === pp.prog_name)
         if (!vp) continue
         const amt = vp.settle_type === 'per_person' ? vp.unit_price * (r.pax || 0) : vp.unit_price
+        if (amt <= 0) continue
         const item = { no: r.no, customer: r.customer, date: r.date, pax: r.pax, detail: pp.prog_name, amt }
         if (settled.has(settledKey('체험', pp.vendor_key, item))) continue
         if (!vMap[pp.vendor_key]) {
@@ -205,7 +207,7 @@ export default function SettleDetailPage() {
     const agencyMap = {}
     for (const r of resv) {
       const platformAmt = feeAmount(r.total, r.plat_fee)
-      if (r.platform_name) {
+      if (r.platform_name && platformAmt > 0) {
         const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: r.platform_name, amt: platformAmt }
         if (!settled.has(settledKey('플랫폼', null, item))) {
           const k = r.platform_name
@@ -217,7 +219,7 @@ export default function SettleDetailPage() {
       }
 
       const agencyAmt = feeAmount(r.total, r.ag_fee)
-      if (r.agency_name) {
+      if (r.agency_name && agencyAmt > 0) {
         const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: r.agency_name, amt: agencyAmt }
         if (!settled.has(settledKey('여행사', null, item))) {
           const k = r.agency_name

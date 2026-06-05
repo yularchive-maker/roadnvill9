@@ -83,11 +83,13 @@ function historyVendorKeys(history, item, vendors = []) {
 
 function addAmount(map, type, name, amount, color) {
   if (!map[type] || !name) return
+  const numericAmount = Number(amount) || 0
+  if (numericAmount <= 0) return
   if (!map[type][name]) {
     map[type][name] = { vendor: name, color, count: 0, settled: 0, unsettled: 0 }
   }
   map[type][name].count += 1
-  map[type][name].unsettled += Number(amount) || 0
+  map[type][name].unsettled += numericAmount
 }
 
 export default function SettleSummaryPage() {
@@ -136,6 +138,8 @@ export default function SettleSummaryPage() {
 
         if (!inDateRange(item.date, startDate, endDate)) continue
         if (!settledMap[type]) continue
+        const amount = Number(item.amt) || 0
+        if (amount <= 0) continue
 
         const name = historyVendorName(history, vendors)
         if (!settledMap[type][name]) {
@@ -148,7 +152,7 @@ export default function SettleSummaryPage() {
           }
         }
         settledMap[type][name].count += 1
-        settledMap[type][name].settled += Number(item.amt) || 0
+        settledMap[type][name].settled += amount
       }
     }
 
