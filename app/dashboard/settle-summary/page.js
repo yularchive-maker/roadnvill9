@@ -463,7 +463,17 @@ export default function SettleSummaryPage() {
                   type="button"
                   onClick={() => toggleRow(rowKey)}
                   className="list-row"
-                  style={{ width: '100%', gridTemplateColumns: '1fr 70px 130px 120px 120px 38px', fontSize: '13px', textAlign: 'left', border: 0, cursor: 'pointer' }}
+                  style={{
+                    width: '100%',
+                    gridTemplateColumns: '1fr 70px 130px 120px 120px 38px',
+                    fontSize: '13px',
+                    textAlign: 'left',
+                    border: 0,
+                    cursor: 'pointer',
+                    appearance: 'none',
+                    background: isOpen ? 'rgba(78,205,196,0.08)' : 'transparent',
+                    color: 'var(--text-primary)',
+                  }}
                 >
                   <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     {row.color && (
