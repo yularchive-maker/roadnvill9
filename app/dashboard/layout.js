@@ -122,15 +122,12 @@ export default function DashboardLayout({ children }) {
             <button className="btn-outline" onClick={downloadBackup}>
               Excel 백업
             </button>
-            <button className="btn-primary" onClick={() => {
-              const from = pathname === '/dashboard' ? '&from=dashboard' : ''
-              router.push(`/dashboard/reservations?new=1${from}`)
-            }}>
+            <a className="btn-primary" href={`/dashboard/reservations?new=1${pathname === '/dashboard' ? '&from=dashboard' : ''}`} style={{ textDecoration: 'none' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
               예약 등록
-            </button>
+            </a>
           </div>
         </div>
         <div className="content">{children}</div>
