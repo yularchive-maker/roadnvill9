@@ -46,6 +46,13 @@ function feeAmount(total, percent) {
   return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
+function overlapsPeriod(row, startDate, endDate) {
+  const start = row.period_start || row.settled_at || ''
+  const end = row.period_end || row.settled_at || start
+  if (!start || !end) return false
+  return start <= endDate && end >= startDate
+}
+
 function lodgeSettleAmount(lodge, reservation) {
   const price = Number(lodge?.room_price) || 0
   if (lodge?.price_type === 'per_person') {
@@ -355,6 +362,9 @@ export default function SettleDetailPage() {
   }
 
   const total = groups.reduce((s, g) => s + g.totalAmt, 0)
+  const displayedHistory = hasQueried
+    ? history.filter(row => overlapsPeriod(row, startDate, endDate))
+    : []
 
   return (
     <div>
@@ -505,15 +515,15 @@ export default function SettleDetailPage() {
             <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               정산 완료 이력
               <span style={{ fontSize: '11px', background: 'rgba(92,184,92,0.15)', color: 'var(--green)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
-                {history.length}건
+                {displayedHistory.length}건
               </span>
             </div>
           </div>
-          {history.length === 0 ? (
+          {displayedHistory.length === 0 ? (
             <div className="list-card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
               정산 이력이 없어요
             </div>
-          ) : history.map(h => (
+          ) : displayedHistory.map(h => (
             <div key={h.id} className="settle-history-card">
               <div className="shc-header">
                 <div style={{ flex: 1 }}>
