@@ -113,6 +113,7 @@ export default function SettleSummaryPage() {
   const [rows, setRows] = useState(emptyRows())
   const [activeType, setActiveType] = useState(SETTLE_TYPES[0].key)
   const [expandedRows, setExpandedRows] = useState({})
+  const [hasQueried, setHasQueried] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -330,8 +331,9 @@ export default function SettleSummaryPage() {
   }, [startDate, endDate, vendors, packages])
 
   useEffect(() => {
+    if (!hasQueried) return
     load()
-  }, [load])
+  }, [hasQueried, load])
 
   const activeMeta = SETTLE_TYPES.find(type => type.key === activeType) || SETTLE_TYPES[0]
   const activeData = rows[activeType] || []
@@ -347,6 +349,7 @@ export default function SettleSummaryPage() {
   const toggleRow = key => setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }))
   const applyPeriod = () => {
     if (!draftStartDate || !draftEndDate) return
+    setHasQueried(true)
     if (draftStartDate === startDate && draftEndDate === endDate) {
       load()
       return

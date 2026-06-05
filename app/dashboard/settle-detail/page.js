@@ -84,6 +84,7 @@ export default function SettleDetailPage() {
   const [open,         setOpen]         = useState({})
   const [dates,        setDates]        = useState({})
   const [checkedItems, setCheckedItems] = useState({}) // { [groupKey]: Set<itemIndex> }
+  const [hasQueried,   setHasQueried]   = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -251,10 +252,14 @@ export default function SettleDetailPage() {
     setLoading(false)
   }, [startDate, endDate, vendors, packages])
 
-  useEffect(() => { compute() }, [compute])
+  useEffect(() => {
+    if (!hasQueried) return
+    compute()
+  }, [hasQueried, compute])
 
   function applyPeriod() {
     if (!draftStartDate || !draftEndDate) return
+    setHasQueried(true)
     if (draftStartDate === startDate && draftEndDate === endDate) {
       compute()
       return
@@ -344,6 +349,7 @@ export default function SettleDetailPage() {
     setEndDate(nextEnd)
     setDraftStartDate(nextStart)
     setDraftEndDate(nextEnd)
+    setHasQueried(true)
     await fetchHistory()
     if (nextStart === startDate && nextEnd === endDate) await compute()
   }
