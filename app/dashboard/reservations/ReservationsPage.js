@@ -2419,10 +2419,10 @@ export default function ReservationsPage() {
           {Object.entries(STATUS_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}
         </select>
         <input type="text" inputMode="numeric" maxLength={7} className="filter-select" value={filterMonth} onChange={e=>setFilterMonth(formatMonthTyping(e.target.value))} placeholder="2026-05" style={{width:'140px'}}/>
-        <button className="btn-primary" onClick={openNew}>
+        <a className="btn-primary" href="/dashboard/reservations?new=1" style={{ textDecoration: 'none' }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           예약 등록
-        </button>
+        </a>
       </div>
 
       {/* 요약 카운트 */}
