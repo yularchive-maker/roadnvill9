@@ -2355,6 +2355,7 @@ export default function ReservationsPage() {
   const [search,    setSearch]    = useState('')
   const [filterType,setFilterType]= useState(searchParams.get('type')||'')
   const [filterMonth,setFilterMonth] = useState('')
+  const [showCancelledHistory, setShowCancelledHistory] = useState(false)
 
   const [modal, setModal] = useState(() => {
     const newParam  = searchParams.get('new')
@@ -2368,7 +2369,7 @@ export default function ReservationsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, vendorR, usageR] = await Promise.all([
-      supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date', { ascending: false }).order('no', { ascending: false }),
+      supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
       supabase.from('platforms').select('*').order('type').order('name'),
@@ -2378,11 +2379,7 @@ export default function ReservationsPage() {
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
-    setReservations((resR.data || []).filter(row =>
-      row?.is_deleted !== true &&
-      row?.type !== 'cancelled' &&
-      row?.reservation_status !== '취소'
-    ))
+    setReservations(resR.data || [])
     setZones(zoneR.data || [])
     setPackages((pkgR.data || []).filter(pkg => pkg?.is_deleted !== true).map(normalizePackageRow))
     setPlatforms(platR.data || [])
@@ -2405,8 +2402,19 @@ export default function ReservationsPage() {
   }, [modal, reservations])
 
   // 필터링
-  const filtered = reservations.filter(r => {
-    if (r?.is_deleted === true || r?.type === 'cancelled' || r?.reservation_status === '취소') return false
+  const activeReservations = reservations.filter(r =>
+    r?.is_deleted !== true &&
+    r?.type !== 'cancelled' &&
+    r?.reservation_status !== '취소'
+  )
+  const cancelledReservations = reservations.filter(r =>
+    r?.is_deleted === true ||
+    r?.type === 'cancelled' ||
+    r?.reservation_status === '취소'
+  )
+  const baseReservations = showCancelledHistory ? cancelledReservations : activeReservations
+
+  const filtered = baseReservations.filter(r => {
     const q = search.toLowerCase()
     const componentNames = budgetUsages
       .filter(row => row.reservation_no === r.no && row.usage_type === 'product_operation' && row.is_deleted !== true)
@@ -2417,7 +2425,7 @@ export default function ReservationsPage() {
       r.no?.includes(q) ||
       r.package_name?.toLowerCase().includes(q) ||
       componentNames.some(name => String(name).toLowerCase().includes(q))
-    const matchType  = !filterType  || r.type === filterType
+    const matchType  = showCancelledHistory || !filterType || r.type === filterType
     const matchMonth = !filterMonth || r.date?.startsWith(filterMonth)
     return matchSearch && matchType && matchMonth
   })
@@ -2444,7 +2452,7 @@ export default function ReservationsPage() {
       {/* 검색·필터 바 */}
       <div className="search-bar">
         <input className="search-input" placeholder="고객명, 예약번호, 패키지명 검색" value={search} onChange={e=>setSearch(e.target.value)}/>
-        <select className="filter-select" value={filterType} onChange={e=>setFilterType(e.target.value)}>
+        <select className="filter-select" value={filterType} onChange={e=>setFilterType(e.target.value)} disabled={showCancelledHistory}>
           <option value="">전체 상태</option>
           {Object.entries(STATUS_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}
         </select>
@@ -2453,20 +2461,49 @@ export default function ReservationsPage() {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           예약 등록
         </a>
+        <button
+          className={showCancelledHistory ? 'btn-primary' : 'btn-outline'}
+          type="button"
+          onClick={() => {
+            setShowCancelledHistory(value => !value)
+            setFilterType('')
+          }}
+          style={{ minWidth:'96px' }}
+        >
+          {showCancelledHistory ? '예약 목록' : '취소 이력'}
+        </button>
       </div>
 
       {/* 요약 카운트 */}
       <div style={{display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap'}}>
         {Object.entries(STATUS_LABEL).map(([type,label])=>{
-          const cnt = reservations.filter(r=>r.type===type).length
+          const cnt = activeReservations.filter(r=>r.type===type).length
           return (
             <div key={type} onClick={()=>setFilterType(filterType===type?'':type)} style={{cursor:'pointer',padding:'4px 12px',borderRadius:'20px',fontSize:'12px',fontWeight:600,background: filterType===type ? 'rgba(78,205,196,.15)' : 'var(--navy2)',border:`1px solid ${filterType===type?'var(--accent)':'var(--border2)'}`,color: filterType===type?'var(--accent)':'var(--text-secondary)'}}>
               <span className={`badge ${type}`} style={{marginRight:'6px'}}>{label}</span>{cnt}
             </div>
           )
         })}
+        <div
+          onClick={() => {
+            setShowCancelledHistory(true)
+            setFilterType('')
+          }}
+          style={{
+            cursor:'pointer',
+            padding:'4px 12px',
+            borderRadius:'20px',
+            fontSize:'12px',
+            fontWeight:600,
+            background: showCancelledHistory ? 'rgba(255,107,107,.15)' : 'var(--navy2)',
+            border:`1px solid ${showCancelledHistory ? 'rgba(255,107,107,.55)' : 'var(--border2)'}`,
+            color: showCancelledHistory ? 'var(--red)' : 'var(--text-secondary)'
+          }}
+        >
+          <span className="badge cancelled" style={{marginRight:'6px'}}>취소 이력</span>{cancelledReservations.length}
+        </div>
         <div style={{marginLeft:'auto',fontSize:'12px',color:'var(--text-muted)',alignSelf:'center'}}>
-          {filtered.length}건 표시 / 전체 {reservations.length}건
+          {showCancelledHistory ? '취소 이력 ' : ''}{filtered.length}건 표시 / 전체 {baseReservations.length}건
         </div>
       </div>
 
@@ -2491,7 +2528,7 @@ export default function ReservationsPage() {
         {filtered.map(r => {
           const summary = componentSummaryForReservation(r, budgetUsages, packages, zones)
           return (
-            <div key={r.no} className="list-row" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px'}} onClick={()=>openEdit(r)}>
+            <div key={r.no} className="list-row" style={{gridTemplateColumns:RESERVATION_LIST_GRID, gap:'12px', cursor: showCancelledHistory ? 'default' : 'pointer'}} onClick={()=>{ if (!showCancelledHistory) openEdit(r) }}>
               <span className="no-col" style={CENTER_CELL}>#{r.no}</span>
               <span style={CENTER_CELL}><span className={`badge ${r.type}`} style={{minWidth:'46px',justifyContent:'center'}}>{STATUS_LABEL[r.type]}</span></span>
               <span style={{...CENTER_CELL,fontSize:'12px',fontFamily:'DM Mono,monospace',color:'var(--text-secondary)'}}>{r.date}</span>
