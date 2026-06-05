@@ -751,7 +751,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState({})
   const [progs,    setProgs]    = useState([])
-  const emptyPackageProgForm = { zone_code: '', vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 0, vendor_settle_price: '', settle_type: 'per_person', price_note: '' }
+  const emptyPackageProgForm = { zone_code: '', vendor_key: '', prog_name: '', default_start: '09:00', default_end: '10:00', sort_order: 1, vendor_settle_price: '', settle_type: 'per_person', price_note: '' }
   const [progForm, setProgForm] = useState(emptyPackageProgForm)
   const [editingProgId, setEditingProgId] = useState(null)
   const [expanded, setExpanded] = useState({})
@@ -797,11 +797,25 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
 
   function openEdit(p) {
     const zoneCodes = packageZoneCodes(p)
+    const activeProgs = activePackagePrograms(p.package_programs)
     setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || zoneCodes[0] || '', zone_codes: zoneCodes, name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0, package_type: p.package_type || packageType })
-    setProgs(activePackagePrograms(p.package_programs))
-    setProgForm(emptyPackageProgForm)
+    setProgs(activeProgs)
+    setProgForm(nextPackageProgForm(activeProgs, zoneCodes[0] || ''))
     setEditingProgId(null)
     setModal({ mode: 'edit', data: p })
+  }
+
+  function nextPackageProgramSortOrder(items = progs) {
+    const orders = (items || []).map(item => Number(item.sort_order) || 0).filter(order => order > 0)
+    return orders.length ? Math.max(...orders) + 1 : 1
+  }
+
+  function nextPackageProgForm(items = progs, zoneCode = progForm.zone_code || '') {
+    return {
+      ...emptyPackageProgForm,
+      zone_code: zoneCode,
+      sort_order: nextPackageProgramSortOrder(items),
+    }
   }
 
   async function togglePackageZone(zoneCode) {
@@ -880,7 +894,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     const payload = {
       ...programFormPayload,
       package_id: modal.data.id,
-      sort_order: Number(progForm.sort_order) || 0,
+      sort_order: Number(progForm.sort_order) || nextPackageProgramSortOrder(),
       vendor_settle_price: Number(progForm.vendor_settle_price) || 0,
       settle_type: progForm.settle_type || 'per_person',
       price_note: progForm.price_note || null,
@@ -900,7 +914,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     }
     const { data } = await supabase.from('package_programs').select('*, vendors(key,name,color)').eq('package_id', modal.data.id).or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
     setProgs(data || [])
-    setProgForm(emptyPackageProgForm)
+    setProgForm(nextPackageProgForm(data || [], programZoneCode))
     setEditingProgId(null)
     load()
   }
@@ -923,7 +937,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
 
   function cancelProgEdit() {
     setEditingProgId(null)
-    setProgForm(emptyPackageProgForm)
+    setProgForm(nextPackageProgForm())
   }
 
   async function delProg(id) {
@@ -931,6 +945,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     if (error) { alert('삭제 실패: ' + error.message); return }
     setProgs(prev => prev.filter(program => program.id !== id))
     if (editingProgId === id) cancelProgEdit()
+    else setProgForm(f => ({ ...f, sort_order: nextPackageProgramSortOrder(progs.filter(program => program.id !== id)) }))
     load()
   }
 
