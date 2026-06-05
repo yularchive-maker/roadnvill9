@@ -38,6 +38,8 @@ export async function DELETE(_, { params }) {
   await supabase.from('vendor_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)
   await supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)
   await supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)
+  await supabase.from('reservation_budget_usages').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)
+  await supabase.from('reservation_program_snapshots').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', params.no)
   const { error } = await supabase
     .from('reservations')
     .update({ is_deleted: true, deleted_at: deletedAt, reservation_status: '취소', type: 'cancelled' })

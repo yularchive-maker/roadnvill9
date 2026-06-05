@@ -1103,6 +1103,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       lodging_status: form.lodging_status || '해당없음',
       pickup_status: form.pickup_status || '해당없음',
     }
+    const cancellationRequested = payload.type === 'cancelled' || payload.reservation_status === '취소'
 
     let no = form.no
     if (!isEdit) {
@@ -1161,6 +1162,25 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         }
       }
     } else {
+      if (cancellationRequested) {
+        const deletedAt = new Date().toISOString()
+        await Promise.all([
+          supabase.from('vendor_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', no),
+          supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', no),
+          supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', no),
+          supabase.from('reservation_budget_usages').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', no),
+          supabase.from('reservation_program_snapshots').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', no),
+        ])
+        const { error } = await supabase
+          .from('reservations')
+          .update({ ...payload, is_deleted: true, deleted_at: deletedAt, reservation_status: '취소', type: 'cancelled' })
+          .eq('no', no)
+        if (error) { alert('수정 실패: ' + error.message); setSaving(false); return }
+        setSaving(false)
+        onSaved()
+        return
+      }
+
       for (const lodge of lodges) {
         const conflict = await findLodgeConflict(lodge, { skipLocal: true })
         if (conflict) {
@@ -1201,10 +1221,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   // 삭제
   async function del() {
     if (!confirm(`예약 #${form.no} (${form.customer})을 삭제하시겠습니까?`)) return
-    await supabase.from('vendor_confirms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('reservation_no', form.no)
-    await supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('reservation_no', form.no)
-    await supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('reservation_no', form.no)
-    await supabase.from('reservations').update({ is_deleted: true, deleted_at: new Date().toISOString(), reservation_status: '취소', type: 'cancelled' }).eq('no', form.no)
+    const deletedAt = new Date().toISOString()
+    await Promise.all([
+      supabase.from('vendor_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', form.no),
+      supabase.from('lodge_confirms').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', form.no),
+      supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', form.no),
+      supabase.from('reservation_budget_usages').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', form.no),
+      supabase.from('reservation_program_snapshots').update({ is_deleted: true, deleted_at: deletedAt }).eq('reservation_no', form.no),
+    ])
+    await supabase.from('reservations').update({ is_deleted: true, deleted_at: deletedAt, reservation_status: '취소', type: 'cancelled' }).eq('no', form.no)
     onSaved()
   }
 
@@ -2343,7 +2368,7 @@ export default function ReservationsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, vendorR, usageR] = await Promise.all([
-      supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
+      supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
       supabase.from('platforms').select('*').order('type').order('name'),
@@ -2353,7 +2378,11 @@ export default function ReservationsPage() {
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
-    setReservations(resR.data || [])
+    setReservations((resR.data || []).filter(row =>
+      row?.is_deleted !== true &&
+      row?.type !== 'cancelled' &&
+      row?.reservation_status !== '취소'
+    ))
     setZones(zoneR.data || [])
     setPackages((pkgR.data || []).filter(pkg => pkg?.is_deleted !== true).map(normalizePackageRow))
     setPlatforms(platR.data || [])
@@ -2377,6 +2406,7 @@ export default function ReservationsPage() {
 
   // 필터링
   const filtered = reservations.filter(r => {
+    if (r?.is_deleted === true || r?.type === 'cancelled' || r?.reservation_status === '취소') return false
     const q = search.toLowerCase()
     const componentNames = budgetUsages
       .filter(row => row.reservation_no === r.no && row.usage_type === 'product_operation' && row.is_deleted !== true)
