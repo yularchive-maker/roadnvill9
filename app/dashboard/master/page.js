@@ -761,7 +761,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     const [pkgR, zoneR, vendorR, bizItemR] = await Promise.all([
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('*').order('code'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type)').order('key'),
+      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       packageType === 'business'
         ? supabase.from('biz_budget_items').select('id,biz_id,item_name,support_unit_amount,planned_people_count').eq('category', 'product_operation').eq('sale_type', 'package').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
         : Promise.resolve({ data: [] }),
@@ -1797,7 +1797,7 @@ function BizTab() {
       supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
+      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
     ])
     setBizList(bizR.data || [])
     setItems(itemR.data || [])
