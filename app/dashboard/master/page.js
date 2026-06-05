@@ -768,7 +768,10 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     ])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType && pkg.is_deleted !== true))
     setZones(zoneR.data || [])
-    setVendors(vendorR.data || [])
+    setVendors((vendorR.data || []).map(vendor => ({
+      ...vendor,
+      vendor_programs: activeVendorPrograms(vendor.vendor_programs),
+    })))
     setBusinessPackageOptions(bizItemR.data || [])
   }, [packageType])
   useEffect(() => { load() }, [load])
@@ -1800,7 +1803,10 @@ function BizTab() {
     setItems(itemR.data || [])
     setZones(zoneR.data || [])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === 'business'))
-    setVendors(vendorR.data || [])
+    setVendors((vendorR.data || []).map(vendor => ({
+      ...vendor,
+      vendor_programs: activeVendorPrograms(vendor.vendor_programs),
+    })))
   }, [])
   useEffect(() => { load() }, [load])
 
