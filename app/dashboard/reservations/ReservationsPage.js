@@ -16,6 +16,25 @@ const RIGHT_CELL = { display:'flex', alignItems:'center', justifyContent:'flex-e
 const NOWRAP_CELL = { overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
 const COMPACT_ACTION_BUTTON = { display:'inline-flex', alignItems:'center', justifyContent:'center', minWidth:'78px', whiteSpace:'nowrap' }
 
+function activeRows(rows) {
+  return (rows || []).filter(row => row && row.is_deleted !== true)
+}
+
+function normalizePackageRow(pkg) {
+  return {
+    ...pkg,
+    package_zones: activeRows(pkg.package_zones),
+    package_programs: activeRows(pkg.package_programs),
+  }
+}
+
+function normalizeVendorRow(vendor) {
+  return {
+    ...vendor,
+    vendor_programs: activeRows(vendor.vendor_programs),
+  }
+}
+
 // ── 금액 계산
 function calcTotal(price, pax, discount, pickupFee, burden) {
   return (Number(price)||0) * (Number(pax)||0)
@@ -2331,17 +2350,17 @@ export default function ReservationsPage() {
       supabase.from('drivers').select('*').order('name'),
       supabase.from('biz').select('*').order('name'),
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type)').order('key'),
+      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setZones(zoneR.data || [])
-    setPackages(pkgR.data || [])
+    setPackages((pkgR.data || []).filter(pkg => pkg?.is_deleted !== true).map(normalizePackageRow))
     setPlatforms(platR.data || [])
     setDrivers(drvR.data || [])
     setBizList(bizR.data || [])
     setLodgeVendors(lodgeR.data || [])
-    setVendors(vendorR.data || [])
+    setVendors((vendorR.data || []).map(normalizeVendorRow))
     setBudgetUsages(usageR.data || [])
     setLoading(false)
   }, [])
