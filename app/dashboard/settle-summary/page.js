@@ -39,6 +39,14 @@ function feeAmount(total, percent) {
   return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
+function lodgeSettleAmount(lodge, reservation) {
+  const price = Number(lodge?.room_price) || 0
+  if (lodge?.price_type === 'per_person') {
+    return price * (Number(reservation?.pax) || 0)
+  }
+  return price
+}
+
 function normalizeSettleType(type, vendorKey) {
   if (vendorKey) return '체험'
   if (SETTLE_TYPES.some(item => item.key === type)) return type
@@ -81,15 +89,16 @@ function historyVendorKeys(history, item, vendors = []) {
   return keys.length ? keys : ['']
 }
 
-function addAmount(map, type, name, amount, color) {
+function addAmount(map, type, name, amount, color, detail = null) {
   if (!map[type] || !name) return
   const numericAmount = Number(amount) || 0
   if (numericAmount <= 0) return
   if (!map[type][name]) {
-    map[type][name] = { vendor: name, color, count: 0, settled: 0, unsettled: 0 }
+    map[type][name] = { vendor: name, color, count: 0, settled: 0, unsettled: 0, details: [] }
   }
   map[type][name].count += 1
   map[type][name].unsettled += numericAmount
+  if (detail) map[type][name].details.push({ ...detail, amount: numericAmount, status: '미정산' })
 }
 
 export default function SettleSummaryPage() {
@@ -101,6 +110,7 @@ export default function SettleSummaryPage() {
   const [packages, setPackages] = useState([])
   const [rows, setRows] = useState(emptyRows())
   const [activeType, setActiveType] = useState(SETTLE_TYPES[0].key)
+  const [expandedRows, setExpandedRows] = useState({})
 
   useEffect(() => {
     Promise.all([
@@ -149,10 +159,20 @@ export default function SettleSummaryPage() {
             count: 0,
             settled: 0,
             unsettled: 0,
+            details: [],
           }
         }
         settledMap[type][name].count += 1
         settledMap[type][name].settled += amount
+        settledMap[type][name].details.push({
+          no: item.no || item.reservation_no || '',
+          date: item.date || '',
+          customer: item.customer || '',
+          pax: item.pax,
+          detail: item.detail || '',
+          amount,
+          status: '정산완료',
+        })
       }
     }
 
@@ -168,6 +188,7 @@ export default function SettleSummaryPage() {
 
     if (reservations?.length) {
       const reservationNos = reservations.map(item => item.no)
+      const reservationByNo = Object.fromEntries(reservations.map(item => [item.no, item]))
       const [lodgeRes, pickupRes, snapshotRes] = await Promise.all([
         supabase.from('lodge_confirms').select('*').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
         supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
@@ -181,9 +202,16 @@ export default function SettleSummaryPage() {
         const amount = Number(snapshot.vendor_settle_total) || 0
         const item = { no: snapshot.reservation_no, detail: snapshot.prog_name, amt: amount }
         if (settled.has(settledKey('체험', snapshot.vendor_key, item))) continue
+        const reservation = reservationByNo[snapshot.reservation_no] || {}
         const vendor = vendors.find(vendorItem => vendorItem.key === snapshot.vendor_key)
         const name = snapshot.vendor_name || vendor?.name || snapshot.vendor_key
-        addAmount(unsettledMap, '체험', name, amount, vendor?.color)
+        addAmount(unsettledMap, '체험', name, amount, vendor?.color, {
+          no: snapshot.reservation_no,
+          date: reservation.date,
+          customer: reservation.customer,
+          pax: snapshot.pax || reservation.pax,
+          detail: snapshot.prog_name,
+        })
       }
 
       for (const reservation of reservations) {
@@ -202,22 +230,43 @@ export default function SettleSummaryPage() {
             : Number(vendorProgram.unit_price) || 0
           const item = { no: reservation.no, detail: program.prog_name, amt: amount }
           if (settled.has(settledKey('체험', program.vendor_key, item))) continue
-          addAmount(unsettledMap, '체험', vendor.name, amount, vendor.color)
+          addAmount(unsettledMap, '체험', vendor.name, amount, vendor.color, {
+            no: reservation.no,
+            date: reservation.date,
+            customer: reservation.customer,
+            pax: reservation.pax,
+            detail: program.prog_name,
+          })
         }
       }
 
       for (const lodge of lodgeRes.data || []) {
         if (!lodge.lodge_name || !lodge.room_price) continue
-        const item = { no: lodge.reservation_no, detail: lodge.room_name || '', amt: lodge.room_price }
+        const reservation = reservationByNo[lodge.reservation_no] || {}
+        const amount = lodgeSettleAmount(lodge, reservation)
+        const item = { no: lodge.reservation_no, detail: lodge.room_name || '', amt: amount }
         if (settled.has(settledKey('숙박', null, item))) continue
-        addAmount(unsettledMap, '숙박', lodge.lodge_name, lodge.room_price, 'var(--amber)')
+        addAmount(unsettledMap, '숙박', lodge.lodge_name, amount, 'var(--amber)', {
+          no: lodge.reservation_no,
+          date: reservation.date,
+          customer: reservation.customer,
+          pax: reservation.pax,
+          detail: `${lodge.room_name || ''}${lodge.price_type === 'per_person' ? ' · 인원당' : ''}`,
+        })
       }
 
       for (const pickup of pickupRes.data || []) {
         if (!pickup.pickup_fee) continue
         const item = { no: pickup.reservation_no, detail: pickup.pickup_place || '', amt: pickup.pickup_fee }
         if (settled.has(settledKey('픽업', null, item))) continue
-        addAmount(unsettledMap, '픽업', pickup.drivers?.name || '픽업 수행자', pickup.pickup_fee, 'var(--pickup)')
+        const reservation = reservationByNo[pickup.reservation_no] || {}
+        addAmount(unsettledMap, '픽업', pickup.drivers?.name || '픽업 수행자', pickup.pickup_fee, 'var(--pickup)', {
+          no: pickup.reservation_no,
+          date: reservation.date,
+          customer: reservation.customer,
+          pax: reservation.pax,
+          detail: pickup.pickup_place || '',
+        })
       }
 
       for (const reservation of reservations) {
@@ -225,7 +274,13 @@ export default function SettleSummaryPage() {
         if (reservation.platform_name && platformAmount > 0) {
           const item = { no: reservation.no, detail: reservation.platform_name, amt: platformAmount }
           if (!settled.has(settledKey('플랫폼', null, item))) {
-            addAmount(unsettledMap, '플랫폼', reservation.platform_name, platformAmount, 'var(--purple)')
+            addAmount(unsettledMap, '플랫폼', reservation.platform_name, platformAmount, 'var(--purple)', {
+              no: reservation.no,
+              date: reservation.date,
+              customer: reservation.customer,
+              pax: reservation.pax,
+              detail: reservation.platform_name,
+            })
           }
         }
 
@@ -233,7 +288,13 @@ export default function SettleSummaryPage() {
         if (reservation.agency_name && agencyAmount > 0) {
           const item = { no: reservation.no, detail: reservation.agency_name, amt: agencyAmount }
           if (!settled.has(settledKey('여행사', null, item))) {
-            addAmount(unsettledMap, '여행사', reservation.agency_name, agencyAmount, 'var(--green)')
+            addAmount(unsettledMap, '여행사', reservation.agency_name, agencyAmount, 'var(--green)', {
+              no: reservation.no,
+              date: reservation.date,
+              customer: reservation.customer,
+              pax: reservation.pax,
+              detail: reservation.agency_name,
+            })
           }
         }
       }
@@ -251,6 +312,8 @@ export default function SettleSummaryPage() {
           count: (settledRow.count || 0) + (unsettledRow.count || 0),
           settled: settledRow.settled || 0,
           unsettled: unsettledRow.unsettled || 0,
+          details: [...(settledRow.details || []), ...(unsettledRow.details || [])]
+            .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.no || '').localeCompare(String(b.no || ''))),
         }
       }
     }
@@ -279,6 +342,7 @@ export default function SettleSummaryPage() {
   const overallUnsettled = allRows.reduce((sum, row) => sum + row.unsettled, 0)
   const overallSettled = allRows.reduce((sum, row) => sum + row.settled, 0)
   const overallCount = allRows.reduce((sum, row) => sum + row.count, 0)
+  const toggleRow = key => setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }))
 
   return (
     <div>
@@ -376,20 +440,52 @@ export default function SettleSummaryPage() {
             <div style={{ padding: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
               내역 없음
             </div>
-          ) : activeData.map((row, index) => (
-            <div key={`${row.vendor}-${index}`} className="list-row" style={{ gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '13px' }}>
-              <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                {row.color && (
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: row.color, display: 'inline-block', flexShrink: 0 }} />
+          ) : activeData.map((row, index) => {
+            const rowKey = `${activeType}-${row.vendor}-${index}`
+            const isOpen = !!expandedRows[rowKey]
+            return (
+              <div key={rowKey} style={{ borderTop: index === 0 ? 0 : '1px solid var(--border2)' }}>
+                <button
+                  type="button"
+                  onClick={() => toggleRow(rowKey)}
+                  className="list-row"
+                  style={{ width: '100%', gridTemplateColumns: '1fr 70px 130px 120px 120px 38px', fontSize: '13px', textAlign: 'left', border: 0, cursor: 'pointer' }}
+                >
+                  <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                    {row.color && (
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: row.color, display: 'inline-block', flexShrink: 0 }} />
+                    )}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.vendor}</span>
+                  </span>
+                  <span style={{ color: 'var(--text-muted)' }}>{row.count}건</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(row.settled + row.unsettled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(row.unsettled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(row.settled)}</span>
+                  <span style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '11px' }}>{isOpen ? '접기' : '상세'}</span>
+                </button>
+                {isOpen && (
+                  <div style={{ padding: '8px 18px 14px', background: 'rgba(0,0,0,0.08)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '76px 92px minmax(92px,1fr) 58px minmax(120px,1.2fr) 110px 72px', gap: '8px', padding: '7px 10px', color: 'var(--text-muted)', fontSize: '10px', borderBottom: '1px solid var(--border2)' }}>
+                      <span>예약번호</span><span>날짜</span><span>고객명</span><span>인원</span><span>내용</span><span>금액</span><span>상태</span>
+                    </div>
+                    {(row.details || []).length === 0 ? (
+                      <div style={{ padding: '12px 10px', color: 'var(--text-muted)', fontSize: '12px' }}>예약별 상세 없음</div>
+                    ) : row.details.map((detail, detailIndex) => (
+                      <div key={`${rowKey}-detail-${detailIndex}`} style={{ display: 'grid', gridTemplateColumns: '76px 92px minmax(92px,1fr) 58px minmax(120px,1.2fr) 110px 72px', gap: '8px', alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '12px' }}>
+                        <span className="no-col">#{detail.no || '-'}</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>{detail.date || '-'}</span>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.customer || '-'}</span>
+                        <span style={{ fontWeight: 700 }}>{detail.pax ? `${detail.pax}명` : '-'}</span>
+                        <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.detail || '-'}</span>
+                        <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 800, color: detail.status === '정산완료' ? 'var(--green)' : 'var(--amber)' }}>₩{fmt(detail.amount)}</span>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: detail.status === '정산완료' ? 'var(--green)' : 'var(--amber)' }}>{detail.status}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.vendor}</span>
-              </span>
-              <span style={{ color: 'var(--text-muted)' }}>{row.count}건</span>
-              <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(row.settled + row.unsettled)}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(row.unsettled)}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(row.settled)}</span>
-            </div>
-          ))}
+              </div>
+            )
+          })}
           {activeData.length > 0 && (
             <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
               <span>합계</span>

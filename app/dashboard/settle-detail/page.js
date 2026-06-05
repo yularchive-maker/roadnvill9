@@ -46,6 +46,14 @@ function feeAmount(total, percent) {
   return Math.round((Number(total) || 0) * (Number(percent) || 0) / 100)
 }
 
+function lodgeSettleAmount(lodge, reservation) {
+  const price = Number(lodge?.room_price) || 0
+  if (lodge?.price_type === 'per_person') {
+    return price * (Number(reservation?.pax) || 0)
+  }
+  return price
+}
+
 function historyVendorName(h, vendors = []) {
   if (h.vendors?.name) return h.vendors.name
   const vendor = vendors.find(v => v.key === h.vendor_key)
@@ -180,12 +188,14 @@ export default function SettleDetailPage() {
       if (!lc.lodge_name || !lc.room_price) continue
       const r = resv.find(x => x.no === lc.reservation_no)
       if (!r) continue
+      const amount = lodgeSettleAmount(lc, r)
+      if (amount <= 0) continue
       const k = lc.lodge_name
       if (!lMap[k]) lMap[k] = { key: 'lodge-' + k, vendor: k, color: 'var(--amber)', type: '숙박', totalAmt: 0, items: [], nos: new Set() }
-      const item = { no: r.no, customer: r.customer, date: r.date, pax: null, detail: lc.room_name || '', amt: lc.room_price }
+      const item = { no: r.no, customer: r.customer, date: r.date, pax: r.pax, detail: `${lc.room_name || ''}${lc.price_type === 'per_person' ? ' · 인원당' : ''}`, amt: amount }
       if (settled.has(settledKey('숙박', null, item))) continue
       lMap[k].items.push(item)
-      lMap[k].totalAmt += lc.room_price
+      lMap[k].totalAmt += amount
       lMap[k].nos.add(r.no)
     }
 
