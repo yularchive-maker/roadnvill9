@@ -462,8 +462,8 @@ export default function SettleSummaryPage() {
               </span>
             </div>
           </div>
-          <div className="list-header" style={{ gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '10px' }}>
-            <span>대상</span><span>건수</span><span>합계</span><span>미정산</span><span>완료</span>
+          <div className="list-header" style={{ gridTemplateColumns: 'minmax(180px,1fr) 70px 130px 120px 120px 38px', fontSize: '10px', alignItems: 'center' }}>
+            <span style={{ textAlign: 'center' }}>대상</span><span style={{ textAlign: 'center' }}>건수</span><span style={{ textAlign: 'center' }}>합계</span><span style={{ textAlign: 'center' }}>미정산</span><span style={{ textAlign: 'center' }}>완료</span><span />
           </div>
           {activeData.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
@@ -480,7 +480,7 @@ export default function SettleSummaryPage() {
                   className="list-row"
                   style={{
                     width: '100%',
-                    gridTemplateColumns: '1fr 70px 130px 120px 120px 38px',
+                    gridTemplateColumns: 'minmax(180px,1fr) 70px 130px 120px 120px 38px',
                     fontSize: '13px',
                     textAlign: 'left',
                     border: 0,
@@ -496,10 +496,10 @@ export default function SettleSummaryPage() {
                     )}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.vendor}</span>
                   </span>
-                  <span style={{ color: 'var(--text-muted)' }}>{row.count}건</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace" }}>₩{fmt(row.settled + row.unsettled)}</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(row.unsettled)}</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(row.settled)}</span>
+                  <span style={{ color: 'var(--text-muted)', textAlign: 'center' }}>{row.count}건</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", textAlign: 'center' }}>₩{fmt(row.settled + row.unsettled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(row.unsettled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(row.settled)}</span>
                   <span style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '11px' }}>{isOpen ? '접기' : '상세'}</span>
                 </button>
                 {isOpen && (
@@ -526,12 +526,13 @@ export default function SettleSummaryPage() {
             )
           })}
           {activeData.length > 0 && (
-            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: '1fr 70px 130px 120px 120px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: 'minmax(180px,1fr) 70px 130px 120px 120px 38px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', alignItems: 'center' }}>
               <span>합계</span>
-              <span>{totalCount}건</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: activeMeta.color }}>₩{fmt(totalAmount)}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>₩{fmt(totalUnsettled)}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)' }}>₩{fmt(totalSettled)}</span>
+              <span style={{ textAlign: 'center' }}>{totalCount}건</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: activeMeta.color, textAlign: 'center' }}>₩{fmt(totalAmount)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(totalUnsettled)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(totalSettled)}</span>
+              <span />
             </div>
           )}
         </div>
