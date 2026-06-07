@@ -3,6 +3,42 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+const BACKUP_COLUMNS = [
+  '날짜',
+  '고객명',
+  '인원',
+  '체험단가',
+  '총 미정산금액',
+  '총 정산금액',
+  '총 결제금액',
+  '업체명',
+  '체험 프로그램명',
+  '숙박업체명',
+  '숙박공간명',
+  '객실명',
+  '숙박단가',
+  '픽업자명',
+  '픽업비',
+]
+
+function columnsForAmount(amountColumn) {
+  return [
+    '날짜',
+    '고객명',
+    '인원',
+    '체험단가',
+    amountColumn,
+    '업체명',
+    '체험 프로그램명',
+    '숙박업체명',
+    '숙박공간명',
+    '객실명',
+    '숙박단가',
+    '픽업자명',
+    '픽업비',
+  ]
+}
+
 function kstTimestamp() {
   const now = new Date()
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
@@ -28,8 +64,9 @@ function sheetName(name) {
   return name.replace(/[\[\]:*?/\\]/g, ' ').slice(0, 31) || 'Sheet'
 }
 
-function columnsFor(rows) {
-  const columns = []
+function columnsFor(rows, preferredColumns = []) {
+  if (preferredColumns.length) return preferredColumns
+  const columns = [...preferredColumns]
   rows.forEach(row => {
     Object.keys(row || {}).forEach(key => {
       if (!columns.includes(key)) columns.push(key)
@@ -49,15 +86,20 @@ function columnName(index) {
   return name
 }
 
+function isNumericCell(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
 function xlsxCell(value, ref, styleId = '') {
   const style = styleId ? ` s="${styleId}"` : ''
+  if (isNumericCell(value)) return `<c r="${ref}"${style}><v>${value}</v></c>`
   return `<c r="${ref}" t="inlineStr"${style}><is><t>${xmlEscape(safeExcelText(value))}</t></is></c>`
 }
 
-function xlsxSheetXml(rows) {
-  const columns = columnsFor(rows)
-  const dataRows = rows.length ? rows : [{ '데이터 없음': '' }]
-  const effectiveColumns = rows.length ? columns : ['데이터 없음']
+function xlsxSheetXml(rows, preferredColumns = []) {
+  const columns = columnsFor(rows, preferredColumns)
+  const dataRows = rows.length ? rows : [{ [columns[0] || '데이터 없음']: '데이터 없음' }]
+  const effectiveColumns = columns.length ? columns : ['데이터 없음']
   const sheetRows = [
     `<row r="1">${effectiveColumns.map((column, index) => xlsxCell(column, `${columnName(index)}1`, '1')).join('')}</row>`,
     ...dataRows.map((row, rowIndex) => {
@@ -199,10 +241,380 @@ function workbookXlsx(sheets) {
     { name: 'xl/styles.xml', data: stylesXml() },
     ...sheets.map((sheet, index) => ({
       name: `xl/worksheets/sheet${index + 1}.xml`,
-      data: xlsxSheetXml(sheet.rows),
+      data: xlsxSheetXml(sheet.rows, sheet.columns),
     })),
   ]
   return zipStore(files)
+}
+
+function activeRows(rows) {
+  return (rows || []).filter(row => row && row.is_deleted !== true)
+}
+
+function isActiveReservation(row) {
+  return row && row.is_deleted !== true && row.type !== 'cancelled' && row.reservation_status !== '취소'
+}
+
+function pkgName(reservation) {
+  return reservation?.package_name || reservation?.pkg || ''
+}
+
+function lineTotal(price, settleType, pax) {
+  const amount = Number(price) || 0
+  return settleType === 'fixed' ? amount : amount * (Number(pax) || 0)
+}
+
+function unitFromTotal(total, pax) {
+  const people = Number(pax) || 0
+  if (!people) return Number(total) || 0
+  return Math.round((Number(total) || 0) / people)
+}
+
+function settleKey(type, vendorKey, item) {
+  return [
+    type || '',
+    vendorKey || '',
+    item.no || item.reservation_no || '',
+    item.detail || '',
+    Number(item.amt) || 0,
+  ].join('|')
+}
+
+function normalizeSettleType(type, vendorKey) {
+  if (vendorKey) return '체험'
+  if (['체험', '숙박', '픽업', '플랫폼', '여행사'].includes(type)) return type
+  return type || ''
+}
+
+function lodgeSettleAmount(lodge, reservation) {
+  const price = Number(lodge?.room_price) || 0
+  if (lodge?.price_type === 'per_person') {
+    return price * (Number(reservation?.pax) || 0)
+  }
+  return price
+}
+
+function lodgeVendorInfo(lodge, lodgeVendors = []) {
+  const vendor = lodgeVendors.find(item =>
+    activeRows(item.lodges).some(space => space?.name === lodge?.lodge_name)
+  )
+  return {
+    vendorName: vendor?.name || lodge?.lodge_vendor_name || lodge?.lodge_name || '',
+    spaceName: lodge?.lodge_name || '',
+  }
+}
+
+function vendorByProgram(vendors, programName) {
+  return (vendors || []).find(vendor =>
+    activeRows(vendor.vendor_programs).some(program => program.prog_name === programName)
+  )
+}
+
+function makeEmptyRow() {
+  return Object.fromEntries(BACKUP_COLUMNS.map(column => [column, '']))
+}
+
+function reservationBase(reservation) {
+  return {
+    '날짜': reservation?.date || '',
+    '고객명': reservation?.customer || '',
+    '인원': Number(reservation?.pax) || '',
+  }
+}
+
+function buildSettledSet(histories, vendors) {
+  const settled = new Set()
+  for (const history of activeRows(histories)) {
+    const type = normalizeSettleType(history.settle_type, history.vendor_key)
+    for (const item of activeRows(history.settle_history_items)) {
+      settled.add(settleKey(history.settle_type, history.vendor_key, item))
+      settled.add(settleKey(type, history.vendor_key, item))
+      if (type === '체험') {
+        const vendorKeys = history.vendor_key
+          ? [history.vendor_key]
+          : [vendorByProgram(vendors, item.detail)?.key].filter(Boolean)
+        vendorKeys.forEach(key => settled.add(settleKey('체험', key, item)))
+      }
+    }
+  }
+  return settled
+}
+
+function findPackage(packages, reservation) {
+  const name = pkgName(reservation)
+  return (packages || []).find(item => item.name === name)
+}
+
+function experienceRowsFromSnapshots(snapshots, reservationByNo, amountColumn, amountMode = 'settle') {
+  return activeRows(snapshots)
+    .map(snapshot => {
+      const reservation = reservationByNo.get(snapshot.reservation_no)
+      if (!reservation) return null
+      const pax = Number(snapshot.pax) || Number(reservation.pax) || 0
+      const settleTotal = Number(snapshot.vendor_settle_total) || 0
+      const paymentTotal = Number(snapshot.customer_total) || 0
+      const unitPrice = amountMode === 'payment'
+        ? Number(snapshot.customer_price) || unitFromTotal(paymentTotal, pax)
+        : Number(snapshot.vendor_settle_price) || unitFromTotal(settleTotal, pax)
+      const amount = amountMode === 'payment' ? paymentTotal : settleTotal
+      if (amountMode !== 'payment' && amount <= 0) return null
+      return {
+        keyType: '체험',
+        vendorKey: snapshot.vendor_key,
+        item: { no: reservation.no, detail: snapshot.prog_name, amt: settleTotal },
+        row: {
+          ...makeEmptyRow(),
+          ...reservationBase(reservation),
+          '인원': pax || '',
+          '체험단가': unitPrice || '',
+          [amountColumn]: amount || '',
+          '업체명': snapshot.vendor_name || snapshot.vendor_key || '',
+          '체험 프로그램명': snapshot.prog_name || '',
+        },
+      }
+    })
+    .filter(Boolean)
+}
+
+function fallbackExperienceRows(reservations, packages, vendors, snapshotNos, amountColumn, amountMode = 'settle') {
+  const rows = []
+  for (const reservation of reservations) {
+    if (snapshotNos.has(reservation.no)) continue
+    const pack = findPackage(packages, reservation)
+    if (!pack) continue
+    const pax = Number(reservation.pax) || 0
+    for (const program of activeRows(pack.package_programs)) {
+      const vendor = vendors.find(item => item.key === program.vendor_key)
+      const vendorProgram = activeRows(vendor?.vendor_programs).find(item => item.prog_name === program.prog_name)
+      const settleType = program.settle_type || vendorProgram?.settle_type || 'per_person'
+      const settleUnit = Number(program.vendor_settle_price ?? vendorProgram?.vendor_settle_price ?? vendorProgram?.unit_price) || 0
+      const settleTotal = lineTotal(settleUnit, settleType, pax)
+      const paymentUnit = Number(pack.total_price) || Number(reservation.price) || 0
+      const paymentTotal = amountMode === 'payment' ? (Number(reservation.experience_sales_amount) || lineTotal(paymentUnit, 'per_person', pax)) : settleTotal
+      const amount = amountMode === 'payment' ? paymentTotal : settleTotal
+      if (amountMode !== 'payment' && amount <= 0) continue
+      rows.push({
+        keyType: '체험',
+        vendorKey: program.vendor_key,
+        item: { no: reservation.no, detail: program.prog_name, amt: settleTotal },
+        row: {
+          ...makeEmptyRow(),
+          ...reservationBase(reservation),
+          '체험단가': amountMode === 'payment' ? paymentUnit : settleUnit,
+          [amountColumn]: amount || '',
+          '업체명': vendor?.name || program.vendor_key || '',
+          '체험 프로그램명': program.prog_name || '',
+        },
+      })
+    }
+  }
+  return rows
+}
+
+function lodgeRows(lodges, reservationByNo, lodgeVendors, amountColumn) {
+  return activeRows(lodges)
+    .map(lodge => {
+      const reservation = reservationByNo.get(lodge.reservation_no)
+      if (!reservation || !lodge.lodge_name || !lodge.room_price) return null
+      const amount = lodgeSettleAmount(lodge, reservation)
+      if (amount <= 0) return null
+      const info = lodgeVendorInfo(lodge, lodgeVendors)
+      const detail = `${info.spaceName || '-'} · ${lodge.room_name || ''}${lodge.price_type === 'per_person' ? ' · 인원당' : ''}`
+      return {
+        keyType: '숙박',
+        vendorKey: null,
+        item: { no: reservation.no, detail, amt: amount },
+        legacyItems: [
+          { no: reservation.no, detail: `${lodge.room_name || ''}${lodge.price_type === 'per_person' ? ' · 인원당' : ''}`, amt: amount },
+          { no: reservation.no, detail: lodge.room_name || '', amt: amount },
+        ],
+        row: {
+          ...makeEmptyRow(),
+          ...reservationBase(reservation),
+          [amountColumn]: amount,
+          '숙박업체명': info.vendorName,
+          '숙박공간명': info.spaceName,
+          '객실명': lodge.room_name || '',
+          '숙박단가': Number(lodge.room_price) || '',
+        },
+      }
+    })
+    .filter(Boolean)
+}
+
+function pickupRows(pickups, reservationByNo, amountColumn) {
+  return activeRows(pickups)
+    .map(pickup => {
+      const reservation = reservationByNo.get(pickup.reservation_no)
+      const amount = Number(pickup.pickup_fee) || 0
+      if (!reservation || amount <= 0) return null
+      return {
+        keyType: '픽업',
+        vendorKey: null,
+        item: { no: reservation.no, detail: pickup.pickup_place || '', amt: amount },
+        row: {
+          ...makeEmptyRow(),
+          ...reservationBase(reservation),
+          [amountColumn]: amount,
+          '픽업자명': pickup.drivers?.name || pickup.driver_name || '',
+          '픽업비': amount,
+        },
+      }
+    })
+    .filter(Boolean)
+}
+
+function applySettledFilter(candidates, settled, settledMode = false) {
+  return candidates.filter(candidate => {
+    const keys = [
+      settleKey(candidate.keyType, candidate.vendorKey, candidate.item),
+      settleKey(candidate.keyType, null, candidate.item),
+      ...(candidate.legacyItems || []).flatMap(item => [
+        settleKey(candidate.keyType, candidate.vendorKey, item),
+        settleKey(candidate.keyType, null, item),
+      ]),
+    ]
+    const found = keys.some(key => settled.has(key))
+    return settledMode ? found : !found
+  }).map(candidate => candidate.row)
+}
+
+function historyVendorName(history, vendors) {
+  if (history.vendors?.name) return history.vendors.name
+  const vendor = vendors.find(item => item.key === history.vendor_key)
+  if (vendor?.name) return vendor.name
+  const firstDetail = activeRows(history.settle_history_items)[0]?.detail || ''
+  const detailVendor = vendorByProgram(vendors, firstDetail)
+  if (detailVendor?.name) return detailVendor.name
+  return ''
+}
+
+function matchLodgeForHistory(item, lodges, reservationByNo, lodgeVendors) {
+  const reservation = reservationByNo.get(item.reservation_no || item.no)
+  const candidates = activeRows(lodges).filter(lodge => lodge.reservation_no === (item.reservation_no || item.no))
+  const matched = candidates.find(lodge =>
+    String(item.detail || '').includes(lodge.lodge_name || '') ||
+    String(item.detail || '').includes(lodge.room_name || '')
+  ) || candidates.find(lodge => lodgeSettleAmount(lodge, reservation) === Number(item.amt))
+  if (!matched) return {}
+  const info = lodgeVendorInfo(matched, lodgeVendors)
+  return {
+    '숙박업체명': info.vendorName,
+    '숙박공간명': info.spaceName,
+    '객실명': matched.room_name || '',
+    '숙박단가': Number(matched.room_price) || '',
+  }
+}
+
+function matchPickupForHistory(item, pickups) {
+  const candidates = activeRows(pickups).filter(pickup => pickup.reservation_no === (item.reservation_no || item.no))
+  const matched = candidates.find(pickup => Number(pickup.pickup_fee) === Number(item.amt)) || candidates[0]
+  if (!matched) return {}
+  return {
+    '픽업자명': matched.drivers?.name || matched.driver_name || '',
+    '픽업비': Number(matched.pickup_fee) || '',
+  }
+}
+
+function completedRows(histories, reservationByNo, vendors, lodges, lodgeVendors, pickups) {
+  const rows = []
+  for (const history of activeRows(histories)) {
+    const type = normalizeSettleType(history.settle_type, history.vendor_key)
+    const vendorName = historyVendorName(history, vendors)
+    for (const item of activeRows(history.settle_history_items)) {
+      const reservation = reservationByNo.get(item.reservation_no || item.no) || {}
+      const amount = Number(item.amt) || 0
+      if (amount <= 0) continue
+      const row = {
+        ...makeEmptyRow(),
+        ...reservationBase(reservation),
+        '날짜': item.date || reservation.date || '',
+        '고객명': item.customer || reservation.customer || '',
+        '인원': Number(item.pax) || Number(reservation.pax) || '',
+        '총 정산금액': amount,
+      }
+      if (type === '체험') {
+        row['체험단가'] = unitFromTotal(amount, row['인원'])
+        row['업체명'] = vendorName
+        row['체험 프로그램명'] = item.detail || ''
+      } else if (type === '숙박') {
+        Object.assign(row, matchLodgeForHistory(item, lodges, reservationByNo, lodgeVendors))
+        if (!row['숙박공간명'] && item.detail) row['숙박공간명'] = item.detail
+      } else if (type === '픽업') {
+        Object.assign(row, matchPickupForHistory(item, pickups))
+        if (!row['픽업자명'] && item.detail) row['픽업자명'] = item.detail
+        if (!row['픽업비']) row['픽업비'] = amount
+      } else {
+        row['업체명'] = vendorName || item.detail || type
+      }
+      rows.push(row)
+    }
+  }
+  return rows
+}
+
+function paymentSummaryRows(reservations, experienceCandidates, lodgeCandidates, pickupCandidates) {
+  const rows = []
+  const grouped = new Map()
+  for (const reservation of reservations) {
+    grouped.set(reservation.no, {
+      reservation,
+      vendors: new Set(),
+      programs: new Set(),
+      lodgeVendors: new Set(),
+      lodgeSpaces: new Set(),
+      rooms: new Set(),
+      pickups: new Set(),
+      lodgeAmount: 0,
+      pickupAmount: 0,
+      experienceUnit: Number(reservation.price) || '',
+    })
+  }
+
+  for (const candidate of experienceCandidates) {
+    const row = candidate.row
+    const reservationNo = candidate.item.no
+    const group = grouped.get(reservationNo)
+    if (!group) continue
+    if (row['업체명']) group.vendors.add(row['업체명'])
+    if (row['체험 프로그램명']) group.programs.add(row['체험 프로그램명'])
+    if (row['체험단가']) group.experienceUnit = row['체험단가']
+  }
+  for (const candidate of lodgeCandidates) {
+    const row = candidate.row
+    const group = grouped.get(candidate.item.no)
+    if (!group) continue
+    if (row['숙박업체명']) group.lodgeVendors.add(row['숙박업체명'])
+    if (row['숙박공간명']) group.lodgeSpaces.add(row['숙박공간명'])
+    if (row['객실명']) group.rooms.add(row['객실명'])
+    group.lodgeAmount += Number(row['숙박단가']) || 0
+  }
+  for (const candidate of pickupCandidates) {
+    const row = candidate.row
+    const group = grouped.get(candidate.item.no)
+    if (!group) continue
+    if (row['픽업자명']) group.pickups.add(row['픽업자명'])
+    group.pickupAmount += Number(row['픽업비']) || 0
+  }
+
+  for (const group of grouped.values()) {
+    const reservation = group.reservation
+    rows.push({
+      ...makeEmptyRow(),
+      ...reservationBase(reservation),
+      '체험단가': group.experienceUnit || '',
+      '총 결제금액': Number(reservation.total) || Number(reservation.experience_sales_amount) || '',
+      '업체명': [...group.vendors].join(' / '),
+      '체험 프로그램명': [...group.programs].join(' / '),
+      '숙박업체명': [...group.lodgeVendors].join(' / '),
+      '숙박공간명': [...group.lodgeSpaces].join(' / '),
+      '객실명': [...group.rooms].join(' / '),
+      '숙박단가': group.lodgeAmount || '',
+      '픽업자명': [...group.pickups].join(' / '),
+      '픽업비': group.pickupAmount || Number(reservation.pickup_fee) || '',
+    })
+  }
+  return rows
 }
 
 export async function GET() {
@@ -213,74 +625,90 @@ export async function GET() {
   }
 
   const errors = []
-
-  const [{ data: reservations, error: reservationError }, { data: settleHistory, error: settleError }] = await Promise.all([
+  const [
+    reservationRes,
+    vendorRes,
+    lodgeVendorRes,
+    packageRes,
+    lodgeRes,
+    pickupRes,
+    snapshotRes,
+    settleRes,
+  ] = await Promise.all([
     supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
-    supabase
-      .from('settle_history')
-      .select('*, settle_history_items(*), vendors(name)')
-      .order('settled_at', { ascending: false }),
+    supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
+    supabase.from('lodge_vendors').select('id,name,lodges(name,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+    supabase.from('packages').select('*, package_programs(*)').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+    supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
+    supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
+    supabase.from('reservation_program_snapshots').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
+    supabase.from('settle_history').select('*, settle_history_items(*), vendors(name)').order('settled_at', { ascending: false }),
   ])
 
-  if (reservationError) errors.push({ table: 'reservations', message: reservationError.message })
-  if (settleError) errors.push({ table: 'settle_history', message: settleError.message })
+  ;[
+    ['reservations', reservationRes.error],
+    ['vendors', vendorRes.error],
+    ['lodge_vendors', lodgeVendorRes.error],
+    ['packages', packageRes.error],
+    ['lodge_confirms', lodgeRes.error],
+    ['reservation_pickup', pickupRes.error],
+    ['reservation_program_snapshots', snapshotRes.error],
+    ['settle_history', settleRes.error],
+  ].forEach(([table, error]) => {
+    if (error) errors.push({ table, message: error.message })
+  })
 
-  const settleRows = (settleHistory || [])
-    .filter(row => row?.is_deleted !== true)
-    .flatMap(history => {
-      const items = (history.settle_history_items || []).filter(item => item?.is_deleted !== true)
-      if (!items.length) {
-        return [{
-          settle_history_id: history.id,
-          settle_type: history.settle_type,
-          vendor_name: history.vendors?.name || history.vendor_key || history.settle_type || '',
-          settled_at: history.settled_at,
-          period_start: history.period_start,
-          period_end: history.period_end,
-          total_amt: history.total_amt,
-          settled_by: history.settled_by,
-        }]
-      }
-      return items.map(item => ({
-        settle_history_id: history.id,
-        settle_type: history.settle_type,
-        vendor_name: history.vendors?.name || history.vendor_key || history.settle_type || '',
-        settled_at: history.settled_at,
-        period_start: history.period_start,
-        period_end: history.period_end,
-        total_amt: history.total_amt,
-        settled_by: history.settled_by,
-        reservation_no: item.reservation_no,
-        customer: item.customer,
-        date: item.date,
-        pax: item.pax,
-        detail: item.detail,
-        amt: item.amt,
-      }))
-    })
+  const reservations = activeRows(reservationRes.data).filter(isActiveReservation)
+  const reservationByNo = new Map(reservations.map(row => [row.no, row]))
+  const vendors = activeRows(vendorRes.data)
+  const lodgeVendors = activeRows(lodgeVendorRes.data)
+  const packages = activeRows(packageRes.data)
+  const lodges = activeRows(lodgeRes.data).filter(row => reservationByNo.has(row.reservation_no))
+  const pickups = activeRows(pickupRes.data).filter(row => reservationByNo.has(row.reservation_no))
+  const snapshots = activeRows(snapshotRes.data).filter(row => reservationByNo.has(row.reservation_no))
+  const histories = activeRows(settleRes.data).map(row => ({
+    ...row,
+    settle_history_items: activeRows(row.settle_history_items),
+  }))
+  const settled = buildSettledSet(histories, vendors)
+
+  const snapshotNos = new Set(snapshots.map(row => row.reservation_no))
+  const settleExperienceCandidates = [
+    ...experienceRowsFromSnapshots(snapshots, reservationByNo, '총 미정산금액', 'settle'),
+    ...fallbackExperienceRows(reservations, packages, vendors, snapshotNos, '총 미정산금액', 'settle'),
+  ]
+  const lodgeCandidates = lodgeRows(lodges, reservationByNo, lodgeVendors, '총 미정산금액')
+  const pickupCandidates = pickupRows(pickups, reservationByNo, '총 미정산금액')
+  const allUnsettledCandidates = [...settleExperienceCandidates, ...lodgeCandidates, ...pickupCandidates]
+
+  const paymentExperienceCandidates = [
+    ...experienceRowsFromSnapshots(snapshots, reservationByNo, '총 결제금액', 'payment'),
+    ...fallbackExperienceRows(reservations, packages, vendors, snapshotNos, '총 결제금액', 'payment'),
+  ]
+  const paymentRows = paymentSummaryRows(reservations, paymentExperienceCandidates, lodgeCandidates, pickupCandidates)
+  const unsettledRows = applySettledFilter(allUnsettledCandidates, settled, false)
+  const settledRows = completedRows(histories, reservationByNo, vendors, lodges, lodgeVendors, pickups)
 
   const sheets = [
-    { name: '예약 목록', rows: reservations || [] },
-    { name: '업체별 정산내역', rows: settleRows },
+    {
+      name: '백업 정보',
+      columns: ['생성일시', '생성자', '설명'],
+      rows: [{
+        '생성일시': new Date().toISOString(),
+        '생성자': user.email || user.id,
+        '설명': '예약 정산 확인용 수동 백업 파일입니다. 서버에는 저장되지 않습니다.',
+      }],
+    },
+    { name: '미정산 내역', columns: columnsForAmount('총 미정산금액'), rows: unsettledRows },
+    { name: '정산완료 내역', columns: columnsForAmount('총 정산금액'), rows: settledRows },
+    { name: '전체 결제내역', columns: columnsForAmount('총 결제금액'), rows: paymentRows },
   ]
 
   if (errors.length) {
-    sheets.push({ name: '백업오류', rows: errors })
+    sheets.push({ name: '백업오류', columns: ['table', 'message'], rows: errors })
   }
 
-  const workbook = workbookXlsx([
-    {
-      name: '백업 정보',
-      rows: [{
-        created_at: new Date().toISOString(),
-        created_by: user.email || user.id,
-        format: 'Excel XML',
-        note: '예약 목록과 업체별 정산내역만 포함한 수동 백업 파일입니다. 서버에는 저장되지 않습니다.',
-      }],
-    },
-    ...sheets,
-  ])
-
+  const workbook = workbookXlsx(sheets)
   const filename = `roadnvill_backup_${kstTimestamp()}.xlsx`
 
   return new Response(workbook, {
