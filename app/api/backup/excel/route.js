@@ -3,34 +3,6 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-const TABLES = [
-  ['reservations', '예약'],
-  ['vendor_confirms', '업체회신'],
-  ['lodge_confirms', '숙소배정'],
-  ['reservation_pickup', '픽업'],
-  ['reservation_program_snapshots', '예약가격스냅샷'],
-  ['reservation_budget_usages', '예약구성상품'],
-  ['reservation_profit_adjustments', '수익조정'],
-  ['program_price_history', '가격이력'],
-  ['biz_budget_items', '사업비항목'],
-  ['timetable_events', '타임테이블'],
-  ['settle_history', '정산이력'],
-  ['settle_history_items', '정산상세'],
-  ['vendors', '체험업체'],
-  ['vendor_programs', '업체체험'],
-  ['packages', '패키지'],
-  ['package_zones', '패키지구역'],
-  ['package_programs', '패키지체험'],
-  ['lodge_vendors', '숙박업체'],
-  ['lodges', '숙소객실'],
-  ['zones', '구역'],
-  ['platforms', '플랫폼'],
-  ['drivers', '픽업수행자'],
-  ['biz', '사업비'],
-  ['biz_payments', '사업비결제'],
-  ['notices', '공지'],
-]
-
 function kstTimestamp() {
   const now = new Date()
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
@@ -105,28 +77,70 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const sheets = []
   const errors = []
 
-  for (const [table, name] of TABLES) {
-    const { data, error } = await supabase.from(table).select('*')
-    if (error) {
-      errors.push({ table, message: error.message })
-      continue
-    }
-    sheets.push({ name, rows: data || [] })
-  }
+  const [{ data: reservations, error: reservationError }, { data: settleHistory, error: settleError }] = await Promise.all([
+    supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
+    supabase
+      .from('settle_history')
+      .select('*, settle_history_items(*), vendors(name)')
+      .order('settled_at', { ascending: false }),
+  ])
 
-  if (errors.length) sheets.push({ name: '백업오류', rows: errors })
+  if (reservationError) errors.push({ table: 'reservations', message: reservationError.message })
+  if (settleError) errors.push({ table: 'settle_history', message: settleError.message })
+
+  const settleRows = (settleHistory || [])
+    .filter(row => row?.is_deleted !== true)
+    .flatMap(history => {
+      const items = (history.settle_history_items || []).filter(item => item?.is_deleted !== true)
+      if (!items.length) {
+        return [{
+          settle_history_id: history.id,
+          settle_type: history.settle_type,
+          vendor_name: history.vendors?.name || history.vendor_key || history.settle_type || '',
+          settled_at: history.settled_at,
+          period_start: history.period_start,
+          period_end: history.period_end,
+          total_amt: history.total_amt,
+          settled_by: history.settled_by,
+        }]
+      }
+      return items.map(item => ({
+        settle_history_id: history.id,
+        settle_type: history.settle_type,
+        vendor_name: history.vendors?.name || history.vendor_key || history.settle_type || '',
+        settled_at: history.settled_at,
+        period_start: history.period_start,
+        period_end: history.period_end,
+        total_amt: history.total_amt,
+        settled_by: history.settled_by,
+        reservation_no: item.reservation_no,
+        customer: item.customer,
+        date: item.date,
+        pax: item.pax,
+        detail: item.detail,
+        amt: item.amt,
+      }))
+    })
+
+  const sheets = [
+    { name: '예약 목록', rows: reservations || [] },
+    { name: '업체별 정산내역', rows: settleRows },
+  ]
+
+  if (errors.length) {
+    sheets.push({ name: '백업오류', rows: errors })
+  }
 
   const xml = workbookXml([
     {
-      name: '백업정보',
+      name: '백업 정보',
       rows: [{
         created_at: new Date().toISOString(),
         created_by: user.email || user.id,
         format: 'Excel XML',
-        note: '서버에서 즉시 생성한 수동 백업 파일입니다. 서버에는 저장되지 않습니다.',
+        note: '예약 목록과 업체별 정산내역만 포함한 수동 백업 파일입니다. 서버에는 저장되지 않습니다.',
       }],
     },
     ...sheets,

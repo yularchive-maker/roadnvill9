@@ -47,6 +47,16 @@ function lodgeSettleAmount(lodge, reservation) {
   return price
 }
 
+function lodgeVendorInfo(lodge, lodgeVendors = []) {
+  const vendor = lodgeVendors.find(item =>
+    (item.lodges || []).some(space => space?.name === lodge?.lodge_name)
+  )
+  return {
+    vendorName: vendor?.name || lodge?.lodge_name || '숙박업체',
+    spaceName: lodge?.lodge_name || '',
+  }
+}
+
 function normalizeSettleType(type, vendorKey) {
   if (vendorKey) return '체험'
   if (SETTLE_TYPES.some(item => item.key === type)) return type
@@ -109,6 +119,7 @@ export default function SettleSummaryPage() {
   const [draftEndDate, setDraftEndDate] = useState(defaultEnd)
   const [loading, setLoading] = useState(false)
   const [vendors, setVendors] = useState([])
+  const [lodgeVendors, setLodgeVendors] = useState([])
   const [packages, setPackages] = useState([])
   const [rows, setRows] = useState(emptyRows())
   const [activeType, setActiveType] = useState(SETTLE_TYPES[0].key)
@@ -118,9 +129,11 @@ export default function SettleSummaryPage() {
   useEffect(() => {
     Promise.all([
       supabase.from('vendors').select('*, vendor_programs(*)').order('key'),
+      supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('packages').select('*, package_programs(*)').order('name'),
-    ]).then(([vendorRes, packageRes]) => {
+    ]).then(([vendorRes, lodgeVendorRes, packageRes]) => {
       setVendors(vendorRes.data || [])
+      setLodgeVendors(lodgeVendorRes.data || [])
       setPackages(packageRes.data || [])
     })
   }, [])
@@ -247,14 +260,16 @@ export default function SettleSummaryPage() {
         if (!lodge.lodge_name || !lodge.room_price) continue
         const reservation = reservationByNo[lodge.reservation_no] || {}
         const amount = lodgeSettleAmount(lodge, reservation)
-        const item = { no: lodge.reservation_no, detail: lodge.room_name || '', amt: amount }
-        if (settled.has(settledKey('숙박', null, item))) continue
-        addAmount(unsettledMap, '숙박', lodge.lodge_name, amount, 'var(--amber)', {
+        const lodgeInfo = lodgeVendorInfo(lodge, lodgeVendors)
+        const item = { no: lodge.reservation_no, detail: `${lodgeInfo.spaceName || '-'} · ${lodge.room_name || ''}${lodge.price_type === 'per_person' ? ' · 인원당' : ''}`, amt: amount }
+        const legacyItem = { ...item, detail: lodge.room_name || '' }
+        if (settled.has(settledKey('숙박', null, item)) || settled.has(settledKey('숙박', null, legacyItem))) continue
+        addAmount(unsettledMap, '숙박', lodgeInfo.vendorName, amount, 'var(--amber)', {
           no: lodge.reservation_no,
           date: reservation.date,
           customer: reservation.customer,
           pax: reservation.pax,
-          detail: `${lodge.room_name || ''}${lodge.price_type === 'per_person' ? ' · 인원당' : ''}`,
+          detail: item.detail,
         })
       }
 
@@ -328,7 +343,7 @@ export default function SettleSummaryPage() {
       ])
     ))
     setLoading(false)
-  }, [startDate, endDate, vendors, packages])
+  }, [startDate, endDate, vendors, lodgeVendors, packages])
 
   useEffect(() => {
     if (!hasQueried) return

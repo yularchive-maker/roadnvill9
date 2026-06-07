@@ -61,6 +61,16 @@ function lodgeSettleAmount(lodge, reservation) {
   return price
 }
 
+function lodgeVendorInfo(lodge, lodgeVendors = []) {
+  const vendor = lodgeVendors.find(item =>
+    (item.lodges || []).some(space => space?.name === lodge?.lodge_name)
+  )
+  return {
+    vendorName: vendor?.name || lodge?.lodge_name || '숙박업체',
+    spaceName: lodge?.lodge_name || '',
+  }
+}
+
 function historyVendorName(h, vendors = []) {
   if (h.vendors?.name) return h.vendors.name
   const vendor = vendors.find(v => v.key === h.vendor_key)
@@ -84,6 +94,7 @@ export default function SettleDetailPage() {
   const [draftEndDate,   setDraftEndDate]   = useState(e0)
 
   const [vendors,      setVendors]      = useState([])
+  const [lodgeVendors, setLodgeVendors] = useState([])
   const [packages,     setPackages]     = useState([])
   const [groups,       setGroups]       = useState([])
   const [history,      setHistory]      = useState([])
@@ -96,9 +107,11 @@ export default function SettleDetailPage() {
   useEffect(() => {
     Promise.all([
       supabase.from('vendors').select('*, vendor_programs(*)').order('key'),
+      supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('packages').select('*, package_programs(*)').order('name'),
-    ]).then(([v, p]) => {
+    ]).then(([v, lv, p]) => {
       setVendors(v.data || [])
+      setLodgeVendors(lv.data || [])
       setPackages(p.data || [])
     })
     fetchHistory()
@@ -200,10 +213,12 @@ export default function SettleDetailPage() {
       if (!r) continue
       const amount = lodgeSettleAmount(lc, r)
       if (amount <= 0) continue
-      const k = lc.lodge_name
+      const lodgeInfo = lodgeVendorInfo(lc, lodgeVendors)
+      const k = lodgeInfo.vendorName
       if (!lMap[k]) lMap[k] = { key: 'lodge-' + k, vendor: k, color: 'var(--amber)', type: '숙박', totalAmt: 0, items: [], nos: new Set() }
-      const item = { no: r.no, customer: r.customer, date: r.date, pax: r.pax, detail: `${lc.room_name || ''}${lc.price_type === 'per_person' ? ' · 인원당' : ''}`, amt: amount }
-      if (settled.has(settledKey('숙박', null, item))) continue
+      const item = { no: r.no, customer: r.customer, date: r.date, pax: r.pax, detail: `${lodgeInfo.spaceName || '-'} · ${lc.room_name || ''}${lc.price_type === 'per_person' ? ' · 인원당' : ''}`, amt: amount }
+      const legacyItem = { ...item, detail: `${lc.room_name || ''}${lc.price_type === 'per_person' ? ' · 인원당' : ''}` }
+      if (settled.has(settledKey('숙박', null, item)) || settled.has(settledKey('숙박', null, legacyItem))) continue
       lMap[k].items.push(item)
       lMap[k].totalAmt += amount
       lMap[k].nos.add(r.no)
@@ -257,7 +272,7 @@ export default function SettleDetailPage() {
     setGroups(all)
     setCheckedItems({})
     setLoading(false)
-  }, [startDate, endDate, vendors, packages])
+  }, [startDate, endDate, vendors, lodgeVendors, packages])
 
   useEffect(() => {
     if (!hasQueried) return
