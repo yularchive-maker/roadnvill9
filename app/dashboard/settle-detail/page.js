@@ -7,6 +7,7 @@ const fmt = n => (n || 0).toLocaleString()
 const todayStr = () => new Date().toISOString().slice(0, 10)
 const TYPE_COLOR = { '체험': 'var(--accent)', '숙박': 'var(--amber)', '픽업': 'var(--pickup)', '플랫폼': 'var(--purple)', '여행사': 'var(--green)' }
 const TYPE_BG    = { '체험': 'rgba(78,205,196,0.1)', '숙박': 'rgba(247,201,72,0.1)', '픽업': 'rgba(184,184,255,0.1)', '플랫폼': 'rgba(123,104,238,0.1)', '여행사': 'rgba(92,184,92,0.1)' }
+const SETTLE_TYPE_FILTERS = ['전체', '체험', '숙박', '픽업', '플랫폼', '여행사']
 
 function monthRange() {
   const d = new Date()
@@ -40,6 +41,12 @@ function historyVendorKeys(h, it, vendors = []) {
 function groupSettleType(g) {
   if (g.type === '체험' || (!String(g.key).startsWith('lodge-') && !String(g.key).startsWith('pickup-') && !String(g.key).startsWith('platform-') && !String(g.key).startsWith('agency-'))) return '체험'
   return g.type
+}
+
+function displaySettleType(type, key = '') {
+  if (TYPE_COLOR[type]) return type
+  if (key && !String(key).startsWith('lodge-') && !String(key).startsWith('pickup-') && !String(key).startsWith('platform-') && !String(key).startsWith('agency-')) return '체험'
+  return type || '기타'
 }
 
 function feeAmount(total, percent) {
@@ -103,6 +110,7 @@ export default function SettleDetailPage() {
   const [dates,        setDates]        = useState({})
   const [checkedItems, setCheckedItems] = useState({}) // { [groupKey]: Set<itemIndex> }
   const [hasQueried,   setHasQueried]   = useState(false)
+  const [typeFilter,   setTypeFilter]   = useState('전체')
 
   useEffect(() => {
     Promise.all([
@@ -350,8 +358,9 @@ export default function SettleDetailPage() {
   }
 
   async function settleAll() {
-    if (!groups.length || !confirm(`미정산 ${groups.length}건 전체를 일괄 정산 완료 처리하시겠습니까?`)) return
-    for (const g of groups) await doSettle(g, g.items, { recompute: false })
+    const targetGroups = visibleSettleGroups()
+    if (!targetGroups.length || !confirm(`${typeFilter === '전체' ? '전체' : typeFilter} 미정산 ${targetGroups.length}건을 일괄 정산 완료 처리하시겠습니까?`)) return
+    for (const g of targetGroups) await doSettle(g, g.items, { recompute: false })
     await fetchHistory()
     await compute()
   }
@@ -376,9 +385,17 @@ export default function SettleDetailPage() {
     if (nextStart === startDate && nextEnd === endDate) await compute()
   }
 
-  const total = groups.reduce((s, g) => s + g.totalAmt, 0)
+  function visibleSettleGroups(list = groups) {
+    return list.filter(group => typeFilter === '전체' || displaySettleType(group.type, group.key) === typeFilter)
+  }
+
+  const visibleGroups = visibleSettleGroups()
+  const total = visibleGroups.reduce((s, g) => s + g.totalAmt, 0)
   const displayedHistory = hasQueried
-    ? history.filter(row => overlapsPeriod(row, startDate, endDate))
+    ? history.filter(row => {
+      if (!overlapsPeriod(row, startDate, endDate)) return false
+      return typeFilter === '전체' || displaySettleType(normalizeSettleType(row.settle_type, row.vendor_key), row.vendor_key) === typeFilter
+    })
     : []
 
   return (
@@ -401,6 +418,23 @@ export default function SettleDetailPage() {
         </div>
       </div>
 
+      <div style={{ display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'12px' }}>
+        {SETTLE_TYPE_FILTERS.map(type => {
+          const active = typeFilter === type
+          return (
+            <button
+              key={type}
+              type="button"
+              className={active ? 'btn-primary' : 'btn-outline'}
+              onClick={() => setTypeFilter(type)}
+              style={{ height:'30px', minWidth:'64px', fontSize:'11px' }}
+            >
+              {type}
+            </button>
+          )
+        })}
+      </div>
+
       {/* 2단 레이아웃 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
 
@@ -410,7 +444,7 @@ export default function SettleDetailPage() {
             <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               미정산 내역
               <span style={{ fontSize: '11px', background: 'rgba(247,201,72,0.15)', color: 'var(--amber)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
-                {groups.length}건
+                {visibleGroups.length}건
               </span>
             </div>
             <button className="btn-outline" style={{ height: '28px', fontSize: '11px' }} onClick={settleAll}>
@@ -420,12 +454,12 @@ export default function SettleDetailPage() {
 
           {loading ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>조회 중...</div>
-          ) : groups.length === 0 ? (
+          ) : visibleGroups.length === 0 ? (
             <div className="list-card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
               미정산 내역이 없어요 ✓
             </div>
-          ) : groups.map(g => {
-            const displayType = TYPE_COLOR[g.type] ? g.type : (g.key && !String(g.key).startsWith('lodge-') && !String(g.key).startsWith('pickup-') && !String(g.key).startsWith('platform-') && !String(g.key).startsWith('agency-') ? '체험' : g.type)
+          ) : visibleGroups.map(g => {
+            const displayType = displaySettleType(g.type, g.key)
             const checked = getChecked(g)
             const allChecked = g.items.length > 0 && checked.size === g.items.length
             const someChecked = checked.size > 0 && !allChecked
@@ -435,8 +469,10 @@ export default function SettleDetailPage() {
               <div key={g.key} className="settle-vendor-card">
                 <div className="svc-header" onClick={() => setOpen(o => ({ ...o, [g.key]: !o[g.key] }))}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: g.color, flexShrink: 0 }} />
-                  <div className="svc-vendor-name">{g.vendor}</div>
-                  <span className="svc-type-badge" style={{ background: TYPE_BG[displayType], color: TYPE_COLOR[displayType] }}>{displayType}</span>
+                  <div className="svc-vendor-name">
+                    {g.vendor}
+                    <span style={{ marginLeft:'6px', color: TYPE_COLOR[displayType] || 'var(--text-muted)', fontSize:'11px', fontWeight:800 }}>[{displayType}]</span>
+                  </div>
                   <span className="svc-amount" style={{ color: 'var(--amber)' }}>₩{fmt(g.totalAmt)}</span>
                   <span className="svc-status unsettled">미정산</span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'inline-block', transform: open[g.key] ? 'rotate(180deg)' : '', transition: 'transform .2s' }}>▼</span>
@@ -541,10 +577,18 @@ export default function SettleDetailPage() {
           ) : displayedHistory.map(h => (
             <div key={h.id} className="settle-history-card">
               <div className="shc-header">
+                {(() => {
+                  const historyType = displaySettleType(normalizeSettleType(h.settle_type, h.vendor_key), h.vendor_key)
+                  return (
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700 }}>{historyVendorName(h, vendors)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700 }}>
+                    {historyVendorName(h, vendors)}
+                    <span style={{ marginLeft:'6px', color: TYPE_COLOR[historyType] || 'var(--text-muted)', fontSize:'11px', fontWeight:800 }}>[{historyType}]</span>
+                  </div>
                   <div className="shc-date">{h.period_start} ~ {h.period_end}</div>
                 </div>
+                  )
+                })()}
                 <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '10px', background: 'rgba(92,184,92,0.15)', color: 'var(--green)', fontWeight: 600 }}>정산완료</span>
                 <span style={{ fontFamily: "'DM Mono',monospace", fontSize: '13px', fontWeight: 700, color: 'var(--green)', marginLeft: '10px' }}>₩{fmt(h.total_amt)}</span>
               </div>
