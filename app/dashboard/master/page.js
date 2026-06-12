@@ -855,16 +855,41 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
 
   async function save() {
     if (!form.name) { alert('패키지명을 입력하세요.'); return }
+    const packageName = String(form.name || '').trim()
+    const duplicate = packages.find(pkg =>
+      String(pkg.id || '') !== String(form.id || '') &&
+      (pkg.package_type || 'general') === packageType &&
+      String(pkg.name || '').trim().toLowerCase() === packageName.toLowerCase()
+    )
+    if (duplicate) {
+      const typeLabel = packageType === 'business' ? '하위 사업비 패키지' : '일반 패키지'
+      alert(`"${packageName}" ${typeLabel}가 이미 있습니다.\n\n새로 만들지 말고 기존 패키지를 수정하거나, 사업비 상품 수정 화면의 하위 사업비 패키지 목록에서 기존 패키지를 체크해 연결하세요.`)
+      return
+    }
     const zoneCodes = Array.isArray(form.zone_codes) ? form.zone_codes.filter(Boolean) : (form.zone_code ? [form.zone_code] : [])
-    const payload = { code: form.code || null, zone_code: zoneCodes[0] || null, name: form.name, pax_limit: Number(form.pax_limit) || 0, total_price: Number(form.total_price) || 0, package_type: packageType }
+    const payload = { code: form.code || null, zone_code: zoneCodes[0] || null, name: packageName, pax_limit: Number(form.pax_limit) || 0, total_price: Number(form.total_price) || 0, package_type: packageType }
     let packageId = form.id
     if (modal.mode === 'new') {
       const { data, error } = await supabase.from('packages').insert(payload).select('id').single()
-      if (error) { alert('저장 실패: ' + error.message); return }
+      if (error) {
+        if (error.code === '23505' || String(error.message || '').includes('packages_name_type_active_uidx')) {
+          alert(`"${packageName}" 패키지가 이미 있습니다. 기존 패키지를 수정하거나 사업비 상품에 연결해 주세요.`)
+        } else {
+          alert('저장 실패: ' + error.message)
+        }
+        return
+      }
       packageId = data?.id
     } else {
       const { error } = await supabase.from('packages').update(payload).eq('id', form.id)
-      if (error) { alert('????ㅽ뙣: ' + error.message); return }
+      if (error) {
+        if (error.code === '23505' || String(error.message || '').includes('packages_name_type_active_uidx')) {
+          alert(`"${packageName}" 패키지가 이미 있습니다. 다른 이름을 사용하거나 기존 패키지를 수정해 주세요.`)
+        } else {
+          alert('저장 실패: ' + error.message)
+        }
+        return
+      }
     }
     try {
       await syncPackageZones(packageId, zoneCodes)
