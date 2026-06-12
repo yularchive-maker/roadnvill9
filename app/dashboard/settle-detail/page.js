@@ -79,9 +79,9 @@ function lodgeVendorInfo(lodge, lodgeVendors = []) {
 }
 
 function historyVendorName(h, vendors = []) {
-  if (h.vendors?.name) return h.vendors.name
   const vendor = vendors.find(v => v.key === h.vendor_key)
   if (vendor?.name) return vendor.name
+  if (h.vendors?.name) return h.vendors.name
   const firstDetail = h.settle_history_items?.[0]?.detail || ''
   const detailVendor = vendors.find(v =>
     (v.vendor_programs || []).some(program => program.prog_name === firstDetail)
@@ -185,7 +185,7 @@ export default function SettleDetailPage() {
       const item = { no: r.no, customer: r.customer, date: r.date, pax: snap.pax || r.pax, detail: snap.prog_name, amt }
       if (settled.has(settledKey('체험', snap.vendor_key, item))) continue
       if (!vMap[snap.vendor_key]) {
-        vMap[snap.vendor_key] = { key: snap.vendor_key, vendor: snap.vendor_name || vendor?.name || snap.vendor_key, color: vendor?.color, type: '체험', totalAmt: 0, items: [], nos: new Set() }
+        vMap[snap.vendor_key] = { key: snap.vendor_key, vendor: vendor?.name || snap.vendor_name || snap.vendor_key, color: vendor?.color, type: '체험', totalAmt: 0, items: [], nos: new Set() }
       }
       vMap[snap.vendor_key].items.push(item)
       vMap[snap.vendor_key].totalAmt += amt
