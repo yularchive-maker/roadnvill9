@@ -2166,26 +2166,11 @@ function BizTab() {
 
   return (
     <div>
-      <div style={{ marginBottom: '18px' }}>
-        <PackagesTab
-          packageType="business"
-          title="사업비 패키지 목록"
-          addLabel="+ 사업비 패키지 추가"
-          emptyText="등록된 사업비 패키지 없음"
-        />
-      </div>
-      <div className="section-header">
-        <div>
-          <div className="section-title">사업비 상품 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>위에서 만든 사업비 패키지 또는 단품 프로그램에 기준가, 할인 지원, 선지급 재정산 기준을 연결합니다.</div>
-        </div>
-        <button className="btn-primary" onClick={openNew}>+ 사업비 상품 추가</button>
-      </div>
       <div className="list-card" style={{ padding: '14px', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>사업명 관리</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>예: 로컬크리에이트. 먼저 사업명을 만들고 아래 사업비 패키지에 연결합니다.</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>예: 로컬크리에이트. 사업명을 먼저 만들고, 아래 사업비 상품과 하위 패키지를 연결합니다.</div>
           </div>
           <button className="btn-outline btn-sm" onClick={openNewBiz}>+ 사업명 추가</button>
         </div>
@@ -2220,6 +2205,13 @@ function BizTab() {
           </div>
         )}
       </div>
+      <div className="section-header">
+        <div>
+          <div className="section-title">사업비 상품 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>계획 인원, 기준가, 할인 지원, 선지급 재정산 기준을 관리하는 상위 기준입니다.</div>
+        </div>
+        <button className="btn-primary" onClick={openNew}>+ 사업비 상품 추가</button>
+      </div>
       <div className="list-card">
         <div className="list-header" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px' }}>
           <span>사업명</span><span>형태</span><span>상품명</span><span>구역명</span><span>기준가</span><span>계획</span><span>할인</span><span>선지급 예산</span><span />
@@ -2244,6 +2236,14 @@ function BizTab() {
             </div>
           )
         })}
+      </div>
+      <div style={{ marginTop: '18px' }}>
+        <PackagesTab
+          packageType="business"
+          title="하위 사업비 패키지 목록"
+          addLabel="+ 하위 패키지 추가"
+          emptyText="등록된 하위 사업비 패키지 없음"
+        />
       </div>
       {modal && (
         <Modal title={modal.mode === 'new' ? '사업비 상품 추가' : '사업비 상품 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null} maxWidth="820px">
