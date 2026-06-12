@@ -211,6 +211,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [sameDayEvents, setSameDayEvents] = useState([])
   const [sameDayReservations, setSameDayReservations] = useState([])
   const [budgetItems, setBudgetItems] = useState([])
+  const [budgetItemPackages, setBudgetItemPackages] = useState([])
   const [componentRows, setComponentRows] = useState([])
   const [vendorCheckLoading, setVendorCheckLoading] = useState(false)
   const [selectedVendorKeys, setSelectedVendorKeys] = useState(new Set())
@@ -315,13 +316,20 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   useEffect(() => {
     async function loadBudgetItems() {
-      const { data } = await supabase
+      const [itemRes, linkRes] = await Promise.all([
+        supabase
         .from('biz_budget_items')
         .select('*')
         .or('is_deleted.is.null,is_deleted.eq.false')
-        .order('category')
-        .order('sort_order')
-      setBudgetItems(data || [])
+          .order('category')
+          .order('sort_order'),
+        supabase
+          .from('biz_budget_item_packages')
+          .select('*')
+          .or('is_deleted.is.null,is_deleted.eq.false'),
+      ])
+      setBudgetItems(itemRes.data || [])
+      setBudgetItemPackages(linkRes.data || [])
     }
     loadBudgetItems()
   }, [])
@@ -551,9 +559,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function businessActualPackageOptions(row) {
     if (row.operation_type !== 'business' || (row.sale_type || 'package') !== 'package') return []
+    const linkedIds = budgetItemPackages
+      .filter(link => String(link.budget_item_id) === String(row.budget_item_id) && link.is_deleted !== true)
+      .map(link => String(link.package_id))
+      .filter(Boolean)
     const selectedCodes = rowZoneCodes(row)
+    const candidates = linkedIds.length
+      ? packages.filter(pkg => linkedIds.includes(String(pkg.id)))
+      : packages.filter(pkg => String(pkg.id) === String(row.package_id))
     return packages
-      .filter(pkg => (pkg.package_type || 'general') === 'business')
+      .filter(pkg => candidates.some(candidate => String(candidate.id) === String(pkg.id)))
       .filter(pkg => packageMatchesZones(pkg, selectedCodes))
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
   }
@@ -719,7 +734,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (!item) {
       return { ...row, budget_item_id: '', item_name: '', package_id: '', package_name: '', vendor_key: '', prog_name: '' }
     }
-    const pkg = packages.find(p => String(p.id) === String(item.package_id)) || packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
+    const linkedPackageIds = budgetItemPackages
+      .filter(link => String(link.budget_item_id) === String(item.id) && link.is_deleted !== true)
+      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
+      .map(link => String(link.package_id))
+    const pkg = packages.find(p => String(p.id) === String(item.package_id)) ||
+      packages.find(p => linkedPackageIds.includes(String(p.id))) ||
+      packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
     return {
       ...row,
       budget_item_id: String(item.id),

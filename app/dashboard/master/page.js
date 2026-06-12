@@ -1797,6 +1797,7 @@ function OldBizTab() {
 function BizTab() {
   const [bizList, setBizList] = useState([])
   const [items, setItems] = useState([])
+  const [itemPackageLinks, setItemPackageLinks] = useState([])
   const [zones, setZones] = useState([])
   const [packages, setPackages] = useState([])
   const [vendors, setVendors] = useState([])
@@ -1807,17 +1808,19 @@ function BizTab() {
   const [selectedBizId, setSelectedBizId] = useState('')
 
   const load = useCallback(async () => {
-    const [bizR, itemR, zoneR, pkgR, vendorR] = await Promise.all([
+    const [bizR, itemR, zoneR, pkgR, vendorR, linkR] = await Promise.all([
       supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
+      supabase.from('biz_budget_item_packages').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setBizList(bizR.data || [])
     setItems(itemR.data || [])
     setZones(zoneR.data || [])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === 'business'))
+    setItemPackageLinks(linkR.data || [])
     setVendors((vendorR.data || []).map(vendor => ({
       ...vendor,
       vendor_programs: activeVendorPrograms(vendor.vendor_programs),
@@ -1853,6 +1856,18 @@ function BizTab() {
     const names = codes.map(code => zones.find(z => z.code === code)?.name || code)
     return names.length <= 2 ? names.join(' · ') : `${names.length}구역`
   }
+  const linkedPackageIdsForProduct = productId => {
+    const ids = itemPackageLinks
+      .filter(link => String(link.budget_item_id) === String(productId) && link.is_deleted !== true)
+      .map(link => String(link.package_id))
+      .filter(Boolean)
+    return [...new Set(ids)]
+  }
+  const selectedLinkedPackageIds = () => {
+    const ids = Array.isArray(form.package_ids) ? form.package_ids.map(String).filter(Boolean) : []
+    if (form.package_id && !ids.includes(String(form.package_id))) ids.unshift(String(form.package_id))
+    return [...new Set(ids)]
+  }
   const normalUnit = Number(form.support_unit_amount) || 0
   const plannedPeople = Number(form.planned_people_count) || 0
   const discountRate = Number(form.discount_rate) || 0
@@ -1868,6 +1883,7 @@ function BizTab() {
       zone_code: '',
       item_name: '',
       package_id: '',
+      package_ids: [],
       vendor_key: '',
       prog_name: '',
       vendor_settle_price: 0,
@@ -1919,6 +1935,9 @@ function BizTab() {
       zone_code: product.zone_code || '',
       item_name: product.item_name || '',
       package_id: product.package_id || '',
+      package_ids: linkedPackageIdsForProduct(product.id).length
+        ? linkedPackageIdsForProduct(product.id)
+        : (product.package_id ? [String(product.package_id)] : []),
       vendor_key: product.vendor_key || '',
       prog_name: product.prog_name || '',
       vendor_settle_price: Number(product.vendor_settle_price) || 0,
@@ -1939,6 +1958,7 @@ function BizTab() {
       sale_type: saleType,
       item_name: '',
       package_id: '',
+      package_ids: [],
       vendor_key: '',
       prog_name: '',
       vendor_settle_price: 0,
@@ -1952,6 +1972,7 @@ function BizTab() {
     setForm(f => ({
       ...f,
       package_id: packageId,
+      package_ids: [...new Set([packageId, ...((f.package_ids || []).map(String))].filter(Boolean))],
       item_name: pkg?.name || '',
       zone_code: packageZoneCodes(pkg)[0] || f.zone_code || '',
       support_unit_amount: Number(pkg?.total_price) || Number(f.support_unit_amount) || 0,
@@ -1960,6 +1981,44 @@ function BizTab() {
       vendor_settle_price: 0,
       settle_type: 'per_person',
     }))
+  }
+
+  function toggleLinkedPackage(packageId) {
+    setForm(f => {
+      const id = String(packageId)
+      const current = new Set((f.package_ids || []).map(String).filter(Boolean))
+      if (current.has(id)) current.delete(id)
+      else current.add(id)
+      const nextIds = [...current]
+      const nextPrimary = f.package_id && nextIds.includes(String(f.package_id))
+        ? f.package_id
+        : (nextIds[0] || '')
+      return {
+        ...f,
+        package_ids: nextIds,
+        package_id: nextPrimary,
+        item_name: f.item_name || packages.find(p => String(p.id) === String(nextPrimary))?.name || '',
+        zone_code: nextPrimary ? (packageZoneCodes(packages.find(p => String(p.id) === String(nextPrimary)))[0] || f.zone_code || '') : f.zone_code,
+      }
+    })
+  }
+
+  async function saveLinkedPackages(productId) {
+    if (!productId || (form.sale_type || 'package') !== 'package') return
+    const now = new Date().toISOString()
+    const selectedIds = selectedLinkedPackageIds()
+    await supabase
+      .from('biz_budget_item_packages')
+      .update({ is_deleted: true, deleted_at: now, updated_at: now })
+      .eq('budget_item_id', productId)
+    if (!selectedIds.length) return
+    const rows = selectedIds.map((packageId, index) => ({
+      budget_item_id: productId,
+      package_id: packageId,
+      is_primary: String(packageId) === String(form.package_id || selectedIds[0]),
+    }))
+    const { error } = await supabase.from('biz_budget_item_packages').insert(rows)
+    if (error) throw error
   }
 
   function changeBusinessVendor(vendorKey) {
@@ -2027,12 +2086,21 @@ function BizTab() {
       sort_order: (Number(form.product_id) || 100) + 100,
     }
 
+    let productId = form.product_id
     if (form.product_id) {
       const { error } = await supabase.from('biz_budget_items').update(productPayload).eq('id', form.product_id)
       if (error) { alert('상품운영비 저장 실패: ' + error.message); return }
     } else {
-      const { error } = await supabase.from('biz_budget_items').insert(productPayload)
+      const { data, error } = await supabase.from('biz_budget_items').insert(productPayload).select('id').single()
       if (error) { alert('상품운영비 저장 실패: ' + error.message); return }
+      productId = data?.id
+    }
+
+    try {
+      await saveLinkedPackages(productId)
+    } catch (error) {
+      alert('하위 패키지 연결 저장 실패: ' + error.message)
+      return
     }
 
     if (discountRate > 0 && discountPeople > 0) {
@@ -2211,7 +2279,7 @@ function BizTab() {
               </Field>
             )}
             {selectedSaleType === 'package' ? (
-              <Field label="연결 패키지">
+              <Field label="기본 패키지">
                 <select className="form-select" value={form.package_id || selectedPackage?.id || ''} onChange={e => changeBusinessPackage(e.target.value)}>
                   <option value="">선택</option>
                   {packages
@@ -2240,6 +2308,35 @@ function BizTab() {
             )}
             <Field label="재정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
           </div>
+          {selectedSaleType === 'package' && (
+            <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>하위 사업비 패키지 목록</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>여기서 체크한 패키지들은 모두 위 사업비 상품의 계획 인원과 예산으로 함께 카운팅됩니다.</div>
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--accent)', fontWeight: 800 }}>{selectedLinkedPackageIds().length}개 연결</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '8px' }}>
+                {packages.map(pkg => {
+                  const active = selectedLinkedPackageIds().includes(String(pkg.id))
+                  const primary = String(form.package_id || '') === String(pkg.id)
+                  return (
+                    <button
+                      key={pkg.id}
+                      type="button"
+                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                      onClick={() => toggleLinkedPackage(pkg.id)}
+                      style={{ minHeight: '42px', height: 'auto', padding: '7px 9px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', textAlign: 'left' }}
+                    >
+                      <span style={{ fontWeight: 900 }}>{pkg.name}{primary ? ' · 기본' : ''}</span>
+                      <span style={{ fontSize: '10px', opacity: .78, marginTop: '2px' }}>{packageZoneLabel(pkg) || '구역 미지정'}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           {selectedSaleType === 'single' && (
             <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
               <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder={selectedVendorProgram?.prog_name || '단품 상품명'} /></Field>
