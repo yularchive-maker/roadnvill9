@@ -1137,9 +1137,9 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             {packageType === 'business' && (
-              <Field label="사업비 상품 기준 불러오기">
+              <Field label="사업비 상품 기준값 불러오기">
                 <select className="form-select" value="" onChange={e => handlePackageNameSelect(e.target.value)}>
-                  <option value="">선택 시 기준가/인원만 반영</option>
+                  <option value="">선택 시 판매가/인원 자동 입력</option>
                   {businessPackageOptions.map(item => (
                     <option key={item.id} value={item.item_name}>{item.item_name}</option>
                   ))}
