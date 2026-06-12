@@ -549,6 +549,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       }))
   }
 
+  function businessActualPackageOptions(row) {
+    if (row.operation_type !== 'business' || (row.sale_type || 'package') !== 'package') return []
+    const selectedCodes = rowZoneCodes(row)
+    return packages
+      .filter(pkg => (pkg.package_type || 'general') === 'business')
+      .filter(pkg => packageMatchesZones(pkg, selectedCodes))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  }
+
   function generalItemOptions(row) {
     const selectedCodes = rowZoneCodes(row)
     const showPackages = (row.sale_type || 'package') === 'package'
@@ -710,6 +719,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (!item) {
       return { ...row, budget_item_id: '', item_name: '', package_id: '', package_name: '', vendor_key: '', prog_name: '' }
     }
+    const pkg = packages.find(p => String(p.id) === String(item.package_id)) || packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
     return {
       ...row,
       budget_item_id: String(item.id),
@@ -717,12 +727,23 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       biz_id: item.biz_id || row.biz_id || '',
       zone_code: zoneForBusinessItem(row, item),
       item_name: item.item_name || '',
-      package_id: item.package_id || '',
-      package_name: item.item_name || item.match_package_name || '',
+      package_id: item.package_id || pkg?.id || '',
+      package_name: pkg?.name || item.match_package_name || item.item_name || '',
       vendor_key: item.vendor_key || '',
       prog_name: item.prog_name || item.match_program_name || '',
       discount_rate: Number(row.discount_rate) || 0,
       reimbursement_target: row.reimbursement_target || item.default_reimbursement_target || '',
+    }
+  }
+
+  function applyBusinessActualPackage(row, packageId) {
+    if (!packageId) return { ...row, package_id: '', package_name: '' }
+    const pkg = packages.find(p => String(p.id) === String(packageId))
+    if (!pkg) return row
+    return {
+      ...row,
+      package_id: String(pkg.id),
+      package_name: pkg.name || row.package_name || '',
     }
   }
 
@@ -765,6 +786,9 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         return next.operation_type === 'business'
           ? applyBusinessSelection(next, patch.selection)
           : applyGeneralSelection(next, patch.selection)
+      }
+      if ('actual_package_id' in patch && next.operation_type === 'business') {
+        return applyBusinessActualPackage(next, patch.actual_package_id)
       }
       if ('package_name' in patch) {
         const pkg = packages.find(p => p.name === patch.package_name)
@@ -1772,6 +1796,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       const itemOptions = row.operation_type === 'business'
                         ? componentBudgetPackageOptions(row)
                         : generalItemOptions(row)
+                      const actualPackageOptions = businessActualPackageOptions(row)
                       const saleTypeLabel = (row.sale_type || 'package') === 'single' ? '단품' : '패키지'
                       const rowComplete = !!(row.item_name || row.package_name) && Number(row.people_count) > 0
                       const selectedZoneCodes = rowZoneCodes(row)
@@ -1867,7 +1892,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                           </div>
                           <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(0,1fr) 126px 70px' : 'minmax(0,1fr) 70px',gap:'8px',alignItems:'end',marginTop:'8px'}}>
                             <div className="form-field">
-                              <label>상품 선택</label>
+                              <label>{row.operation_type === 'business' ? '사업비 상품 선택' : '상품 선택'}</label>
                               <select className="form-select" value={rowSelectionValue(row)} onChange={e=>updateComponentRow(row.id,{selection:e.target.value})} disabled={!canSelectProduct}>
                                 <option value="">{canSelectProduct ? '선택' : '구역 먼저 선택'}</option>
                                 {itemOptions.map(p=><option key={p.id || p.key} value={p.id || p.key}>{p.label || p.name}</option>)}
@@ -1876,6 +1901,18 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                 <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>금소마을, 암산마을처럼 실제 포함될 구역을 먼저 선택해주세요.</div>
                               )}
                             </div>
+                            {row.operation_type === 'business' && row.sale_type === 'package' && row.budget_item_id && (
+                              <div className="form-field" style={{gridColumn:'1 / -1'}}>
+                                <label>실제 진행 패키지 <span className="auto">카운팅 기준과 분리</span></label>
+                                <select className="form-select" value={row.package_id || ''} onChange={e=>updateComponentRow(row.id,{actual_package_id:e.target.value})}>
+                                  <option value="">사업비 상품 기본 패키지 사용</option>
+                                  {actualPackageOptions.map(pkg=><option key={pkg.id} value={pkg.id}>{pkg.name}</option>)}
+                                </select>
+                                <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>
+                                  계획 인원/선지급은 위 사업비 상품으로 카운팅되고, 업체 확인과 프로그램 구성은 여기서 선택한 패키지 기준으로 처리됩니다.
+                                </div>
+                              </div>
+                            )}
                             {row.operation_type === 'general' && row.sale_type === 'single' && (
                               <div style={{gridColumn:'1 / -1',display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(128px,1fr))',gap:'8px',alignItems:'end'}}>
                                 <div className="form-field">
