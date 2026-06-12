@@ -980,7 +980,6 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     const item = businessPackageOptions.find(option => option.item_name === name)
     setForm(f => ({
       ...f,
-      name,
       total_price: item ? Number(item.support_unit_amount) || f.total_price || 0 : f.total_price,
       pax_limit: item ? Number(item.planned_people_count) || f.pax_limit || 0 : f.pax_limit,
     }))
@@ -1129,24 +1128,24 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
             <Field label="패키지코드" auto={modal.mode === 'new'}>
               <input className="form-input auto-fill" value={form.code || ''} readOnly />
             </Field>
-            <Field label={packageType === 'business' ? '사업비 패키지명' : '패키지명'} required>
-              {packageType === 'business' ? (
-                <select className="form-select" value={form.name || ''} onChange={e => handlePackageNameSelect(e.target.value)}>
-                  <option value="">사업비 상품에서 선택</option>
-                  {businessPackageOptions
-                    .map(item => (
-                    <option key={item.id} value={item.item_name}>{item.item_name}</option>
-                  ))}
-                </select>
-              ) : (
-                <input className="form-input" value={form.name || ''} onChange={e => inp('name', e.target.value)} placeholder="금양연화" />
-              )}
+            <Field label={packageType === 'business' ? '하위 사업비 패키지명' : '패키지명'} required>
+              <input className="form-input" value={form.name || ''} onChange={e => inp('name', e.target.value)} placeholder={packageType === 'business' ? '예: 금소베케이션, 금양연화 변형A' : '금양연화'} />
             </Field>
             <Field label="인원 알림 기준">
               <input className="form-input" type="number" value={form.pax_limit || 0} onChange={e => inp('pax_limit', e.target.value)} placeholder="0=미설정" />
             </Field>
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
+            {packageType === 'business' && (
+              <Field label="사업비 상품 기준 불러오기">
+                <select className="form-select" value="" onChange={e => handlePackageNameSelect(e.target.value)}>
+                  <option value="">선택 시 기준가/인원만 반영</option>
+                  {businessPackageOptions.map(item => (
+                    <option key={item.id} value={item.item_name}>{item.item_name}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="패키지 판매가(원)">
               <input className="form-input" inputMode="numeric" value={numberInputValue(form.total_price)} onChange={e => inp('total_price', numberInputChange(e.target.value))} />
             </Field>
