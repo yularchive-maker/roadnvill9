@@ -23,6 +23,14 @@ function isCancelled(reservation) {
   return reservation?.type === 'cancelled' || reservation?.reservation_status === '취소'
 }
 
+function isBusinessReservation(reservation) {
+  return reservation?.op === '사업비' || reservation?.operation_type === 'business' || !!reservation?.biz_id
+}
+
+function isBusinessUsage(usage) {
+  return usage?.operation_type === 'business' || !!usage?.biz_id
+}
+
 function reimbursementStatus(total, reimbursed) {
   const paid = Number(reimbursed) || 0
   const amount = Number(total) || 0
@@ -80,6 +88,7 @@ function autoProductUsage(item, reservations, snapshots) {
 
   for (const reservation of reservations) {
     if (isCancelled(reservation)) continue
+    if (!isBusinessReservation(reservation)) continue
     if (item.biz_id && String(reservation.biz_id || '') !== String(item.biz_id)) continue
 
     const reservationSnapshots = snapshots.filter(s => s.reservation_no === reservation.no)
@@ -115,6 +124,7 @@ function autoProductUsage(item, reservations, snapshots) {
 function buildProductUsage(item, reservations, snapshots, budgetUsages) {
   const explicit = budgetUsages.filter(usage =>
     usage.usage_type === 'product_operation' &&
+    isBusinessUsage(usage) &&
     String(usage.budget_item_id || '') === String(item.id || '')
   )
   if (explicit.length) {
@@ -127,6 +137,7 @@ function buildProductUsage(item, reservations, snapshots, budgetUsages) {
 function buildPromotionUsage(item, reservations, budgetUsages) {
   const explicit = budgetUsages.filter(usage =>
     usage.usage_type === 'promotion_discount' &&
+    isBusinessUsage(usage) &&
     String(usage.budget_item_id || '') === String(item.id || '')
   )
   const details = usageDetailsFromRows(explicit, reservations)
@@ -197,8 +208,11 @@ function reservationUsageRows(productUsage, promoUsage, cardOrFallbackCustomerUn
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.no || '').localeCompare(String(b.no || '')))
 }
 
-function aggregateVendorRows(packageName, snapshots, reservations) {
-  const activeNos = new Set(reservations.filter(r => !isCancelled(r)).map(r => r.no))
+function aggregateVendorRows(packageName, snapshots, reservations, usageDetails = []) {
+  const detailNos = new Set((usageDetails || []).map(detail => detail.no).filter(Boolean))
+  const activeNos = detailNos.size
+    ? detailNos
+    : new Set(reservations.filter(r => !isCancelled(r) && isBusinessReservation(r)).map(r => r.no))
   const grouped = new Map()
   for (const snap of snapshots) {
     if (!activeNos.has(snap.reservation_no)) continue
@@ -356,7 +370,7 @@ export default function BizPage() {
       const normalUnit = Number(product.support_unit_amount) || 0
       const discountRate = Number(promo?.support_rate) || 0
       const discountCustomerUnit = promo ? Math.round(normalUnit * (100 - discountRate) / 100) : 0
-      const vendorRows = aggregateVendorRows(packageTarget(product), snapshots, reservations)
+      const vendorRows = aggregateVendorRows(packageTarget(product), snapshots, reservations, productUsage.details)
 
       return {
         id: product.id,
