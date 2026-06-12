@@ -575,16 +575,21 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function businessActualPackageOptions(row) {
     if (row.operation_type !== 'business' || (row.sale_type || 'package') !== 'package') return []
+    const productItem = componentBudgetItem(row, 'product_operation')
+    const productName = String(productItem?.item_name || row.item_name || '').trim().toLowerCase()
     const linkedIds = budgetItemPackages
       .filter(link => String(link.budget_item_id) === String(row.budget_item_id) && link.is_deleted !== true)
       .map(link => String(link.package_id))
       .filter(Boolean)
     const selectedCodes = rowZoneCodes(row)
-    const candidates = linkedIds.length
-      ? packages.filter(pkg => linkedIds.includes(String(pkg.id)))
-      : packages.filter(pkg => String(pkg.id) === String(row.package_id))
-    return packages
-      .filter(pkg => candidates.some(candidate => String(candidate.id) === String(pkg.id)))
+    const candidateIds = new Set(linkedIds)
+    if (row.package_id) candidateIds.add(String(row.package_id))
+    packages
+      .filter(pkg => (pkg.package_type || 'general') === 'business')
+      .filter(pkg => productName && String(pkg.name || '').trim().toLowerCase().includes(productName))
+      .forEach(pkg => candidateIds.add(String(pkg.id)))
+    const candidates = packages.filter(pkg => candidateIds.has(String(pkg.id)))
+    return candidates
       .filter(pkg => packageMatchesZones(pkg, selectedCodes))
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
   }
@@ -1940,13 +1945,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             </div>
                             {row.operation_type === 'business' && row.sale_type === 'package' && row.budget_item_id && (
                               <div className="form-field" style={{gridColumn:'1 / -1'}}>
-                                <label>실제 진행 패키지 <span className="auto">카운팅 기준과 분리</span></label>
+                                <label>실제 진행 패키지 <span className="auto">체험 구성 선택</span></label>
                                 <select className="form-select" value={row.package_id || ''} onChange={e=>updateComponentRow(row.id,{actual_package_id:e.target.value})}>
                                   <option value="">사업비 상품 기본 패키지 사용</option>
                                   {actualPackageOptions.map(pkg=><option key={pkg.id} value={pkg.id}>{pkg.name}</option>)}
                                 </select>
                                 <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>
-                                  계획 인원/선지급은 위 사업비 상품으로 카운팅되고, 업체 확인과 프로그램 구성은 여기서 선택한 패키지 기준으로 처리됩니다.
+                                  사업비 인원/예산은 위 상품에 합산되고, 업체 확인과 프로그램 구성은 아래 패키지 기준으로 처리됩니다.
                                 </div>
                               </div>
                             )}
