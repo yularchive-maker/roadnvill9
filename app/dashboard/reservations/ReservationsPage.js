@@ -469,6 +469,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     return codes.length === packageCodes.length && codes.every(code => packageCodes.includes(code))
   }
 
+  function packageOverlapsZones(pkg, selectedCodes) {
+    const codes = selectedCodes || []
+    if (!codes.length) return true
+    const packageCodes = packageZoneCodes(pkg)
+    if (!packageCodes.length) return false
+    return codes.some(code => packageCodes.includes(code))
+  }
+
   function componentBiz(row) {
     return bizList.find(b => String(b.id) === String(row.biz_id))
   }
@@ -536,6 +544,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function componentBudgetPackageOptions(row) {
     const selectedCodes = rowZoneCodes(row)
+    const linkedPackagesForItem = item => {
+      const linkedIds = budgetItemPackages
+        .filter(link => String(link.budget_item_id) === String(item.id) && link.is_deleted !== true)
+        .map(link => String(link.package_id))
+        .filter(Boolean)
+      const linkedPackages = packages.filter(pkg => linkedIds.includes(String(pkg.id)))
+      const primaryPackage = packages.find(p => String(p.id) === String(item.package_id)) || packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
+      return linkedPackages.length ? linkedPackages : (primaryPackage ? [primaryPackage] : [])
+    }
     return budgetItems
       .filter(item => item.is_active !== false && item.category === 'product_operation')
       .filter(item => !row.biz_id || !item.biz_id || String(item.biz_id) === String(row.biz_id))
@@ -543,9 +560,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       .filter(item => {
         if (!selectedCodes.length) return true
         if ((item.sale_type || 'package') !== 'package') return !item.zone_code || selectedCodes.includes(item.zone_code)
-        const pkg = packages.find(p => String(p.id) === String(item.package_id)) || packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
-        const zonesForPackage = packageZoneCodes(pkg)
-        if (zonesForPackage.length) return selectedCodes.length === zonesForPackage.length && selectedCodes.every(code => zonesForPackage.includes(code))
+        const itemPackages = linkedPackagesForItem(item)
+        if (itemPackages.length) return itemPackages.some(pkg => packageOverlapsZones(pkg, selectedCodes))
         return !item.zone_code || selectedCodes.includes(item.zone_code)
       })
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
@@ -2432,7 +2448,7 @@ export default function ReservationsPage() {
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
       supabase.from('platforms').select('*').order('type').order('name'),
       supabase.from('drivers').select('*').order('name'),
-      supabase.from('biz').select('*').order('name'),
+      supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
