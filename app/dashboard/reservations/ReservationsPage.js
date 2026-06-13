@@ -256,6 +256,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     end_time: '',
     place: '',
     discount_rate: 0,
+    discount_amount: '',
     reimbursement_target: '',
     reimbursed_amount: 0,
     reimbursement_memo: '',
@@ -304,6 +305,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           end_time: u.end_time || '',
           place: u.place || '',
           discount_rate: rowDiscountRate,
+          discount_amount: Number(u.discount_amount) || '',
           reimbursement_target: promo?.reimbursement_target || '',
           reimbursed_amount: Number(promo?.reimbursed_amount) || 0,
           reimbursement_memo: promo?.reimbursement_memo || promo?.memo || '',
@@ -531,6 +533,18 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       const byId = budgetItems.find(item => String(item.id) === String(row.budget_item_id))
       if (byId) return byId
     }
+    if (category === 'promotion_discount' && row.budget_item_id) {
+      const product = budgetItems.find(item => String(item.id) === String(row.budget_item_id))
+      if (product) {
+        const byProduct = budgetItems.find(item =>
+          item.category === 'promotion_discount' &&
+          item.is_active !== false &&
+          String(item.biz_id || '') === String(product.biz_id || '') &&
+          item.item_name === product.item_name
+        )
+        if (byProduct) return byProduct
+      }
+    }
     return budgetItems.find(item => {
       const itemSaleType = item.sale_type || 'package'
       return item.category === category &&
@@ -556,7 +570,6 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     return budgetItems
       .filter(item => item.is_active !== false && item.category === 'product_operation')
       .filter(item => !row.biz_id || !item.biz_id || String(item.biz_id) === String(row.biz_id))
-      .filter(item => (item.sale_type || 'package') === (row.sale_type || 'package'))
       .filter(item => {
         if (!selectedCodes.length) return true
         if ((item.sale_type || 'package') !== 'package') return !item.zone_code || selectedCodes.includes(item.zone_code)
@@ -569,7 +582,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         id: String(item.id),
         sale_type: item.sale_type || 'package',
         name: item.item_name,
-        label: `${item.sale_type === 'single' ? '단품' : '패키지'} · ${item.item_name}`,
+        label: `사업비 상품 · ${item.item_name}`,
       }))
   }
 
@@ -631,15 +644,24 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     const productItem = componentBudgetItem(row, 'product_operation')
     const promoItem = componentBudgetItem(row, 'promotion_discount')
     const normalUnit = row.operation_type === 'business'
-      ? Number(productItem?.support_unit_amount) || Number(pkg?.total_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
+      ? (row.sale_type === 'single'
+        ? Number(row.customer_unit_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
+        : Number(productItem?.support_unit_amount) || Number(pkg?.total_price) || Number(form.price) || 0)
       : (row.sale_type === 'single'
         ? Number(row.customer_unit_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
         : Number(pkg?.total_price) || Number(form.price) || 0)
-    const discountRate = row.operation_type === 'business' ? Number(row.discount_rate) || 0 : 0
+    const manualDiscountAmount = row.operation_type === 'business' ? Number(row.discount_amount) || 0 : 0
+    const discountRate = row.operation_type === 'business'
+      ? (manualDiscountAmount > 0 && normalUnit > 0
+        ? Math.round((manualDiscountAmount / normalUnit) * 10000) / 100
+        : Number(row.discount_rate) || 0)
+      : 0
     const people = Number(row.people_count) || 0
     const prepaidUnit = row.operation_type === 'business'
       ? discountRate > 0
-        ? (Number(promoItem?.support_rate) === discountRate && Number(promoItem?.support_unit_amount)
+        ? (manualDiscountAmount > 0
+          ? Math.min(manualDiscountAmount, normalUnit)
+          : Number(promoItem?.support_rate) === discountRate && Number(promoItem?.support_unit_amount)
           ? Number(promoItem.support_unit_amount)
           : Math.round(normalUnit * discountRate / 100))
         : 0
@@ -663,13 +685,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   function componentDiscountOptions(row) {
     const options = [{ label: '일반가', rate: 0 }]
     if (row.operation_type !== 'business' || !(row.item_name || row.package_name)) return options
+    const productItem = componentBudgetItem(row, 'product_operation')
     const promos = budgetItems
       .filter(item =>
         item.is_active !== false &&
         item.category === 'promotion_discount' &&
-        (item.sale_type || 'package') === (row.sale_type || 'package') &&
         (!row.biz_id || !item.biz_id || String(item.biz_id) === String(row.biz_id)) &&
-        (item.item_name === (row.item_name || row.package_name) ||
+        (item.item_name === productItem?.item_name ||
+          item.item_name === (row.item_name || row.package_name) ||
           item.match_package_name === row.package_name ||
           item.match_program_name === row.prog_name)
       )
@@ -765,14 +788,13 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     return {
       ...row,
       budget_item_id: String(item.id),
-      sale_type: item.sale_type || 'package',
       biz_id: item.biz_id || row.biz_id || '',
       zone_code: zoneForBusinessItem(row, item),
       item_name: item.item_name || '',
-      package_id: item.package_id || pkg?.id || '',
-      package_name: pkg?.name || item.match_package_name || item.item_name || '',
-      vendor_key: item.vendor_key || '',
-      prog_name: item.prog_name || item.match_program_name || '',
+      package_id: row.sale_type === 'package' ? (item.package_id || pkg?.id || '') : '',
+      package_name: row.sale_type === 'package' ? (pkg?.name || item.match_package_name || item.item_name || '') : (item.item_name || ''),
+      vendor_key: row.sale_type === 'single' ? (row.vendor_key || '') : (item.vendor_key || ''),
+      prog_name: row.sale_type === 'single' ? (row.prog_name || '') : (item.prog_name || item.match_program_name || ''),
       discount_rate: Number(row.discount_rate) || 0,
       reimbursement_target: row.reimbursement_target || item.default_reimbursement_target || '',
     }
@@ -807,6 +829,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         next.end_time = ''
         next.place = ''
         next.discount_rate = 0
+        next.discount_amount = ''
         next.reimbursement_target = ''
       }
       if ('sale_type' in patch) {
@@ -822,6 +845,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         next.end_time = ''
         next.place = ''
         next.discount_rate = 0
+        next.discount_amount = ''
         next.reimbursement_target = ''
       }
       if ('selection' in patch) {
@@ -856,9 +880,17 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         const promo = componentBudgetItem(next, 'promotion_discount')
         next.reimbursement_target = promo?.default_reimbursement_target || product?.default_reimbursement_target || ''
       }
+      if ('discount_rate' in patch) {
+        next.discount_amount = ''
+      }
+      if ('discount_amount' in patch && next.operation_type === 'business') {
+        const draftAmounts = componentAmounts(next)
+        next.discount_rate = draftAmounts.discountRate
+      }
       if (next.operation_type === 'general') {
         next.biz_id = ''
         next.discount_rate = 0
+        next.discount_amount = ''
         next.reimbursement_target = ''
       }
       return next
@@ -1955,8 +1987,52 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                 </div>
                               </div>
                             )}
-                            {row.operation_type === 'general' && row.sale_type === 'single' && (
+                            {row.sale_type === 'single' && (
                               <div style={{gridColumn:'1 / -1',display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(128px,1fr))',gap:'8px',alignItems:'end'}}>
+                                {row.operation_type === 'business' && (
+                                  <>
+                                    <div className="form-field">
+                                      <label>실제 체험 업체</label>
+                                      <select
+                                        className="form-select"
+                                        value={row.vendor_key || ''}
+                                        onChange={e=>updateComponentRow(row.id,{vendor_key:e.target.value,prog_name:'',customer_unit_price:'',vendor_settle_unit_price:'',start_time:'',end_time:'',place:''})}
+                                      >
+                                        <option value="">업체 선택</option>
+                                        {vendors
+                                          .filter(v => (v.vendor_programs || []).some(program => !selectedZoneCodes.length || !program.zone_code || selectedZoneCodes.includes(program.zone_code)))
+                                          .map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="form-field">
+                                      <label>실제 체험 프로그램</label>
+                                      <select
+                                        className="form-select"
+                                        value={row.prog_name || ''}
+                                        onChange={e=>{
+                                          const progName = e.target.value
+                                          const vendor = vendors.find(v => v.key === row.vendor_key)
+                                          const program = vendor?.vendor_programs?.find(p => p.prog_name === progName)
+                                          updateComponentRow(row.id,{
+                                            prog_name: progName,
+                                            package_name: progName || row.item_name || '',
+                                            customer_unit_price: Number(program?.customer_price) || '',
+                                            vendor_settle_unit_price: Number(program?.vendor_settle_price ?? program?.unit_price) || '',
+                                            start_time: program?.default_start || row.start_time || '',
+                                            end_time: program?.default_end || row.end_time || '',
+                                            place: program?.place || row.place || '',
+                                          })
+                                        }}
+                                        disabled={!row.vendor_key}
+                                      >
+                                        <option value="">{row.vendor_key ? '프로그램 선택' : '업체 먼저 선택'}</option>
+                                        {(componentVendor(row)?.vendor_programs || [])
+                                          .filter(program => !selectedZoneCodes.length || !program.zone_code || selectedZoneCodes.includes(program.zone_code))
+                                          .map(program => <option key={program.prog_name} value={program.prog_name}>{program.prog_name}</option>)}
+                                      </select>
+                                    </div>
+                                  </>
+                                )}
                                 <div className="form-field">
                                   <label>고객 판매가</label>
                                   <input className="form-input" inputMode="numeric" value={numberInputValue(row.customer_unit_price)} onChange={e=>updateComponentRow(row.id,{customer_unit_price:numberInputChange(e.target.value)})} placeholder="기준정보 판매가" />
@@ -1980,23 +2056,42 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               </div>
                             )}
                             {row.operation_type === 'business' && (
-                              <div className="form-field">
+                              <div className="form-field" style={{ gridColumn: '1 / -1' }}>
                                 <label>요금 조건</label>
-                                <div style={{display:'grid',gridTemplateColumns:`repeat(${discountOptions.length}, minmax(0,1fr))`,gap:'5px'}}>
-                                  {discountOptions.map(option => {
-                                    const active = Number(row.discount_rate) === option.rate
-                                    return (
-                                      <button
-                                        key={option.rate}
-                                        type="button"
-                                        className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
-                                        onClick={() => updateComponentRow(row.id,{discount_rate:option.rate})}
-                                        style={{height:'34px',padding:'0 8px',fontSize:'12px',whiteSpace:'nowrap',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
-                                      >
-                                        {option.label}
-                                      </button>
-                                    )
-                                  })}
+                                <div style={{display:'grid',gridTemplateColumns:'minmax(180px,1.3fr) 110px 132px',gap:'6px',alignItems:'center'}}>
+                                  <div style={{display:'grid',gridTemplateColumns:`repeat(${discountOptions.length}, minmax(0,1fr))`,gap:'5px'}}>
+                                    {discountOptions.map(option => {
+                                      const active = Number(row.discount_rate) === option.rate && !Number(row.discount_amount)
+                                      return (
+                                        <button
+                                          key={option.rate}
+                                          type="button"
+                                          className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                                          onClick={() => updateComponentRow(row.id,{discount_rate:option.rate})}
+                                          style={{height:'34px',padding:'0 8px',fontSize:'12px',whiteSpace:'nowrap',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
+                                        >
+                                          {option.label}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                  <input
+                                    className="form-input"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.01"
+                                    value={Number(row.discount_rate) || ''}
+                                    onChange={e=>updateComponentRow(row.id,{discount_rate:e.target.value})}
+                                    placeholder="할인율 %"
+                                  />
+                                  <input
+                                    className="form-input"
+                                    inputMode="numeric"
+                                    value={numberInputValue(row.discount_amount)}
+                                    onChange={e=>updateComponentRow(row.id,{discount_amount:numberInputChange(e.target.value)})}
+                                    placeholder="할인금액"
+                                  />
                                 </div>
                               </div>
                             )}
@@ -2007,7 +2102,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                           </div>
                           {row.operation_type === 'business' && (
                             <div className="form-field" style={{marginTop:'10px'}}>
-                              <label>재정산 받을 곳 <span className="auto">기준정보 자동</span></label>
+                              <label>지원금 정산 받을 곳 <span className="auto">기준정보 자동</span></label>
                               <input className="form-input" value={row.reimbursement_target||''} onChange={e=>updateComponentRow(row.id,{reimbursement_target:e.target.value})} placeholder="사업비 패키지 기준에서 자동 입력"/>
                             </div>
                           )}
@@ -2016,11 +2111,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>할인율 <b style={{display:'block',color:'var(--accent)'}}>{amounts.discountRate}%</b></div>}
                             <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>고객가 <b style={{display:'block',color:'var(--accent)'}}>{amounts.customerUnit.toLocaleString()}원</b></div>
                             {row.operation_type === 'general' && row.sale_type === 'single' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>업체 정산 <b style={{display:'block',color:'var(--amber)'}}>{(Number(row.vendor_settle_unit_price) || 0).toLocaleString()}원</b></div>}
-                            {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>선지급 단가 <b style={{display:'block',color:'var(--warning)'}}>{amounts.prepaidUnit.toLocaleString()}원</b></div>}
-                            <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>{row.operation_type === 'business' ? '선지급 총액' : '예상금액'} <b style={{display:'block',color:row.operation_type === 'business'?'var(--warning)':'var(--text-primary)'}}>{(row.operation_type === 'business' ? amounts.prepaidTotal : amounts.customerUnit * amounts.people).toLocaleString()}원</b></div>
+                            {row.operation_type === 'business' && <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>인당 지원금 <b style={{display:'block',color:'var(--warning)'}}>{amounts.prepaidUnit.toLocaleString()}원</b></div>}
+                            <div style={{background:'rgba(255,255,255,.04)',borderRadius:'6px',padding:'8px'}}>{row.operation_type === 'business' ? '지원금 총액' : '예상금액'} <b style={{display:'block',color:row.operation_type === 'business'?'var(--warning)':'var(--text-primary)'}}>{(row.operation_type === 'business' ? amounts.prepaidTotal : amounts.customerUnit * amounts.people).toLocaleString()}원</b></div>
                           </div>
                           <div className="form-field" style={{marginTop:'8px'}}>
-                            <label>선지급/재정산 메모</label>
+                            <label>지원금 정산 메모</label>
                             <input className="form-input" value={row.reimbursement_memo||''} onChange={e=>updateComponentRow(row.id,{reimbursement_memo:e.target.value})} placeholder={(row.item_name || pkg?.name) ? `${row.item_name || pkg.name} 관련 메모` : '메모'}/>
                           </div>
                           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginTop:'10px',paddingTop:'10px',borderTop:'1px solid var(--border2)'}}>

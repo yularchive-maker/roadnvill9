@@ -214,24 +214,54 @@ function dateOnlyNotices(notices = [], date) {
   ))
 }
 
-// 겹침 감지: 같은 업체 + 시간 겹침
-// 같은 구역 → real(형광연두), 다른 구역 → warn(amber)
-function detectConflicts(evs) {
-  const map = new Map()
-  for (let i = 0; i < evs.length; i++) {
-    for (let j = i + 1; j < evs.length; j++) {
-      const a = evs[i], b = evs[j]
-      if (a.type === 'pickup' || b.type === 'pickup' || a.type === 'notice' || b.type === 'notice') continue
-      if (a.vendor_key !== b.vendor_key) continue
-      if (!(timeToMin(a.start_time) < timeToMin(b.end_time) &&
-            timeToMin(b.start_time) < timeToMin(a.end_time))) continue
-      const za = a.zone_code || '', zb = b.zone_code || ''
-      const level = (za && zb && za !== zb) ? 'warn' : 'real'
-      const setLv = (id, lv) => { if (!map.has(id) || lv === 'real') map.set(id, lv) }
-      setLv(a.id, level)
-      setLv(b.id, level)
+// 겹침 감지: 같은 업체 충돌은 강하게, 다른 일정 간 시간 겹침도 놓치지 않게 표시
+function isTimedConflictTarget(ev) {
+  return ev && ev.type !== 'pickup' && !isAllDayEvent(ev) && ev.start_time && ev.end_time
+}
+
+function eventsOverlapTime(a, b) {
+  if (!isTimedConflictTarget(a) || !isTimedConflictTarget(b)) return false
+  return timeToMin(a.start_time) < timeToMin(b.end_time) &&
+    timeToMin(b.start_time) < timeToMin(a.end_time)
+}
+
+function conflictLevel(a, b) {
+  const sameVendor = a.vendor_key && b.vendor_key &&
+    a.vendor_key !== 'NOTICE' &&
+    b.vendor_key !== 'NOTICE' &&
+    String(a.vendor_key) === String(b.vendor_key)
+  if (!sameVendor) return 'time'
+  const za = a.zone_code || ''
+  const zb = b.zone_code || ''
+  return za && zb && za !== zb ? 'warn' : 'real'
+}
+
+function conflictRank(level) {
+  return level === 'real' ? 3 : level === 'warn' ? 2 : level === 'time' ? 1 : 0
+}
+
+function buildConflictPairs(evs) {
+  const pairs = []
+  const targets = (evs || []).filter(isTimedConflictTarget)
+  for (let i = 0; i < targets.length; i++) {
+    for (let j = i + 1; j < targets.length; j++) {
+      const a = targets[i], b = targets[j]
+      if (!eventsOverlapTime(a, b)) continue
+      pairs.push({ a, b, level: conflictLevel(a, b) })
     }
   }
+  return pairs
+}
+
+function detectConflicts(evs) {
+  const map = new Map()
+  const setLv = (id, lv) => {
+    if (!map.has(id) || conflictRank(lv) > conflictRank(map.get(id))) map.set(id, lv)
+  }
+  buildConflictPairs(evs).forEach(({ a, b, level }) => {
+    setLv(a.id, level)
+    setLv(b.id, level)
+  })
   return map
 }
 
@@ -818,6 +848,23 @@ export default function TimetablePage() {
         `   ${c.a.customer||''} / ${c.b.customer||''}`
       ).join('\n\n')
     }
+    const time = cs.filter(c => c.level === 'time')
+    if (time.length) {
+      if (msg) msg += '\n\n'
+      msg += `시간 겹침 ${time.length}건\n`
+      msg += time.map((c, i) =>
+        `${i + 1}. ${c.a.start_time?.slice(0,5)}~${c.a.end_time?.slice(0,5)}\n` +
+        `   ${c.a.vendor_name || c.a.prog_name || c.a.pkg_name || '-'} / ${c.a.customer || c.a.prog_name || ''}\n` +
+        `   ${c.b.vendor_name || c.b.prog_name || c.b.pkg_name || '-'} / ${c.b.customer || c.b.prog_name || ''}`
+      ).join('\n\n')
+    }
+    if (!msg) {
+      msg = `시간 겹침 ${cs.length}건\n` + cs.map((c, i) =>
+        `${i + 1}. ${c.a.start_time?.slice(0,5)}~${c.a.end_time?.slice(0,5)}\n` +
+        `   ${c.a.vendor_name || c.a.prog_name || c.a.pkg_name || '-'} / ${c.a.customer || c.a.prog_name || ''}\n` +
+        `   ${c.b.vendor_name || c.b.prog_name || c.b.pkg_name || '-'} / ${c.b.customer || c.b.prog_name || ''}`
+      ).join('\n\n')
+    }
     alert(msg)
   }
 
@@ -875,6 +922,8 @@ export default function TimetablePage() {
     const isPickup = ev.type === 'pickup'
     const color = ev.vendor_color || '#4ECDC4'
     const level = conflictMap?.get(ev.id)
+    const conflictColor = level === 'real' ? '#ff6b6b' : level === 'warn' ? '#F7C948' : level === 'time' ? '#ff9f43' : color
+    const conflictLabel = level === 'real' ? '겹침' : level === 'warn' ? '이동주의' : level === 'time' ? '시간겹침' : ''
     const borderColor = level === 'real' ? '#33ff33' : level === 'warn' ? '#F7C948' : color
     const icon = level === 'real' ? '🟢 ' : level === 'warn' ? '🟡 ' : ''
     const isCompact = h < 42
@@ -891,13 +940,20 @@ export default function TimetablePage() {
       <div data-event-block="true" onClick={handleClick}
            style={{position:'absolute',left:'3px',right:'3px',top,height:h,
                    background: color + '22',
-                   border: level ? `2px solid ${borderColor}` : `1px solid ${color}44`,
-                   borderLeft:`3px solid ${borderColor}`,
+                   border: level ? `2px solid ${conflictColor}` : `1px solid ${color}44`,
+                   borderLeft:`3px solid ${conflictColor}`,
                    borderRadius:'7px',padding: isCompact ? '3px 6px' : '5px 7px',cursor:'pointer',overflow:'hidden',
                    boxSizing:'border-box',boxShadow:'0 6px 18px rgba(0,0,0,.18)'}}>
+        {level && (
+          <div style={{position:'absolute',right:'5px',top:'4px',height:'16px',padding:'0 5px',
+                       borderRadius:'999px',background:conflictColor,color:'#0f1923',
+                       fontSize:'9px',fontWeight:'900',lineHeight:'16px'}}>
+            {conflictLabel}
+          </div>
+        )}
         {isCompact ? (
           <>
-            <div style={{fontWeight:'700',fontSize:'10px',lineHeight:'11px',color:borderColor,
+            <div style={{fontWeight:'700',fontSize:'10px',lineHeight:'11px',color:conflictColor,
                          whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
               {icon}{isPickup ? '🚐 ' : ''}{ev.vendor_name || ev.vendor_key}{customerText ? ` · ${customerText}` : ''}
             </div>
@@ -908,7 +964,7 @@ export default function TimetablePage() {
           </>
         ) : (
           <>
-            <div style={{fontWeight:'700',fontSize:'11px',color:borderColor,
+            <div style={{fontWeight:'700',fontSize:'11px',color:conflictColor,
                          whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
               {icon}{isPickup ? '🚐 ' : ''}{ev.vendor_name || ev.vendor_key}
             </div>
@@ -1033,22 +1089,12 @@ export default function TimetablePage() {
     const conflictMap = detectConflicts(expEvs)
 
     // lastConflicts 업데이트
-    const cs = []
-    for (let i = 0; i < expEvs.length; i++) {
-      for (let j = i + 1; j < expEvs.length; j++) {
-        const a = expEvs[i], b = expEvs[j]
-        if (a.type === 'notice' || b.type === 'notice') continue
-        if (a.vendor_key !== b.vendor_key) continue
-        if (!(timeToMin(a.start_time) < timeToMin(b.end_time) &&
-              timeToMin(b.start_time) < timeToMin(a.end_time))) continue
-        const za = a.zone_code || '', zb = b.zone_code || ''
-        cs.push({ a, b, level: (za && zb && za !== zb) ? 'warn' : 'real' })
-      }
-    }
+    const cs = buildConflictPairs(expEvs)
     lastConflictsRef.current = cs
     const realCnt = cs.filter(c => c.level === 'real').length
     const warnCnt = cs.filter(c => c.level === 'warn').length
-    const totalConflict = realCnt + warnCnt
+    const timeCnt = cs.filter(c => c.level === 'time').length
+    const totalConflict = realCnt + warnCnt + timeCnt
 
     let cols = []
     if (group === 'all' || group === 'zone') {
@@ -1352,7 +1398,17 @@ export default function TimetablePage() {
     if (view === 'day') {
       const ds = dateStr(curDate)
       const evs = allEvents.filter(e => eventActiveOn(e, ds) && e.type !== 'pickup')
-      return detectConflicts(evs).size
+      return buildConflictPairs(evs).length
+    }
+    if (view === 'week') {
+      const start = getMon(curDate)
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(start)
+        d.setDate(start.getDate() + i)
+        const ds = dateStr(d)
+        const evs = allEvents.filter(e => eventActiveOn(e, ds) && e.type !== 'pickup')
+        return buildConflictPairs(evs).length
+      }).reduce((sum, count) => sum + count, 0)
     }
     return 0
   })()
@@ -1425,11 +1481,11 @@ export default function TimetablePage() {
             </div>
             {curConflictCount > 0 && (
               <div onClick={showConflicts}
-                   style={{height:'32px',padding:'0 12px',background:'rgba(51,255,51,0.12)',
-                           border:'1px solid rgba(51,255,51,0.25)',borderRadius:'20px',
-                           fontSize:'12px',color:'#33ff33',fontWeight:'700',cursor:'pointer',
+                   style={{height:'32px',padding:'0 12px',background:'rgba(255,107,107,0.14)',
+                           border:'1px solid rgba(255,107,107,0.32)',borderRadius:'20px',
+                           fontSize:'12px',color:'#ff9f43',fontWeight:'700',cursor:'pointer',
                            display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
-                겹침 {Math.floor(curConflictCount/2)}건
+                겹침 {curConflictCount}건
               </div>
             )}
             <button onClick={() => openNoticeModal({ date: dateStr(curDate), start_time:'09:00', end_time:'10:00', is_all_day:false })}

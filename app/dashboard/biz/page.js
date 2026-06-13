@@ -562,7 +562,7 @@ export default function BizPage() {
       .eq('id', row.id)
 
     if (error) {
-      alert('선지급 정산 상태 변경 실패: ' + error.message)
+      alert('지원금 정산 상태 변경 실패: ' + error.message)
       return
     }
     await load()
@@ -578,7 +578,7 @@ export default function BizPage() {
         <div>
           <div className="section-title">사업비 관리</div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            사업비명, 구역, 패키지별로 이용 인원과 선지급·재정산 금액을 확인합니다.
+            사업비명, 구역, 패키지별로 이용 인원과 지원금 정산 금액을 확인합니다.
           </div>
         </div>
         <button className="btn-outline" onClick={load}>새로고침</button>
@@ -595,7 +595,7 @@ export default function BizPage() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
         <button className={tab === 'structure' ? 'btn-primary' : 'btn-outline'} onClick={() => setTab('structure')}>사업비 구조 현황</button>
-        <button className={tab === 'reimburse' ? 'btn-primary' : 'btn-outline'} onClick={() => setTab('reimburse')}>선지급 정산 내역</button>
+        <button className={tab === 'reimburse' ? 'btn-primary' : 'btn-outline'} onClick={() => setTab('reimburse')}>지원금 정산 내역</button>
       </div>
 
       {tab === 'structure' ? (
@@ -645,9 +645,9 @@ export default function BizPage() {
               <div className="kpi-sub">명시 연결된 예약 기준</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-label">미정산 선지급액</div>
+              <div className="kpi-label">미정산 지원금</div>
               <div className="kpi-value" style={{ fontSize: '22px', color: totals.unpaid > 0 ? 'var(--red)' : 'var(--green)' }}>{money(totals.unpaid)}</div>
-              <div className="kpi-sub">선지급 {money(totals.prepaid)} / 정산완료 {money(totals.reimbursed)}</div>
+              <div className="kpi-sub">지원금 {money(totals.prepaid)} / 정산완료 {money(totals.reimbursed)}</div>
             </div>
           </div>
 
@@ -738,13 +738,13 @@ export default function BizPage() {
                                   <span style={{ fontSize: '11px', fontWeight: 900, color: 'var(--amber)' }}>{Number(card.discountRate)}% 할인</span>
                                   <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(displayDiscountUsedPeople)} / {fmt(displayDiscountPlanPeople)}명</span>
                                   <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px' }}>고객가 {money(card.discountCustomerUnit)}</span>
-                                  <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--amber)', whiteSpace: 'nowrap' }}>선지급 {money(displayPrepaidTotal)}</span>
+                                  <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--amber)', whiteSpace: 'nowrap' }}>지원금 {money(displayPrepaidTotal)}</span>
                                 </div>
                               )}
                             </div>
 
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', fontSize: '11px' }}>
-                              <span style={{ color: 'var(--amber)' }}>선지급 {money(displayPrepaidTotal)}</span>
+                              <span style={{ color: 'var(--amber)' }}>지원금 {money(displayPrepaidTotal)}</span>
                               <span style={{ color: displayUnpaidAmount > 0 ? 'var(--red)' : 'var(--green)' }}>미정산 {money(displayUnpaidAmount)}</span>
                               <span style={{ color: 'var(--green)' }}>정산완료 {money(displayReimbursedAmount)}</span>
                               <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontWeight: 800 }}>{opened ? '접기 ▲' : '상세 보기 ▼'}</span>
@@ -803,7 +803,7 @@ export default function BizPage() {
                                           <div style={{ color: 'var(--accent)', fontFamily: 'DM Mono,monospace', fontSize: '12px', fontWeight: 900 }}>{money(row.customerTotal)}</div>
                                         </div>
                                         <div style={{ borderRadius: '7px', padding: '7px 8px', background: 'rgba(10,31,48,.22)' }}>
-                                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>선지급</div>
+                                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>지원금</div>
                                           <div style={{ color: row.prepaid > 0 ? 'var(--amber)' : 'var(--text-muted)', fontFamily: 'DM Mono,monospace', fontSize: '12px', fontWeight: 900 }}>{money(row.prepaid)}</div>
                                         </div>
                                         <div style={{ borderRadius: '7px', padding: '7px 8px', background: 'rgba(10,31,48,.22)' }}>
@@ -841,11 +841,11 @@ export default function BizPage() {
                                 ))}
                               </div>
 
-                              <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>선지급·재정산</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>지원금 정산</div>
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
                                 {[
-                                  ['선지급 단가', money(card.prepaidUnit)],
-                                  ['선지급 총액', money(card.prepaidTotal)],
+                                  ['인당 지원금', money(card.prepaidUnit)],
+                                  ['지원금 총액', money(card.prepaidTotal)],
                                   ['정산완료액', money(card.reimbursedAmount)],
                                   ['미정산액', money(card.unpaidAmount)],
                                 ].map(([label, value]) => (
@@ -919,7 +919,7 @@ export default function BizPage() {
           <div className="list-card" style={{ padding: '12px' }}>
             {visibleReimbursementRows.length === 0 ? (
               <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                {reimburseView === 'completed' ? '정산 완료 이력이 없습니다.' : '미정산 선지급 내역이 없습니다.'}
+                {reimburseView === 'completed' ? '정산 완료 이력이 없습니다.' : '미정산 지원금 내역이 없습니다.'}
               </div>
             ) : visibleReimbursementRows.map(row => (
               <div
@@ -951,15 +951,15 @@ export default function BizPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '7px' }}>
                   {[
-                    ['재정산처', row.target],
+                    ['정산처', row.target],
                     ['인원', `${fmt(row.people)}명`],
-                    ['선지급', money(row.prepaid)],
+                    ['지원금', money(row.prepaid)],
                     ['정산완료', money(row.reimbursed)],
                     ['미정산', money(row.unpaid)],
                   ].map(([label, value]) => (
                     <div key={label} style={{ borderRadius: '8px', background: 'rgba(10,31,48,.22)', padding: '8px', minWidth: 0 }}>
                       <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>{label}</div>
-                      <div style={{ fontSize: '12px', fontWeight: 900, color: label === '선지급' ? 'var(--amber)' : label === '정산완료' ? 'var(--green)' : label === '미정산' && row.unpaid > 0 ? 'var(--red)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+                      <div style={{ fontSize: '12px', fontWeight: 900, color: label === '지원금' ? 'var(--amber)' : label === '정산완료' ? 'var(--green)' : label === '미정산' && row.unpaid > 0 ? 'var(--red)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
                     </div>
                   ))}
                 </div>

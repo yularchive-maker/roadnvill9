@@ -2113,10 +2113,10 @@ function BizTab() {
     let productId = form.product_id
     if (form.product_id) {
       const { error } = await supabase.from('biz_budget_items').update(productPayload).eq('id', form.product_id)
-      if (error) { alert('상품운영비 저장 실패: ' + error.message); return }
+      if (error) { alert('사업비 상품 저장 실패: ' + error.message); return }
     } else {
       const { data, error } = await supabase.from('biz_budget_items').insert(productPayload).select('id').single()
-      if (error) { alert('상품운영비 저장 실패: ' + error.message); return }
+      if (error) { alert('사업비 상품 저장 실패: ' + error.message); return }
       productId = data?.id
     }
 
@@ -2130,10 +2130,10 @@ function BizTab() {
     if (discountRate > 0 && discountPeople > 0) {
       if (form.promo_id) {
         const { error } = await supabase.from('biz_budget_items').update(promoPayload).eq('id', form.promo_id)
-        if (error) { alert('할인지원 저장 실패: ' + error.message); return }
+        if (error) { alert('지원금 기준 저장 실패: ' + error.message); return }
       } else {
         const { error } = await supabase.from('biz_budget_items').insert(promoPayload)
-        if (error) { alert('할인지원 저장 실패: ' + error.message); return }
+        if (error) { alert('지원금 기준 저장 실패: ' + error.message); return }
       }
     } else if (form.promo_id) {
       await supabase.from('biz_budget_items').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', form.promo_id)
@@ -2232,13 +2232,13 @@ function BizTab() {
       <div className="section-header">
         <div>
           <div className="section-title">사업비 상품 <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{products.length}개</span></div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>계획 인원, 기준가, 할인 지원, 선지급 재정산 기준을 관리하는 상위 기준입니다.</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>계획 인원, 정상 기준가, 총 지원 예산, 지원금 정산 기준을 관리하는 상위 기준입니다.</div>
         </div>
         <button className="btn-primary" onClick={openNew}>+ 사업비 상품 추가</button>
       </div>
       <div className="list-card">
         <div className="list-header" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px' }}>
-          <span>사업명</span><span>형태</span><span>상품명</span><span>구역명</span><span>기준가</span><span>계획</span><span>할인</span><span>선지급 예산</span><span />
+          <span>사업명</span><span>형태</span><span>상품명</span><span>구역명</span><span>기준가</span><span>계획</span><span>할인</span><span>총 지원 예산</span><span />
         </div>
         {products.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 사업비 상품 없음</div>}
         {products.map(product => {
@@ -2330,7 +2330,7 @@ function BizTab() {
             ) : (
               <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder="금양연화" /></Field>
             )}
-            <Field label="재정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
+            <Field label="지원금 정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
           </div>
           {selectedSaleType === 'package' && (
             <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px' }}>
@@ -2376,10 +2376,10 @@ function BizTab() {
             <Field label="할인 적용 인원"><input className="form-input" type="number" value={form.discount_people_count || 0} onChange={e => inp('discount_people_count', e.target.value)} /></Field>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: '8px', marginBottom: '12px' }}>
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>상품운영비 예산<b style={{ display: 'block', marginTop: '4px' }}>{money(productBudget)}</b></div>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>정상가 기준 총액<b style={{ display: 'block', marginTop: '4px' }}>{money(productBudget)}</b></div>
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>고객 결제가<b style={{ display: 'block', marginTop: '4px', color: 'var(--accent)' }}>{money(normalUnit - prepaidUnit)}</b></div>
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>인당 선지급금<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(prepaidUnit)}</b></div>
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>할인지원 예산<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(promoBudget)}</b></div>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>인당 지원금<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(prepaidUnit)}</b></div>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>총 지원 예산<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(promoBudget)}</b></div>
           </div>
           {selectedSaleType === 'package' && selectedPackage && (
             <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
