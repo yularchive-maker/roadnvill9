@@ -182,8 +182,8 @@ function VendorsTab() {
 
   const load = useCallback(async () => {
     const [vendorR, zoneR] = await Promise.all([
-      supabase.from('vendors').select('*, vendor_programs(*)').order('key'),
-      supabase.from('zones').select('*').order('code'),
+      supabase.from('vendors').select('key,name,contact,tel,color,note,telegram_chat_id,telegram_username,telegram_linked_at,is_deleted,vendor_programs(id,code,vendor_key,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('zones').select('code,name,is_deleted').order('code'),
     ])
     setVendors((vendorR.data || []).map(vendor => ({
       ...vendor,
@@ -760,14 +760,14 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
 
   const load = useCallback(async () => {
     const [pkgR, zoneR, vendorR, bizItemR, linkR] = await Promise.all([
-      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
-      supabase.from('zones').select('*').order('code'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').order('zone_code').order('name'),
+      supabase.from('zones').select('code,name,is_deleted').order('code'),
+      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       packageType === 'business'
         ? supabase.from('biz_budget_items').select('id,biz_id,item_name,support_unit_amount,planned_people_count').eq('category', 'product_operation').eq('sale_type', 'package').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
         : Promise.resolve({ data: [] }),
       packageType === 'business'
-        ? supabase.from('biz_budget_item_packages').select('*').or('is_deleted.is.null,is_deleted.eq.false')
+        ? supabase.from('biz_budget_item_packages').select('id,budget_item_id,package_id,is_primary,is_deleted').or('is_deleted.is.null,is_deleted.eq.false')
         : Promise.resolve({ data: [] }),
     ])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType && pkg.is_deleted !== true))
@@ -1868,14 +1868,14 @@ function BizTab() {
 
   const load = useCallback(async () => {
     const [bizR, itemR, zoneR, pkgR, vendorR, linkR, usageR, reservationR] = await Promise.all([
-      supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
-      supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
-      supabase.from('zones').select('*').order('code'),
-      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
-      supabase.from('biz_budget_item_packages').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
-      supabase.from('reservation_budget_usages').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
-      supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('biz').select('id,name,start_year,start_month,start_day,end_year,end_month,end_day,is_deleted').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+      supabase.from('biz_budget_items').select('id,biz_id,category,item_name,sale_type,match_package_name,match_program_name,support_unit_amount,planned_people_count,total_budget_amount,support_rate,sort_order,is_active,is_deleted,default_reimbursement_target,zone_code').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
+      supabase.from('zones').select('code,name,is_deleted').order('code'),
+      supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
+      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
+      supabase.from('biz_budget_item_packages').select('id,budget_item_id,package_id,is_primary,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('id,reservation_no,usage_type,operation_type,biz_id,biz_name,budget_item_id,zone_code,zone_codes,zone_name,item_name,package_name,package_id,people_count,used_amount,unit_amount,prepaid_total_amount,prepaid_unit_amount,reimbursed_amount,reimbursed_at,reimbursement_target,reimbursement_status,reimbursement_memo,memo,discount_label,discount_rate,customer_unit_price,normal_unit_price,updated_at,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservations').select('no,date,customer,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setBizList(bizR.data || [])
     setItems(itemR.data || [])
@@ -1996,7 +1996,7 @@ function BizTab() {
           key: `${row.reservation_no || 'no'}-${row.component_uid || row.id}`,
           reservationNo: row.reservation_no || '-',
           date: reservation?.date || row.reservation_date || '-',
-          customerName: reservation?.name || reservation?.customer_name || row.customer_name || '-',
+          customerName: reservation?.customer || row.customer_name || '-',
           itemName: row.package_name || row.item_name || '-',
           people: Number(row.people_count) || 0,
           supportAmount,

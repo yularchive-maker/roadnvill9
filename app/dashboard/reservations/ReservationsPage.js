@@ -2567,14 +2567,14 @@ export default function ReservationsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, vendorR, usageR] = await Promise.all([
-      supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
-      supabase.from('zones').select('*').order('code'),
-      supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('name'),
-      supabase.from('platforms').select('*').order('type').order('name'),
-      supabase.from('drivers').select('*').order('name'),
-      supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
-      supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
-      supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('reservations').select('no,type,date,end_date,zone_code,package_name,customer,tel,pax,price,discount,pickup_fee,burden,total,payto,inflow,platform_name,plat_fee,agency_name,ag_fee,op,biz_id,settle_status,memo,reservation_status,payment_status,payment_type,lodging_status,pickup_status,is_deleted').order('date', { ascending: false }).order('no', { ascending: false }),
+      supabase.from('zones').select('code,name,is_deleted').order('code'),
+      supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').order('name'),
+      supabase.from('platforms').select('id,type,name,fee_ind,fee_grp,is_deleted').order('type').order('name'),
+      supabase.from('drivers').select('id,name,affil,is_deleted').order('name'),
+      supabase.from('biz').select('id,name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+      supabase.from('lodge_vendors').select('id,name,is_deleted,lodges(id,lodge_vendor_id,name,price,price_type,is_deleted)').order('name'),
+      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(code,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])

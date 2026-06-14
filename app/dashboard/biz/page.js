@@ -297,7 +297,7 @@ export default function BizPage() {
     const [itemRes, reservationRes, snapshotRes, usageRes, bizRes, packageRes, zoneRes] = await Promise.all([
       supabase
         .from('biz_budget_items')
-        .select('*')
+        .select('id,biz_id,category,item_name,sale_type,match_package_name,match_program_name,support_unit_amount,planned_people_count,total_budget_amount,support_rate,sort_order,is_active,is_deleted,default_reimbursement_target,zone_code')
         .or('is_deleted.is.null,is_deleted.eq.false')
         .order('category')
         .order('sort_order'),
@@ -308,26 +308,26 @@ export default function BizPage() {
         .order('date', { ascending: false }),
       supabase
         .from('reservation_program_snapshots')
-        .select('*')
+        .select('reservation_no,package_name,prog_name,vendor_key,vendor_name,pax,vendor_settle_total,is_deleted')
         .or('is_deleted.is.null,is_deleted.eq.false'),
       supabase
         .from('reservation_budget_usages')
-        .select('*')
+        .select('id,reservation_no,usage_type,operation_type,biz_id,biz_name,budget_item_id,zone_code,zone_codes,zone_name,item_name,package_name,people_count,used_amount,unit_amount,prepaid_total_amount,prepaid_unit_amount,reimbursed_amount,reimbursed_at,reimbursement_target,reimbursement_status,reimbursement_memo,memo,discount_label,discount_rate,customer_unit_price,normal_unit_price,updated_at,is_deleted')
         .or('is_deleted.is.null,is_deleted.eq.false'),
       supabase
         .from('biz')
-        .select('*')
+        .select('id,name,is_deleted')
         .or('is_deleted.is.null,is_deleted.eq.false')
         .order('name'),
       supabase
         .from('packages')
-        .select('*, package_zones(*), package_programs(code,vendor_key,prog_name,vendors(key,name,vendor_programs(prog_name,zone_code)))')
+        .select('id,name,zone_code,is_deleted,package_zones(zone_code,is_deleted),package_programs(code,vendor_key,prog_name,is_deleted,vendors(key,name,vendor_programs(prog_name,zone_code,is_deleted)))')
         .or('is_deleted.is.null,is_deleted.eq.false')
         .order('zone_code')
         .order('name'),
       supabase
         .from('zones')
-        .select('*')
+        .select('code,name,is_deleted')
         .order('code'),
     ])
 

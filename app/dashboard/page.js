@@ -14,6 +14,29 @@ function addDaysStr(baseDate, days) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
+function dateStr(y, m, d) { return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` }
+
+function calendarRange(year, month) {
+  const first = new Date(year, month - 1, 1).getDay()
+  const lastDay = new Date(year, month, 0).getDate()
+  const prevLast = new Date(year, month - 1, 0).getDate()
+  const prevMonthDate = month === 1
+    ? { year: year - 1, month: 12 }
+    : { year, month: month - 1 }
+  const nextMonthDate = month === 12
+    ? { year: year + 1, month: 1 }
+    : { year, month: month + 1 }
+  const start = first > 0
+    ? dateStr(prevMonthDate.year, prevMonthDate.month, prevLast - first + 1)
+    : dateStr(year, month, 1)
+  const cellCount = Math.ceil((first + lastDay) / 7) * 7
+  const trailingCount = cellCount - first - lastDay
+  const end = trailingCount > 0
+    ? dateStr(nextMonthDate.year, nextMonthDate.month, trailingCount)
+    : dateStr(year, month, lastDay)
+  return { start, end }
+}
+
 function fmtMoney(n) {
   if (!n && n !== 0) return '-'
   return n.toLocaleString('ko-KR') + '원'
@@ -101,13 +124,13 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [resR, pkgR, zoneR, notR, vcR, lcR, pkR, usageR] = await Promise.all([
-      supabase.from('reservations').select('*').order('date', { ascending: false }),
-      supabase.from('packages').select('*, package_zones(*), package_programs(vendor_key, prog_name, vendors(key,name,color))'),
-      supabase.from('zones').select('*').order('code'),
-      supabase.from('notices').select('*').order('date'),
-      supabase.from('vendor_confirms').select('*'),
-      supabase.from('lodge_confirms').select('*'),
-      supabase.from('reservation_pickup').select('*, drivers(name)'),
+      supabase.from('reservations').select('no,date,end_date,customer,tel,package_name,pax,type,is_deleted,total,settle_status,reservation_status,biz_id,op,payto,pickup_fee').order('date', { ascending: false }),
+      supabase.from('packages').select('id,name,zone_code,pax_limit,total_price,is_deleted,package_zones(zone_code,is_deleted),package_programs(vendor_key,prog_name,is_deleted,vendors(key,name,color))'),
+      supabase.from('zones').select('code,name,is_deleted').order('code'),
+      supabase.from('notices').select('id,date,end_date,title,content,start_time,end_time,is_all_day,type,is_deleted').order('date'),
+      supabase.from('vendor_confirms').select('reservation_no,vendor_key,reply_status,status,request_date,is_deleted'),
+      supabase.from('lodge_confirms').select('reservation_no,is_deleted'),
+      supabase.from('reservation_pickup').select('reservation_no,pickup_fee,is_deleted'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,people_count,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
@@ -142,8 +165,6 @@ export default function DashboardPage() {
   const first    = new Date(calYear, calMonth-1, 1).getDay()
   const lastDay  = new Date(calYear, calMonth, 0).getDate()
   const prevLast = new Date(calYear, calMonth-1, 0).getDate()
-
-  function dateStr(y, m, d) { return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` }
 
   function getDateRes(ds) { return reservations.filter(r => r.date === ds && r.type !== 'cancelled') }
   function getReservationPeople(r) {
