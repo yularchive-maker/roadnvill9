@@ -80,6 +80,45 @@ function usageDetailsFromRows(usages, reservations) {
     .filter(Boolean)
 }
 
+function collapseUsageDetailsByReservation(details) {
+  const grouped = new Map()
+  for (const detail of details || []) {
+    const key = String(detail.no || '')
+    if (!key) continue
+    const prev = grouped.get(key)
+    if (!prev) {
+      grouped.set(key, {
+        ...detail,
+        zone_codes: Array.isArray(detail.zone_codes) ? [...detail.zone_codes] : [],
+      })
+      continue
+    }
+
+    const prevPeople = Number(prev.people) || 0
+    const nextPeople = Number(detail.people) || 0
+    if (nextPeople > prevPeople) {
+      prev.people = nextPeople
+      prev.amount = Number(detail.amount) || 0
+      prev.customer_unit_price = Number(detail.customer_unit_price) || prev.customer_unit_price || 0
+      prev.normal_unit_price = Number(detail.normal_unit_price) || prev.normal_unit_price || 0
+      prev.prepaid_unit_amount = Number(detail.prepaid_unit_amount) || prev.prepaid_unit_amount || 0
+    }
+    prev.reimbursed = Math.max(Number(prev.reimbursed) || 0, Number(detail.reimbursed) || 0)
+    prev.unpaid = Math.max(Number(prev.unpaid) || 0, Number(detail.unpaid) || 0)
+    prev.zone_codes = [...new Set([...(prev.zone_codes || []), ...(detail.zone_codes || [])].filter(Boolean))]
+    if (!prev.zone_code && detail.zone_code) prev.zone_code = detail.zone_code
+    if (!prev.zone_name && detail.zone_name) prev.zone_name = detail.zone_name
+    if (detail.item_name && !String(prev.item_name || '').includes(detail.item_name)) {
+      prev.item_name = [prev.item_name, detail.item_name].filter(Boolean).join(', ')
+    }
+    if (detail.package_name && !String(prev.package_name || '').includes(detail.package_name)) {
+      prev.package_name = [prev.package_name, detail.package_name].filter(Boolean).join(', ')
+    }
+    grouped.set(key, prev)
+  }
+  return [...grouped.values()]
+}
+
 function autoProductUsage(item, reservations, snapshots) {
   const targetPackage = packageTarget(item)
   const targetProgram = item.match_program_name
@@ -128,7 +167,7 @@ function buildProductUsage(item, reservations, snapshots, budgetUsages) {
     String(usage.budget_item_id || '') === String(item.id || '')
   )
   if (explicit.length) {
-    const details = usageDetailsFromRows(explicit, reservations)
+    const details = collapseUsageDetailsByReservation(usageDetailsFromRows(explicit, reservations))
     return { usedPeople: sum(details, 'people'), usedAmount: sum(details, 'amount'), details }
   }
   return autoProductUsage(item, reservations, snapshots)
@@ -140,7 +179,7 @@ function buildPromotionUsage(item, reservations, budgetUsages) {
     isBusinessUsage(usage) &&
     String(usage.budget_item_id || '') === String(item.id || '')
   )
-  const details = usageDetailsFromRows(explicit, reservations)
+  const details = collapseUsageDetailsByReservation(usageDetailsFromRows(explicit, reservations))
   return {
     usedPeople: sum(details, 'people'),
     usedAmount: sum(details, 'amount'),

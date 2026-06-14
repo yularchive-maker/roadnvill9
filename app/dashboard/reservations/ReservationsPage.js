@@ -588,23 +588,30 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function businessActualPackageOptions(row) {
     if (row.operation_type !== 'business' || (row.sale_type || 'package') !== 'package') return []
-    const productItem = componentBudgetItem(row, 'product_operation')
-    const productName = String(productItem?.item_name || row.item_name || '').trim().toLowerCase()
     const linkedIds = budgetItemPackages
       .filter(link => String(link.budget_item_id) === String(row.budget_item_id) && link.is_deleted !== true)
       .map(link => String(link.package_id))
       .filter(Boolean)
     const selectedCodes = rowZoneCodes(row)
     const candidateIds = new Set(linkedIds)
-    if (row.package_id) candidateIds.add(String(row.package_id))
-    packages
-      .filter(pkg => (pkg.package_type || 'general') === 'business')
-      .filter(pkg => productName && String(pkg.name || '').trim().toLowerCase().includes(productName))
-      .forEach(pkg => candidateIds.add(String(pkg.id)))
     const candidates = packages.filter(pkg => candidateIds.has(String(pkg.id)))
     return candidates
       .filter(pkg => packageMatchesZones(pkg, selectedCodes))
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  }
+
+  function isLinkedBusinessPackage(row) {
+    if (row.operation_type !== 'business' || (row.sale_type || 'package') !== 'package') return false
+    if (!row.budget_item_id || !row.package_id) return false
+    return budgetItemPackages.some(link =>
+      link.is_deleted !== true &&
+      String(link.budget_item_id) === String(row.budget_item_id) &&
+      String(link.package_id) === String(row.package_id)
+    )
+  }
+
+  function canApplyBusinessSupport(row) {
+    return isLinkedBusinessPackage(row)
   }
 
   function generalItemOptions(row) {
@@ -643,6 +650,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     const vendorProgram = componentVendorProgram(row)
     const productItem = componentBudgetItem(row, 'product_operation')
     const promoItem = componentBudgetItem(row, 'promotion_discount')
+    const supportEnabled = canApplyBusinessSupport(row)
     const normalUnit = row.operation_type === 'business'
       ? (row.sale_type === 'single'
         ? Number(row.customer_unit_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
@@ -650,14 +658,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
       : (row.sale_type === 'single'
         ? Number(row.customer_unit_price) || Number(vendorProgram?.customer_price) || Number(form.price) || 0
         : Number(pkg?.total_price) || Number(form.price) || 0)
-    const manualDiscountAmount = row.operation_type === 'business' ? Number(row.discount_amount) || 0 : 0
-    const discountRate = row.operation_type === 'business'
+    const manualDiscountAmount = supportEnabled ? Number(row.discount_amount) || 0 : 0
+    const discountRate = supportEnabled
       ? (manualDiscountAmount > 0 && normalUnit > 0
         ? Math.round((manualDiscountAmount / normalUnit) * 10000) / 100
         : Number(row.discount_rate) || 0)
       : 0
     const people = Number(row.people_count) || 0
-    const prepaidUnit = row.operation_type === 'business'
+    const prepaidUnit = supportEnabled
       ? discountRate > 0
         ? (manualDiscountAmount > 0
           ? Math.min(manualDiscountAmount, normalUnit)
@@ -684,7 +692,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function componentDiscountOptions(row) {
     const options = [{ label: '일반가', rate: 0 }]
-    if (row.operation_type !== 'business' || !(row.item_name || row.package_name)) return options
+    if (!canApplyBusinessSupport(row) || !(row.item_name || row.package_name)) return options
     const productItem = componentBudgetItem(row, 'product_operation')
     const promos = budgetItems
       .filter(item =>
@@ -778,30 +786,24 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (!item) {
       return { ...row, budget_item_id: '', item_name: '', package_id: '', package_name: '', vendor_key: '', prog_name: '' }
     }
-    const linkedPackageIds = budgetItemPackages
-      .filter(link => String(link.budget_item_id) === String(item.id) && link.is_deleted !== true)
-      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
-      .map(link => String(link.package_id))
-    const pkg = packages.find(p => String(p.id) === String(item.package_id)) ||
-      packages.find(p => linkedPackageIds.includes(String(p.id))) ||
-      packages.find(p => p.name === item.item_name || p.name === item.match_package_name)
     return {
       ...row,
       budget_item_id: String(item.id),
       biz_id: item.biz_id || row.biz_id || '',
       zone_code: zoneForBusinessItem(row, item),
       item_name: item.item_name || '',
-      package_id: row.sale_type === 'package' ? (item.package_id || pkg?.id || '') : '',
-      package_name: row.sale_type === 'package' ? (pkg?.name || item.match_package_name || item.item_name || '') : (item.item_name || ''),
-      vendor_key: row.sale_type === 'single' ? (row.vendor_key || '') : (item.vendor_key || ''),
-      prog_name: row.sale_type === 'single' ? (row.prog_name || '') : (item.prog_name || item.match_program_name || ''),
-      discount_rate: Number(row.discount_rate) || 0,
+      package_id: '',
+      package_name: item.item_name || '',
+      vendor_key: row.sale_type === 'single' ? (row.vendor_key || '') : '',
+      prog_name: row.sale_type === 'single' ? (row.prog_name || '') : '',
+      discount_rate: 0,
+      discount_amount: '',
       reimbursement_target: row.reimbursement_target || item.default_reimbursement_target || '',
     }
   }
 
   function applyBusinessActualPackage(row, packageId) {
-    if (!packageId) return { ...row, package_id: '', package_name: '' }
+    if (!packageId) return { ...row, package_id: '', package_name: row.item_name || '', discount_rate: 0, discount_amount: '' }
     const pkg = packages.find(p => String(p.id) === String(packageId))
     if (!pkg) return row
     return {
@@ -1876,6 +1878,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       const selectedZoneCodes = rowZoneCodes(row)
                       const selectedZoneNames = selectedZoneCodes.map(code => zones.find(z => z.code === code)?.name || code)
                       const canSelectProduct = selectedZoneCodes.length > 0
+                      const businessSupportEnabled = canApplyBusinessSupport(row)
+                      const businessSupportApplied = businessSupportEnabled && (Number(row.discount_rate) > 0 || Number(row.discount_amount) > 0 || amounts.prepaidUnit > 0)
                       return (
                         <div key={row.id} style={{border:'1px solid var(--border)',borderRadius:'8px',background:'rgba(15,35,52,.45)',padding:'12px',maxWidth:'100%',overflow:'hidden'}}>
                           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginBottom:'10px'}}>
@@ -1884,6 +1888,20 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               <span style={{fontSize:'13px',fontWeight:800,color:'var(--text-primary)'}}>{row.item_name || row.package_name || '상품 선택'}</span>
                               <span style={{fontSize:'11px',color:row.operation_type === 'business' ? 'var(--amber)' : 'var(--text-secondary)'}}>{row.operation_type === 'business' ? '사업비' : '일반'}</span>
                               <span style={{fontSize:'11px',color:'var(--text-muted)'}}>{saleTypeLabel}</span>
+                              {row.operation_type === 'business' && (
+                                <span style={{
+                                  fontSize:'10px',
+                                  fontWeight:900,
+                                  color: businessSupportApplied ? 'var(--amber)' : 'var(--accent)',
+                                  border: `1px solid ${businessSupportApplied ? 'rgba(247,201,72,.42)' : 'rgba(78,205,196,.38)'}`,
+                                  background: businessSupportApplied ? 'rgba(247,201,72,.10)' : 'rgba(78,205,196,.10)',
+                                  borderRadius:'999px',
+                                  padding:'2px 7px',
+                                  whiteSpace:'nowrap',
+                                }}>
+                                  {businessSupportApplied ? '사업비 포함 · 지원금 적용' : '사업비 미포함 · 인원만 카운팅'}
+                                </span>
+                              )}
                               {selectedZoneNames.length > 0 && (
                                 <span style={{fontSize:'11px',color:'var(--accent)',fontWeight:700}}>{selectedZoneNames.join(' · ')}</span>
                               )}
@@ -1979,11 +1997,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               <div className="form-field" style={{gridColumn:'1 / -1'}}>
                                 <label>실제 진행 패키지 <span className="auto">체험 구성 선택</span></label>
                                 <select className="form-select" value={row.package_id || ''} onChange={e=>updateComponentRow(row.id,{actual_package_id:e.target.value})}>
-                                  <option value="">사업비 상품 기본 패키지 사용</option>
+                                  <option value="">하위 사업비 패키지 선택 안 함 (인원만 카운팅)</option>
                                   {actualPackageOptions.map(pkg=><option key={pkg.id} value={pkg.id}>{pkg.name}</option>)}
                                 </select>
                                 <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>
-                                  사업비 인원/예산은 위 상품에 합산되고, 업체 확인과 프로그램 구성은 아래 패키지 기준으로 처리됩니다.
+                                  하위 사업비 패키지를 선택하지 않으면 해당 사업비 상품의 체험 인원만 카운팅됩니다. 할인/지원금은 하위 패키지를 선택한 경우에만 적용됩니다.
                                 </div>
                               </div>
                             )}
@@ -2057,7 +2075,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             )}
                             {row.operation_type === 'business' && (
                               <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>요금 조건</label>
+                                <label>요금 조건 <span className="auto">{businessSupportApplied ? '지원금 적용' : '인원만 카운팅'}</span></label>
                                 <div style={{display:'grid',gridTemplateColumns:'minmax(180px,1.3fr) 110px 132px',gap:'6px',alignItems:'center'}}>
                                   <div style={{display:'grid',gridTemplateColumns:`repeat(${discountOptions.length}, minmax(0,1fr))`,gap:'5px'}}>
                                     {discountOptions.map(option => {
@@ -2068,6 +2086,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                           type="button"
                                           className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                           onClick={() => updateComponentRow(row.id,{discount_rate:option.rate})}
+                                          disabled={!businessSupportEnabled}
                                           style={{height:'34px',padding:'0 8px',fontSize:'12px',whiteSpace:'nowrap',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                         >
                                           {option.label}
@@ -2084,6 +2103,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                     value={Number(row.discount_rate) || ''}
                                     onChange={e=>updateComponentRow(row.id,{discount_rate:e.target.value})}
                                     placeholder="할인율 %"
+                                    disabled={!businessSupportEnabled}
                                   />
                                   <input
                                     className="form-input"
@@ -2091,7 +2111,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                     value={numberInputValue(row.discount_amount)}
                                     onChange={e=>updateComponentRow(row.id,{discount_amount:numberInputChange(e.target.value)})}
                                     placeholder="할인금액"
+                                    disabled={!businessSupportEnabled}
                                   />
+                                </div>
+                                <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>
+                                  하위 사업비 패키지로 생성된 실제 진행 패키지를 선택해야 할인율/할인금액과 지원금 정산이 활성화됩니다. 선택하지 않은 예약은 체험 인원만 카운팅됩니다.
                                 </div>
                               </div>
                             )}

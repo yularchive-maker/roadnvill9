@@ -756,14 +756,18 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   const [editingProgId, setEditingProgId] = useState(null)
   const [expanded, setExpanded] = useState({})
   const [businessPackageOptions, setBusinessPackageOptions] = useState([])
+  const [businessPackageLinks, setBusinessPackageLinks] = useState([])
 
   const load = useCallback(async () => {
-    const [pkgR, zoneR, vendorR, bizItemR] = await Promise.all([
+    const [pkgR, zoneR, vendorR, bizItemR, linkR] = await Promise.all([
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('*').order('code'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       packageType === 'business'
         ? supabase.from('biz_budget_items').select('id,biz_id,item_name,support_unit_amount,planned_people_count').eq('category', 'product_operation').eq('sale_type', 'package').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
+        : Promise.resolve({ data: [] }),
+      packageType === 'business'
+        ? supabase.from('biz_budget_item_packages').select('*').or('is_deleted.is.null,is_deleted.eq.false')
         : Promise.resolve({ data: [] }),
     ])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType && pkg.is_deleted !== true))
@@ -773,6 +777,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
       vendor_programs: activeVendorPrograms(vendor.vendor_programs),
     })))
     setBusinessPackageOptions(bizItemR.data || [])
+    setBusinessPackageLinks(linkR.data || [])
   }, [packageType])
   useEffect(() => { load() }, [load])
 
@@ -788,7 +793,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   }
 
   async function openNew() {
-    setForm({ code: '', zone_code: '', zone_codes: [], name: '', pax_limit: 0, total_price: 0, package_type: packageType })
+    setForm({ code: '', zone_code: '', zone_codes: [], name: '', pax_limit: 0, total_price: 0, package_type: packageType, budget_item_id: '' })
     setProgs([])
     setProgForm(emptyPackageProgForm)
     setEditingProgId(null)
@@ -798,7 +803,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   function openEdit(p) {
     const zoneCodes = packageZoneCodes(p)
     const activeProgs = activePackagePrograms(p.package_programs)
-    setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || zoneCodes[0] || '', zone_codes: zoneCodes, name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0, package_type: p.package_type || packageType })
+    setForm({ id: p.id, code: p.code || '', zone_code: p.zone_code || zoneCodes[0] || '', zone_codes: zoneCodes, name: p.name, pax_limit: p.pax_limit || 0, total_price: p.total_price || 0, package_type: p.package_type || packageType, budget_item_id: linkedBudgetItemIdForPackage(p.id) })
     setProgs(activeProgs)
     setProgForm(nextPackageProgForm(activeProgs, zoneCodes[0] || ''))
     setEditingProgId(null)
@@ -853,6 +858,30 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     }
   }
 
+  const linkedBudgetItemIdForPackage = packageId => {
+    const link = businessPackageLinks.find(item =>
+      String(item.package_id || '') === String(packageId || '') &&
+      item.is_deleted !== true
+    )
+    return link?.budget_item_id ? String(link.budget_item_id) : ''
+  }
+
+  async function syncBusinessPackageBudgetItem(packageId, budgetItemId) {
+    if (packageType !== 'business' || !packageId) return
+    const now = new Date().toISOString()
+    await supabase
+      .from('biz_budget_item_packages')
+      .update({ is_deleted: true, deleted_at: now, updated_at: now })
+      .eq('package_id', packageId)
+    if (!budgetItemId) return
+    const { error } = await supabase.from('biz_budget_item_packages').insert({
+      budget_item_id: Number(budgetItemId),
+      package_id: packageId,
+      is_primary: true,
+    })
+    if (error) throw error
+  }
+
   async function save() {
     if (!form.name) { alert('패키지명을 입력하세요.'); return }
     const packageName = String(form.name || '').trim()
@@ -863,7 +892,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     )
     if (duplicate) {
       const typeLabel = packageType === 'business' ? '하위 사업비 패키지' : '일반 패키지'
-      alert(`"${packageName}" ${typeLabel}가 이미 있습니다.\n\n새로 만들지 말고 기존 패키지를 수정하거나, 사업비 상품 수정 화면의 하위 사업비 패키지 목록에서 기존 패키지를 체크해 연결하세요.`)
+      alert(`"${packageName}" ${typeLabel}가 이미 있습니다.\n\n새로 만들지 말고 기존 패키지를 수정하세요. 사업비 패키지는 하위 패키지 수정 화면에서 상위 사업비 상품을 선택해 연결합니다.`)
       return
     }
     const zoneCodes = Array.isArray(form.zone_codes) ? form.zone_codes.filter(Boolean) : (form.zone_code ? [form.zone_code] : [])
@@ -893,6 +922,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     }
     try {
       await syncPackageZones(packageId, zoneCodes)
+      await syncBusinessPackageBudgetItem(packageId, form.budget_item_id)
     } catch (error) {
       alert('구역 저장 실패: ' + error.message)
       return
@@ -905,6 +935,9 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     const now = new Date().toISOString()
     await supabase.from('package_zones').update({ is_deleted: true, deleted_at: now, updated_at: now }).eq('package_id', modal.data.id)
     await supabase.from('package_programs').update({ is_deleted: true, deleted_at: now }).eq('package_id', modal.data.id)
+    if (packageType === 'business') {
+      await supabase.from('biz_budget_item_packages').update({ is_deleted: true, deleted_at: now, updated_at: now }).eq('package_id', modal.data.id)
+    }
     const { error } = await supabase.from('packages').update({ is_deleted: true, deleted_at: now }).eq('id', modal.data.id)
     if (error) { alert('삭제 실패: ' + error.message); return }
     setModal(null); load()
@@ -1137,11 +1170,11 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             {packageType === 'business' && (
-              <Field label="사업비 상품 기준값 불러오기">
-                <select className="form-select" value="" onChange={e => handlePackageNameSelect(e.target.value)}>
-                  <option value="">선택 시 판매가/인원 자동 입력</option>
+              <Field label="상위 사업비 상품">
+                <select className="form-select" value={form.budget_item_id || ''} onChange={e => inp('budget_item_id', e.target.value)}>
+                  <option value="">연결 안 함</option>
                   {businessPackageOptions.map(item => (
-                    <option key={item.id} value={item.item_name}>{item.item_name}</option>
+                    <option key={item.id} value={item.id}>{item.item_name}</option>
                   ))}
                 </select>
               </Field>
@@ -1822,6 +1855,8 @@ function BizTab() {
   const [bizList, setBizList] = useState([])
   const [items, setItems] = useState([])
   const [itemPackageLinks, setItemPackageLinks] = useState([])
+  const [budgetUsages, setBudgetUsages] = useState([])
+  const [reservations, setReservations] = useState([])
   const [zones, setZones] = useState([])
   const [packages, setPackages] = useState([])
   const [vendors, setVendors] = useState([])
@@ -1832,19 +1867,23 @@ function BizTab() {
   const [selectedBizId, setSelectedBizId] = useState('')
 
   const load = useCallback(async () => {
-    const [bizR, itemR, zoneR, pkgR, vendorR, linkR] = await Promise.all([
+    const [bizR, itemR, zoneR, pkgR, vendorR, linkR, usageR, reservationR] = await Promise.all([
       supabase.from('biz').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('biz_budget_items').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order'),
       supabase.from('zones').select('*').order('code'),
       supabase.from('packages').select('*, package_zones(*), package_programs(*, vendors(key,name,color))').or('is_deleted.is.null,is_deleted.eq.false').order('zone_code').order('name'),
       supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
       supabase.from('biz_budget_item_packages').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservation_budget_usages').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('reservations').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setBizList(bizR.data || [])
     setItems(itemR.data || [])
     setZones(zoneR.data || [])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === 'business'))
     setItemPackageLinks(linkR.data || [])
+    setBudgetUsages(usageR.data || [])
+    setReservations(reservationR.data || [])
     setVendors((vendorR.data || []).map(vendor => ({
       ...vendor,
       vendor_programs: activeVendorPrograms(vendor.vendor_programs),
@@ -1865,10 +1904,6 @@ function BizTab() {
   const money = value => `₩${Number(value || 0).toLocaleString()}`
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const bizInp = (k, v) => setBizForm(f => ({ ...f, [k]: v }))
-  const selectedSaleType = form.sale_type || 'package'
-  const selectedPackage = packages.find(p => String(p.id) === String(form.package_id)) || packages.find(p => p.name === form.item_name)
-  const selectedVendor = vendors.find(v => v.key === form.vendor_key)
-  const selectedVendorProgram = selectedVendor?.vendor_programs?.find(p => p.prog_name === form.prog_name)
   const packageZoneCodes = pkg => {
     const linked = (pkg?.package_zones || []).filter(z => z && z.is_deleted !== true).map(z => z.zone_code).filter(Boolean)
     return linked.length ? [...new Set(linked)] : (pkg?.zone_code ? [pkg.zone_code] : [])
@@ -1889,7 +1924,6 @@ function BizTab() {
   }
   const selectedLinkedPackageIds = () => {
     const ids = Array.isArray(form.package_ids) ? form.package_ids.map(String).filter(Boolean) : []
-    if (form.package_id && !ids.includes(String(form.package_id))) ids.unshift(String(form.package_id))
     return [...new Set(ids)]
   }
   const normalUnit = Number(form.support_unit_amount) || 0
@@ -1900,6 +1934,95 @@ function BizTab() {
   const productBudget = plannedPeople * normalUnit
   const promoBudget = discountPeople * prepaidUnit
 
+  const activeBudgetUsages = budgetUsages.filter(usage =>
+    usage &&
+    usage.is_deleted !== true &&
+    usage.operation_type === 'business'
+  )
+
+  const sumRows = (rows, picker) => rows.reduce((total, row) => total + (Number(picker(row)) || 0), 0)
+
+  function groupBudgetRowsByReservation(rows) {
+    const grouped = new Map()
+    for (const row of rows || []) {
+      const key = String(row.reservation_no || '')
+      if (!key) continue
+      const prev = grouped.get(key)
+      if (!prev || (Number(row.people_count) || 0) > (Number(prev.people_count) || 0)) {
+        grouped.set(key, { ...row })
+        continue
+      }
+      if (prev) {
+        prev.zone_codes = [...new Set([...(prev.zone_codes || []), ...(row.zone_codes || [])].filter(Boolean))]
+        if (!prev.zone_code && row.zone_code) prev.zone_code = row.zone_code
+        if (!prev.zone_name && row.zone_name) prev.zone_name = row.zone_name
+      }
+    }
+    return [...grouped.values()]
+  }
+
+  function usageStatsForProduct(product) {
+    const promo = findPromo(product)
+    const rawProductRows = activeBudgetUsages.filter(usage =>
+      usage.usage_type === 'product_operation' &&
+      String(usage.budget_item_id || '') === String(product?.id || '')
+    )
+    const rawPromoRows = activeBudgetUsages.filter(usage =>
+      usage.usage_type === 'promotion_discount' &&
+      String(usage.budget_item_id || '') === String(promo?.id || '')
+    )
+    const productRows = groupBudgetRowsByReservation(rawProductRows)
+    const promoRows = groupBudgetRowsByReservation(rawPromoRows)
+    const usedPeople = sumRows(productRows, row => row.people_count)
+    const discountUsedPeople = sumRows(promoRows, row => row.people_count)
+    const supportUsedAmount = sumRows(promoRows, row => row.used_amount || row.prepaid_total_amount)
+    const reimbursedAmount = sumRows(promoRows, row => row.reimbursed_amount)
+    const supportBudget = Number(promo?.total_budget_amount) || 0
+    const usageRows = productRows
+      .map(row => {
+        const promoRow = promoRows.find(promoRow =>
+          String(promoRow.reservation_no || '') === String(row.reservation_no || '') &&
+          (
+            (promoRow.component_uid && row.component_uid && String(promoRow.component_uid) === String(row.component_uid)) ||
+            (promoRow.package_id && row.package_id && String(promoRow.package_id) === String(row.package_id)) ||
+            (promoRow.item_name && row.item_name && String(promoRow.item_name) === String(row.item_name)) ||
+            promoRows.length === 1
+          )
+        )
+        const reservation = reservations.find(reservation => String(reservation.no || '') === String(row.reservation_no || ''))
+        const supportAmount = Number(promoRow?.used_amount || promoRow?.prepaid_total_amount) || 0
+        const reimbursed = Number(promoRow?.reimbursed_amount) || 0
+        return {
+          key: `${row.reservation_no || 'no'}-${row.component_uid || row.id}`,
+          reservationNo: row.reservation_no || '-',
+          date: reservation?.date || row.reservation_date || '-',
+          customerName: reservation?.name || reservation?.customer_name || row.customer_name || '-',
+          itemName: row.package_name || row.item_name || '-',
+          people: Number(row.people_count) || 0,
+          supportAmount,
+          unpaidSupportAmount: Math.max(supportAmount - reimbursed, 0),
+          appliedSupport: supportAmount > 0,
+        }
+      })
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.reservationNo).localeCompare(String(b.reservationNo)))
+    return {
+      promo,
+      usedPeople,
+      discountUsedPeople,
+      supportUsedAmount,
+      reimbursedAmount,
+      unpaidSupportAmount: Math.max(supportUsedAmount - reimbursedAmount, 0),
+      remainingSupportBudget: Math.max(supportBudget - supportUsedAmount, 0),
+      productRowCount: productRows.length,
+      promoRowCount: promoRows.length,
+      usageRows,
+    }
+  }
+
+  const modalUsageStats = form.product_id
+    ? usageStatsForProduct({ ...form, id: form.product_id, sale_type: 'package' })
+    : null
+
   function blankForm() {
     return {
       sale_type: 'package',
@@ -1908,10 +2031,6 @@ function BizTab() {
       item_name: '',
       package_id: '',
       package_ids: [],
-      vendor_key: '',
-      prog_name: '',
-      vendor_settle_price: 0,
-      settle_type: 'per_person',
       planned_people_count: 0,
       support_unit_amount: 0,
       discount_rate: 0,
@@ -1954,7 +2073,7 @@ function BizTab() {
     setForm({
       product_id: product.id,
       promo_id: promo?.id || null,
-      sale_type: product.sale_type || 'package',
+      sale_type: 'package',
       biz_id: product.biz_id || '',
       zone_code: product.zone_code || '',
       item_name: product.item_name || '',
@@ -1962,10 +2081,6 @@ function BizTab() {
       package_ids: linkedPackageIdsForProduct(product.id).length
         ? linkedPackageIdsForProduct(product.id)
         : (product.package_id ? [String(product.package_id)] : []),
-      vendor_key: product.vendor_key || '',
-      prog_name: product.prog_name || '',
-      vendor_settle_price: Number(product.vendor_settle_price) || 0,
-      settle_type: product.settle_type || 'per_person',
       planned_people_count: Number(product.planned_people_count) || 0,
       support_unit_amount: Number(product.support_unit_amount) || 0,
       discount_rate: Number(promo?.support_rate) || 0,
@@ -1976,99 +2091,6 @@ function BizTab() {
     setModal({ mode: 'edit', data: product })
   }
 
-  function changeSaleType(saleType) {
-    setForm(f => ({
-      ...f,
-      sale_type: saleType,
-      item_name: '',
-      package_id: '',
-      package_ids: [],
-      vendor_key: '',
-      prog_name: '',
-      vendor_settle_price: 0,
-      settle_type: 'per_person',
-      support_unit_amount: 0,
-    }))
-  }
-
-  function changeBusinessPackage(packageId) {
-    const pkg = packages.find(p => String(p.id) === String(packageId))
-    setForm(f => ({
-      ...f,
-      package_id: packageId,
-      package_ids: [...new Set([packageId, ...((f.package_ids || []).map(String))].filter(Boolean))],
-      item_name: pkg?.name || '',
-      zone_code: packageZoneCodes(pkg)[0] || f.zone_code || '',
-      support_unit_amount: Number(pkg?.total_price) || Number(f.support_unit_amount) || 0,
-      vendor_key: '',
-      prog_name: '',
-      vendor_settle_price: 0,
-      settle_type: 'per_person',
-    }))
-  }
-
-  function toggleLinkedPackage(packageId) {
-    setForm(f => {
-      const id = String(packageId)
-      const current = new Set((f.package_ids || []).map(String).filter(Boolean))
-      if (current.has(id)) current.delete(id)
-      else current.add(id)
-      const nextIds = [...current]
-      const nextPrimary = f.package_id && nextIds.includes(String(f.package_id))
-        ? f.package_id
-        : (nextIds[0] || '')
-      return {
-        ...f,
-        package_ids: nextIds,
-        package_id: nextPrimary,
-        item_name: f.item_name || packages.find(p => String(p.id) === String(nextPrimary))?.name || '',
-        zone_code: nextPrimary ? (packageZoneCodes(packages.find(p => String(p.id) === String(nextPrimary)))[0] || f.zone_code || '') : f.zone_code,
-      }
-    })
-  }
-
-  async function saveLinkedPackages(productId) {
-    if (!productId || (form.sale_type || 'package') !== 'package') return
-    const now = new Date().toISOString()
-    const selectedIds = selectedLinkedPackageIds()
-    await supabase
-      .from('biz_budget_item_packages')
-      .update({ is_deleted: true, deleted_at: now, updated_at: now })
-      .eq('budget_item_id', productId)
-    if (!selectedIds.length) return
-    const rows = selectedIds.map((packageId, index) => ({
-      budget_item_id: productId,
-      package_id: packageId,
-      is_primary: String(packageId) === String(form.package_id || selectedIds[0]),
-    }))
-    const { error } = await supabase.from('biz_budget_item_packages').insert(rows)
-    if (error) throw error
-  }
-
-  function changeBusinessVendor(vendorKey) {
-    setForm(f => ({
-      ...f,
-      vendor_key: vendorKey,
-      prog_name: '',
-      item_name: '',
-      vendor_settle_price: 0,
-      settle_type: 'per_person',
-    }))
-  }
-
-  function changeBusinessProgram(progName) {
-    const vendor = vendors.find(v => v.key === form.vendor_key)
-    const program = vendor?.vendor_programs?.find(p => p.prog_name === progName)
-    setForm(f => ({
-      ...f,
-      prog_name: progName,
-      item_name: progName,
-      support_unit_amount: Number(program?.customer_price) || Number(f.support_unit_amount) || 0,
-      vendor_settle_price: Number(program?.vendor_settle_price ?? program?.unit_price ?? 0) || 0,
-      settle_type: program?.settle_type || 'per_person',
-    }))
-  }
-
   async function save() {
     if (!form.item_name) { alert('사업비 상품명을 입력하세요.'); return }
     const itemName = form.item_name.trim()
@@ -2076,14 +2098,14 @@ function BizTab() {
       biz_id: form.biz_id || null,
       zone_code: form.zone_code || null,
       item_name: itemName,
-      sale_type: form.sale_type || 'package',
-      package_id: form.sale_type === 'package' ? (form.package_id || null) : null,
-      vendor_key: form.sale_type === 'single' ? (form.vendor_key || null) : null,
-      prog_name: form.sale_type === 'single' ? (form.prog_name || null) : null,
-      vendor_settle_price: Number(form.vendor_settle_price) || 0,
+      sale_type: 'package',
+      package_id: null,
+      vendor_key: null,
+      prog_name: null,
+      vendor_settle_price: 0,
       settle_type: form.settle_type || 'per_person',
-      match_package_name: form.sale_type === 'package' ? itemName : null,
-      match_program_name: form.sale_type === 'single' ? itemName : null,
+      match_package_name: itemName,
+      match_program_name: null,
       default_reimbursement_target: form.default_reimbursement_target || null,
       memo: form.memo || null,
       is_active: true,
@@ -2118,13 +2140,6 @@ function BizTab() {
       const { data, error } = await supabase.from('biz_budget_items').insert(productPayload).select('id').single()
       if (error) { alert('사업비 상품 저장 실패: ' + error.message); return }
       productId = data?.id
-    }
-
-    try {
-      await saveLinkedPackages(productId)
-    } catch (error) {
-      alert('하위 패키지 연결 저장 실패: ' + error.message)
-      return
     }
 
     if (discountRate > 0 && discountPeople > 0) {
@@ -2237,25 +2252,25 @@ function BizTab() {
         <button className="btn-primary" onClick={openNew}>+ 사업비 상품 추가</button>
       </div>
       <div className="list-card">
-        <div className="list-header" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px' }}>
-          <span>사업명</span><span>형태</span><span>상품명</span><span>구역명</span><span>기준가</span><span>계획</span><span>할인</span><span>총 지원 예산</span><span />
+        <div className="list-header" style={{ gridTemplateColumns: '.85fr 1.1fr .8fr .7fr .72fr .82fr .86fr .86fr 36px', gap: '10px' }}>
+          <span>사업명</span><span>상품명</span><span>총 지원예산</span><span>체험인원</span><span>할인인원</span><span>사용지원금</span><span>남은지원예산</span><span>미정산지원금</span><span />
         </div>
         {products.length === 0 && <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>등록된 사업비 상품 없음</div>}
         {products.map(product => {
           const promo = findPromo(product)
+          const stats = usageStatsForProduct(product)
           const biz = bizList.find(b => String(b.id) === String(product.biz_id))
-          const pkg = packages.find(p => String(p.id) === String(product.package_id)) || packages.find(p => p.name === product.item_name)
-          const zone = zones.find(z => z.code === product.zone_code)
+          const supportBudget = Number(promo?.total_budget_amount || 0)
           return (
-            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '.85fr 64px 1.05fr .8fr .75fr .65fr .65fr .85fr 36px', gap: '10px', cursor: 'default' }}>
+            <div key={product.id} className="list-row" style={{ gridTemplateColumns: '.85fr 1.1fr .8fr .7fr .72fr .82fr .86fr .86fr 36px', gap: '10px', cursor: 'default' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{biz?.name || '-'}</span>
-              <span style={{ fontSize: '11px', color: product.sale_type === 'single' ? 'var(--accent)' : 'var(--amber)', fontWeight: 800 }}>{product.sale_type === 'single' ? '단품' : '패키지'}</span>
               <span style={{ fontWeight: 700 }}>{product.item_name}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{product.sale_type === 'package' ? packageZoneLabel(pkg) : (zone?.name || product.zone_code || '-')}</span>
-              <span className="mono" style={{ fontSize: '12px' }}>{money(product.support_unit_amount)}</span>
-              <span style={{ fontSize: '12px' }}>{Number(product.planned_people_count || 0).toLocaleString()}명</span>
-              <span style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{promo ? `${promo.support_rate}% / ${Number(promo.planned_people_count || 0).toLocaleString()}명` : '-'}</span>
-              <span className="mono" style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{money(promo?.total_budget_amount || 0)}</span>
+              <span className="mono" style={{ fontSize: '12px', color: promo ? 'var(--amber)' : 'var(--text-muted)' }}>{money(supportBudget)}</span>
+              <span style={{ fontSize: '12px', color: stats.usedPeople > 0 ? 'var(--accent)' : 'var(--text-muted)' }}>{stats.usedPeople.toLocaleString()}명</span>
+              <span style={{ fontSize: '12px', color: stats.discountUsedPeople > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>{stats.discountUsedPeople.toLocaleString()}명</span>
+              <span className="mono" style={{ fontSize: '12px', color: stats.supportUsedAmount > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>{money(stats.supportUsedAmount)}</span>
+              <span className="mono" style={{ fontSize: '12px', color: promo ? 'var(--green)' : 'var(--text-muted)' }}>{money(stats.remainingSupportBudget)}</span>
+              <span className="mono" style={{ fontSize: '12px', color: stats.unpaidSupportAmount > 0 ? 'var(--red)' : 'var(--green)' }}>{money(stats.unpaidSupportAmount)}</span>
               <button className="icon-btn" onClick={() => openEdit(product)}>✎</button>
             </div>
           )
@@ -2278,97 +2293,11 @@ function BizTab() {
                 {bizList.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </Field>
-            <Field label="판매형태">
-              <select className="form-select" value={selectedSaleType} onChange={e => changeSaleType(e.target.value)}>
-                <option value="package">패키지 체험 판매용</option>
-                <option value="single">단품 체험 판매용</option>
-              </select>
-            </Field>
+            <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder="금양연화" /></Field>
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-            {selectedSaleType === 'package' ? (
-              <Field label="연결 구역">
-                <div style={{ minHeight: '34px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '6px 8px', border: '1px solid var(--border)', borderRadius: '6px', background: 'var(--navy2)', color: selectedPackage ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: '12px' }}>
-                  {selectedPackage ? packageZoneCodes(selectedPackage).map(code => (
-                    <span key={code} className="no-col">{zones.find(z => z.code === code)?.name || code}</span>
-                  )) : '연결 패키지를 선택하면 자동 표시됩니다.'}
-                </div>
-              </Field>
-            ) : (
-              <Field label="구역">
-                <select className="form-select" value={form.zone_code || ''} onChange={e => inp('zone_code', e.target.value)}>
-                  <option value="">선택 안함</option>
-                  {zones.map(z => <option key={z.code} value={z.code}>{z.code} · {z.name}</option>)}
-                </select>
-              </Field>
-            )}
-            {selectedSaleType === 'package' ? (
-              <Field label="기본 패키지">
-                <select className="form-select" value={form.package_id || selectedPackage?.id || ''} onChange={e => changeBusinessPackage(e.target.value)}>
-                  <option value="">선택</option>
-                  {packages
-                    .map(p => <option key={p.id} value={p.id}>{p.name}{packageZoneLabel(p) ? ` (${packageZoneLabel(p)})` : ''}</option>)}
-                </select>
-              </Field>
-            ) : (
-              <Field label="업체">
-                <select className="form-select" value={form.vendor_key || ''} onChange={e => changeBusinessVendor(e.target.value)}>
-                  <option value="">선택</option>
-                  {vendors.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
-                </select>
-              </Field>
-            )}
-          </div>
-          <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-            {selectedSaleType === 'single' ? (
-              <Field label="연결 프로그램">
-                <select className="form-select" value={form.prog_name || ''} onChange={e => changeBusinessProgram(e.target.value)}>
-                  <option value="">선택</option>
-                  {(selectedVendor?.vendor_programs || []).map(p => <option key={p.prog_name} value={p.prog_name}>{p.prog_name}</option>)}
-                </select>
-              </Field>
-            ) : (
-              <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder="금양연화" /></Field>
-            )}
             <Field label="지원금 정산 받을 곳 기본값"><input className="form-input" value={form.default_reimbursement_target || ''} onChange={e => inp('default_reimbursement_target', e.target.value)} placeholder="예: 길과마을" /></Field>
           </div>
-          {selectedSaleType === 'package' && (
-            <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)' }}>하위 사업비 패키지 목록</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>여기서 체크한 패키지들은 모두 위 사업비 상품의 계획 인원과 예산으로 함께 카운팅됩니다.</div>
-                </div>
-                <span style={{ fontSize: '12px', color: 'var(--accent)', fontWeight: 800 }}>{selectedLinkedPackageIds().length}개 연결</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '8px' }}>
-                {packages.map(pkg => {
-                  const active = selectedLinkedPackageIds().includes(String(pkg.id))
-                  const primary = String(form.package_id || '') === String(pkg.id)
-                  return (
-                    <button
-                      key={pkg.id}
-                      type="button"
-                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
-                      onClick={() => toggleLinkedPackage(pkg.id)}
-                      style={{ minHeight: '42px', height: 'auto', padding: '7px 9px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', textAlign: 'left' }}
-                    >
-                      <span style={{ fontWeight: 900 }}>{pkg.name}{primary ? ' · 기본' : ''}</span>
-                      <span style={{ fontSize: '10px', opacity: .78, marginTop: '2px' }}>{packageZoneLabel(pkg) || '구역 미지정'}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-          {selectedSaleType === 'single' && (
-            <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
-              <Field label="사업비 상품명" required><input className="form-input" value={form.item_name || ''} onChange={e => inp('item_name', e.target.value)} placeholder={selectedVendorProgram?.prog_name || '단품 상품명'} /></Field>
-              <Field label="업체 정산단가">
-                <input className="form-input" inputMode="numeric" value={numberInputValue(form.vendor_settle_price)} onChange={e => inp('vendor_settle_price', numberInputChange(e.target.value))} />
-              </Field>
-            </div>
-          )}
           <div className="form-grid form-grid-4" style={{ marginBottom: '12px' }}>
             <Field label="정상 기준가"><input className="form-input" inputMode="numeric" value={numberInputValue(form.support_unit_amount)} onChange={e => inp('support_unit_amount', numberInputChange(e.target.value))} /></Field>
             <Field label="전체 계획 인원"><input className="form-input" type="number" value={form.planned_people_count || 0} onChange={e => inp('planned_people_count', e.target.value)} /></Field>
@@ -2381,10 +2310,54 @@ function BizTab() {
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>인당 지원금<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(prepaidUnit)}</b></div>
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>총 지원 예산<b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(promoBudget)}</b></div>
           </div>
-          {selectedSaleType === 'package' && selectedPackage && (
-            <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              <div style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: '6px' }}>연결 패키지 구성</div>
-              {(selectedPackage.package_programs || []).length === 0 ? '등록된 구성 프로그램 없음' : (selectedPackage.package_programs || []).map(pp => `${pp.vendors?.name || pp.vendor_key} · ${pp.prog_name} · 정산 ${money(pp.vendor_settle_price)}`).join(' / ')}
+          {modalUsageStats && (
+            <div style={{ border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px', marginBottom: '12px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--text-primary)', marginBottom: '8px' }}>예약 사용 현황</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: '8px' }}>
+                <div style={{ background: 'rgba(78,205,196,.07)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>
+                  체험 인원
+                  <b style={{ display: 'block', marginTop: '4px', color: 'var(--accent)' }}>{modalUsageStats.usedPeople.toLocaleString()}명</b>
+                  <span style={{ display: 'block', marginTop: '2px', color: 'var(--text-muted)', fontSize: '10px' }}>계획 {plannedPeople.toLocaleString()}명</span>
+                </div>
+                <div style={{ background: 'rgba(247,201,72,.08)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>
+                  할인 적용 인원
+                  <b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{modalUsageStats.discountUsedPeople.toLocaleString()}명</b>
+                  <span style={{ display: 'block', marginTop: '2px', color: 'var(--text-muted)', fontSize: '10px' }}>계획 {discountPeople.toLocaleString()}명</span>
+                </div>
+                <div style={{ background: 'rgba(247,201,72,.08)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>
+                  사용 지원금
+                  <b style={{ display: 'block', marginTop: '4px', color: 'var(--amber)' }}>{money(modalUsageStats.supportUsedAmount)}</b>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>
+                  남은 지원예산
+                  <b style={{ display: 'block', marginTop: '4px', color: modalUsageStats.remainingSupportBudget > 0 ? 'var(--green)' : 'var(--red)' }}>{money(modalUsageStats.remainingSupportBudget)}</b>
+                </div>
+                <div style={{ background: 'rgba(255,107,107,.08)', borderRadius: '6px', padding: '10px', fontSize: '12px' }}>
+                  미정산 지원금
+                  <b style={{ display: 'block', marginTop: '4px', color: modalUsageStats.unpaidSupportAmount > 0 ? 'var(--red)' : 'var(--green)' }}>{money(modalUsageStats.unpaidSupportAmount)}</b>
+                </div>
+              </div>
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 900, color: 'var(--text-primary)', marginBottom: '7px' }}>예약 사용 내역</div>
+                {modalUsageStats.usageRows.length === 0 ? (
+                  <div style={{ border: '1px dashed var(--border)', borderRadius: '7px', padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                    아직 이 사업비 상품으로 카운팅된 예약이 없습니다.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px', maxHeight: '220px', overflow: 'auto', paddingRight: '2px' }}>
+                    {modalUsageStats.usageRows.map(row => (
+                      <div key={row.key} style={{ display: 'grid', gridTemplateColumns: '.55fr .75fr minmax(0,1.2fr) .55fr .9fr .9fr', gap: '8px', alignItems: 'center', border: '1px solid var(--border2)', borderRadius: '7px', padding: '8px', fontSize: '12px' }}>
+                        <span className="mono" style={{ color: 'var(--text-muted)' }}>#{row.reservationNo}</span>
+                        <span>{row.date}</span>
+                        <span style={{ fontWeight: 800, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.customerName}</span>
+                        <span style={{ fontWeight: 800 }}>{row.people.toLocaleString()}명</span>
+                        <span style={{ color: row.appliedSupport ? 'var(--amber)' : 'var(--accent)', fontWeight: 800 }}>{row.appliedSupport ? '사업비 포함' : '인원만 카운팅'}</span>
+                        <span className="mono" style={{ color: row.unpaidSupportAmount > 0 ? 'var(--red)' : 'var(--text-muted)' }}>{money(row.unpaidSupportAmount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <Field label="메모"><input className="form-input" value={form.memo || ''} onChange={e => inp('memo', e.target.value)} placeholder="운영 기준, 내부 참고사항" /></Field>
