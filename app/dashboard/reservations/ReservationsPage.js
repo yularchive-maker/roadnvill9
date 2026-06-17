@@ -231,9 +231,82 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [lgRow, setLgRow] = useState(emptyLodgeRow)
 
   const selectedLodgeVendor = lodgeVendors.find(v => v.id === lgRow.lodge_vendor_id)
-  const lodgeSpaces = selectedLodgeVendor?.lodges || []
+  const selectedLodgeZoneCodes = useMemo(() => {
+    const zoneCodes = new Set()
+    componentRows.forEach(row => {
+      if (!(row.item_name || row.package_name) || Number(row.people_count) <= 0) return
+      rowZoneCodes(row).forEach(code => zoneCodes.add(code))
+      packageZoneCodes(componentPackage(row)).forEach(code => zoneCodes.add(code))
+    })
+    return [...zoneCodes].filter(Boolean)
+  }, [componentRows, packages])
+  const lodgeZoneCodes = lodge => {
+    const codes = []
+    if (lodge?.zone_code) codes.push(lodge.zone_code)
+    if (Array.isArray(lodge?.zone_codes)) codes.push(...lodge.zone_codes)
+    return [...new Set(codes.filter(Boolean))]
+  }
+  const lodgeVendorZoneCodes = vendor => {
+    const codes = new Set()
+    if (vendor?.zone_code) codes.add(vendor.zone_code)
+    ;(vendor?.lodges || []).forEach(lodge => {
+      if (lodge?.is_deleted === true) return
+      lodgeZoneCodes(lodge).forEach(code => codes.add(code))
+    })
+    return [...codes]
+  }
+  const hasLodgeZoneMetadata = lodgeVendors.some(vendor => lodgeVendorZoneCodes(vendor).length > 0)
+  const filteredLodgeVendors = selectedLodgeZoneCodes.length && hasLodgeZoneMetadata
+    ? lodgeVendors.filter(vendor => {
+      const activeLodges = (vendor?.lodges || []).filter(lodge => lodge?.is_deleted !== true)
+      if (!activeLodges.length) return true
+      return activeLodges.some(lodge => {
+        const codes = lodgeZoneCodes(lodge)
+        return codes.length === 0 || codes.some(code => selectedLodgeZoneCodes.includes(code))
+      })
+    })
+    : lodgeVendors
+  const visibleLodgeVendors = filteredLodgeVendors.length ? filteredLodgeVendors : lodgeVendors
+  const lodgeSpaces = (selectedLodgeVendor?.lodges || []).filter(lodge => {
+    if (lodge?.is_deleted === true) return false
+    if (!selectedLodgeZoneCodes.length || !hasLodgeZoneMetadata) return true
+    const codes = lodgeZoneCodes(lodge)
+    return codes.length === 0 || codes.some(code => selectedLodgeZoneCodes.includes(code))
+  })
   const selectedLodgeSpace = lodgeSpaces.find(l => l.id === lgRow.lodge_id)
   const lodgeRooms = selectedLodgeSpace?.rooms || []
+  const needsLodgeAssignment = form.lodging_status && form.lodging_status !== '해당없음'
+
+  useEffect(() => {
+    if (!lgRow.lodge_vendor_id || !selectedLodgeZoneCodes.length || !hasLodgeZoneMetadata) return
+    const visibleVendor = visibleLodgeVendors.some(vendor => String(vendor.id) === String(lgRow.lodge_vendor_id))
+    if (!visibleVendor) {
+      setLgRow(row => ({
+        ...row,
+        lodge_vendor_id: '',
+        lodge_id: '',
+        lodge_name: '',
+        room_name: '',
+        room_price: 0,
+        price_type: 'per_room',
+      }))
+    }
+  }, [lgRow.lodge_vendor_id, selectedLodgeZoneCodes, hasLodgeZoneMetadata, visibleLodgeVendors])
+
+  useEffect(() => {
+    if (!lgRow.lodge_id || !selectedLodgeZoneCodes.length || !hasLodgeZoneMetadata) return
+    const visibleSpace = lodgeSpaces.some(space => String(space.id) === String(lgRow.lodge_id))
+    if (!visibleSpace) {
+      setLgRow(row => ({
+        ...row,
+        lodge_id: '',
+        lodge_name: '',
+        room_name: '',
+        room_price: 0,
+        price_type: 'per_room',
+      }))
+    }
+  }, [lgRow.lodge_id, selectedLodgeZoneCodes, hasLodgeZoneMetadata, lodgeSpaces])
 
   const makeComponentRow = (patch = {}) => ({
     id: `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -2175,6 +2248,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   hint={lodges.length === 0 ? '숙박이 없는 예약은 해당없음, 숙박이 있으면 객실 추가 후 배정완료/확정완료를 선택하세요.' : '상태 변경 후 하단 저장 버튼을 눌러야 반영됩니다.'}
                   onChange={value => inp('lodging_status', value)}
                 />
+                {!needsLodgeAssignment && (
+                  <div className="list-box-empty" style={{ marginBottom:'8px' }}>
+                    숙박이 없는 예약은 해당없음으로 두고, 숙박이 필요한 예약은 배정필요를 선택하면 숙박업체와 객실 입력칸이 표시됩니다.
+                  </div>
+                )}
                 <div className="form-grid form-grid-4" style={{marginBottom:'8px',gap:'8px'}}>
                   <div className="form-field">
                     <label>숙박업체</label>
@@ -2188,8 +2266,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       price_type:'per_room',
                     }))}>
                       <option value="">선택</option>
-                      {lodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                      {visibleLodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
                     </select>
+                    {selectedLodgeZoneCodes.length > 0 && hasLodgeZoneMetadata && (
+                      <div className="field-help">예약 상품 구성 구역에 맞는 숙박업체만 표시됩니다.</div>
+                    )}
+                    {selectedLodgeZoneCodes.length > 0 && !hasLodgeZoneMetadata && (
+                      <div className="field-help">숙박공간에 구역을 지정하면 선택 구역 기준으로 라인업이 좁혀집니다.</div>
+                    )}
                   </div>
                   <div className="form-field">
                     <label>숙박공간</label>
@@ -2573,7 +2657,7 @@ export default function ReservationsPage() {
       supabase.from('platforms').select('id,type,name,fee_ind,fee_grp,is_deleted').order('type').order('name'),
       supabase.from('drivers').select('id,name,affil,is_deleted').order('name'),
       supabase.from('biz').select('id,name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
-      supabase.from('lodge_vendors').select('id,name,is_deleted,lodges(id,lodge_vendor_id,name,price,price_type,is_deleted)').order('name'),
+      supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(code,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])

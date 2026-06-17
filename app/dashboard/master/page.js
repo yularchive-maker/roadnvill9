@@ -1294,6 +1294,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
 // ══════════════════════════════════════════════════════
 function LodgesTab() {
   const [vendors,     setVendors]     = useState([])
+  const [zones,       setZones]       = useState([])
   const [selVendorId, setSelVendorId] = useState(null)
   const [selSpaceId,  setSelSpaceId]  = useState(null)
 
@@ -1306,11 +1307,19 @@ function LodgesTab() {
   const [roomForm,   setRoomForm]   = useState({})
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('lodge_vendors')
-      .select('*, lodges(*)')
-      .order('name')
-    setVendors(data || [])
+    const [vendorR, zoneR] = await Promise.all([
+      supabase
+        .from('lodge_vendors')
+        .select('*, lodges(*)')
+        .order('name'),
+      supabase
+        .from('zones')
+        .select('code,name,is_deleted')
+        .or('is_deleted.is.null,is_deleted.eq.false')
+        .order('code'),
+    ])
+    setVendors(vendorR.data || [])
+    setZones(zoneR.data || [])
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -1343,9 +1352,9 @@ function LodgesTab() {
   async function saveSpace() {
     if (!spaceForm.name) { alert('공간명을 입력하세요.'); return }
     if (spaceModal.mode === 'new') {
-      await supabase.from('lodges').insert({ name: spaceForm.name, vendor_id: selVendorId, rooms: [] })
+      await supabase.from('lodges').insert({ name: spaceForm.name, vendor_id: selVendorId, zone_code: spaceForm.zone_code || null, rooms: [] })
     } else {
-      await supabase.from('lodges').update({ name: spaceForm.name }).eq('id', spaceModal.data.id)
+      await supabase.from('lodges').update({ name: spaceForm.name, zone_code: spaceForm.zone_code || null }).eq('id', spaceModal.data.id)
     }
     setSpaceModal(null); load()
   }
@@ -1429,7 +1438,7 @@ function LodgesTab() {
             </span>
             {selVendorId && (
               <button className="btn-primary" style={{ height: '24px', fontSize: '11px', padding: '0 10px' }}
-                onClick={() => { setSpaceForm({ name: '' }); setSpaceModal({ mode: 'new' }) }}>+ 추가</button>
+                onClick={() => { setSpaceForm({ name: '', zone_code: '' }); setSpaceModal({ mode: 'new' }) }}>+ 추가</button>
             )}
           </div>
           <div style={bodyStyle}>
@@ -1439,8 +1448,9 @@ function LodgesTab() {
               <div key={s.id} onClick={() => setSelSpaceId(s.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border2)', background: selSpaceId === s.id ? 'rgba(78,205,196,0.08)' : '' }}>
                 <span style={{ flex: 1, fontSize: '13px', fontWeight: selSpaceId === s.id ? 700 : 500, color: selSpaceId === s.id ? 'var(--accent)' : 'var(--text-primary)' }}>{s.name}</span>
+                {s.zone_code && <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700 }}>{zones.find(z => z.code === s.zone_code)?.name || s.zone_code}</span>}
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{(s.rooms || []).length}객실</span>
-                <button className="icon-btn" onClick={e => { e.stopPropagation(); setSpaceForm({ name: s.name }); setSpaceModal({ mode: 'edit', data: s }) }}>✎</button>
+                <button className="icon-btn" onClick={e => { e.stopPropagation(); setSpaceForm({ name: s.name, zone_code: s.zone_code || '' }); setSpaceModal({ mode: 'edit', data: s }) }}>✎</button>
               </div>
             ))}
           </div>
@@ -1499,6 +1509,12 @@ function LodgesTab() {
         <Modal title={spaceModal.mode === 'new' ? '숙박공간 추가' : '숙박공간 수정'} onClose={() => setSpaceModal(null)} onSave={saveSpace} onDelete={spaceModal.mode === 'edit' ? deleteSpace : null}>
           <Field label="공간명" required>
             <input className="form-input" value={spaceForm.name || ''} onChange={e => setSpaceForm(f => ({ ...f, name: e.target.value }))} placeholder="본관, 별관, 펜션동 등" />
+          </Field>
+          <Field label="구역">
+            <select className="form-select" value={spaceForm.zone_code || ''} onChange={e => setSpaceForm(f => ({ ...f, zone_code: e.target.value }))}>
+              <option value="">선택</option>
+              {zones.map(zone => <option key={zone.code} value={zone.code}>{zone.name}</option>)}
+            </select>
           </Field>
         </Modal>
       )}
