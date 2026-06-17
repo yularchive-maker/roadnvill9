@@ -2269,10 +2269,10 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       {visibleLodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
                     </select>
                     {selectedLodgeZoneCodes.length > 0 && hasLodgeZoneMetadata && (
-                      <div className="field-help">예약 상품 구성 구역에 맞는 숙박업체만 표시됩니다.</div>
+                      <div className="field-help" style={{ marginTop:'5px', fontSize:'11px', lineHeight:1.35, color:'var(--text-muted)' }}>예약 상품 구성 구역에 맞는 숙박업체만 표시됩니다.</div>
                     )}
                     {selectedLodgeZoneCodes.length > 0 && !hasLodgeZoneMetadata && (
-                      <div className="field-help">숙박공간에 구역을 지정하면 선택 구역 기준으로 라인업이 좁혀집니다.</div>
+                      <div className="field-help" style={{ marginTop:'5px', fontSize:'11px', lineHeight:1.35, color:'var(--text-muted)' }}>숙박공간에 구역을 지정하면 선택 구역 기준으로 라인업이 좁혀집니다.</div>
                     )}
                   </div>
                   <div className="form-field">
