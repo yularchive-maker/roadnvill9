@@ -762,7 +762,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     const [pkgR, zoneR, vendorR, bizItemR, linkR] = await Promise.all([
       supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('code,name,is_deleted').order('code'),
-      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(zone_code,prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
       packageType === 'business'
         ? supabase.from('biz_budget_items').select('id,biz_id,item_name,support_unit_amount,planned_people_count').eq('category', 'product_operation').eq('sale_type', 'package').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
         : Promise.resolve({ data: [] }),
@@ -838,6 +838,10 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     setProgForm(f => ({
       ...f,
       zone_code: nextZones.includes(f.zone_code) ? f.zone_code : primaryZone,
+      vendor_key: nextZones.includes(f.zone_code) ? f.vendor_key : '',
+      prog_name: nextZones.includes(f.zone_code) ? f.prog_name : '',
+      vendor_settle_price: nextZones.includes(f.zone_code) ? f.vendor_settle_price : '',
+      settle_type: nextZones.includes(f.zone_code) ? f.settle_type : 'per_person',
     }))
   }
 
@@ -1018,7 +1022,14 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     }))
   }
   const vendorProgramOptions = vendorKey => vendors.find(v => v.key === vendorKey)?.vendor_programs || []
-  const findVendorProgram = (vendorKey, progName) => vendorProgramOptions(vendorKey).find(p => p.prog_name === progName)
+  const availablePackageVendors = progForm.zone_code
+    ? vendors.filter(vendor =>
+        (vendor.vendor_programs || []).some(program => program.zone_code === progForm.zone_code)
+      )
+    : []
+  const availableVendorPrograms = vendorKey => vendorProgramOptions(vendorKey)
+    .filter(program => !progForm.zone_code || program.zone_code === progForm.zone_code)
+  const findVendorProgram = (vendorKey, progName) => availableVendorPrograms(vendorKey).find(p => p.prog_name === progName)
   const vendorProgramSettlePrice = (vendorKey, progName) => {
     const vendorProgram = findVendorProgram(vendorKey, progName)
     return Number(vendorProgram?.vendor_settle_price ?? vendorProgram?.unit_price ?? 0) || 0
@@ -1058,6 +1069,16 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
   }
   const handleProgVendorChange = vendorKey => {
     setProgForm(f => ({ ...f, vendor_key: vendorKey, prog_name: '', vendor_settle_price: '', settle_type: 'per_person' }))
+  }
+  const handleProgZoneChange = zoneCode => {
+    setProgForm(f => ({
+      ...f,
+      zone_code: zoneCode,
+      vendor_key: '',
+      prog_name: '',
+      vendor_settle_price: '',
+      settle_type: 'per_person',
+    }))
   }
   const handleProgNameChange = progName => {
     setProgForm(f => ({ ...f, prog_name: progName, ...applyVendorProgramDefaults(f.vendor_key, progName) }))
@@ -1191,7 +1212,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
               </div>
               <div className="form-grid form-grid-3" style={{ marginBottom: '8px', gap: '8px' }}>
                 <Field label="구성 구역">
-                  <select className="form-select" value={progForm.zone_code || ''} onChange={e => setProgForm(f => ({ ...f, zone_code: e.target.value }))}>
+                  <select className="form-select" value={progForm.zone_code || ''} onChange={e => handleProgZoneChange(e.target.value)}>
                     <option value="">패키지 구역 선택</option>
                     {(form.zone_codes || []).map(code => {
                       const zone = zones.find(z => z.code === code)
@@ -1200,21 +1221,21 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
                   </select>
                 </Field>
                 <Field label="업체">
-                  <select className="form-select" value={progForm.vendor_key} onChange={e => handleProgVendorChange(e.target.value)}>
-                    <option value="">선택</option>
-                    {vendors.map(v => <option key={v.key} value={v.key}>{v.key} · {v.name.replace(/\s*\(.*\)/, '')}</option>)}
+                  <select className="form-select" value={progForm.vendor_key} disabled={!progForm.zone_code} onChange={e => handleProgVendorChange(e.target.value)}>
+                    <option value="">{progForm.zone_code ? '선택' : '구역 먼저 선택'}</option>
+                    {availablePackageVendors.map(v => <option key={v.key} value={v.key}>{v.key} · {v.name.replace(/\s*\(.*\)/, '')}</option>)}
                   </select>
                 </Field>
                 <Field label="프로그램명">
                   {(() => {
-                    const vProgs = vendorProgramOptions(progForm.vendor_key)
+                    const vProgs = availableVendorPrograms(progForm.vendor_key)
                     return vProgs.length > 0 ? (
-                      <select className="form-select" value={progForm.prog_name} onChange={e => handleProgNameChange(e.target.value)}>
+                      <select className="form-select" value={progForm.prog_name} disabled={!progForm.vendor_key} onChange={e => handleProgNameChange(e.target.value)}>
                         <option value="">선택</option>
                         {vProgs.map(p => <option key={p.prog_name} value={p.prog_name}>{p.prog_name}</option>)}
                       </select>
                     ) : (
-                      <input className="form-input" placeholder={progForm.vendor_key ? '프로그램 없음' : '업체 먼저 선택'} value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))} />
+                      <input className="form-input" disabled={!progForm.vendor_key} placeholder={progForm.vendor_key ? '해당 구역 프로그램 없음' : progForm.zone_code ? '업체 먼저 선택' : '구역 먼저 선택'} value={progForm.prog_name} onChange={e => setProgForm(f => ({ ...f, prog_name: e.target.value }))} />
                     )
                   })()}
                 </Field>
