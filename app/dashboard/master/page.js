@@ -182,10 +182,10 @@ function VendorsTab() {
 
   const load = useCallback(async () => {
     const [vendorR, zoneR] = await Promise.all([
-      supabase.from('vendors').select('key,name,contact,tel,color,note,telegram_chat_id,telegram_username,telegram_linked_at,is_deleted,vendor_programs(id,code,vendor_key,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('vendors').select('key,name,contact,tel,color,note,telegram_chat_id,telegram_username,telegram_linked_at,is_deleted,vendor_programs(id,code,vendor_key,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
       supabase.from('zones').select('code,name,is_deleted').order('code'),
     ])
-    setVendors((vendorR.data || []).map(vendor => ({
+    setVendors((vendorR.data || []).filter(vendor => vendor.is_deleted !== true).map(vendor => ({
       ...vendor,
       vendor_programs: activeVendorPrograms(vendor.vendor_programs),
     })))
@@ -300,8 +300,26 @@ function VendorsTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}" 업체를 삭제하시겠습니까?`)) return
-    await supabase.from('vendors').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('key', modal.data.key)
-    setModal(null); load()
+    const deletedAt = new Date().toISOString()
+    const { error: programError } = await supabase
+      .from('vendor_programs')
+      .update({ is_deleted: true, deleted_at: deletedAt })
+      .eq('vendor_key', modal.data.key)
+    if (programError) {
+      alert('업체 프로그램 삭제 실패: ' + programError.message)
+      return
+    }
+    const { error } = await supabase
+      .from('vendors')
+      .update({ is_deleted: true, deleted_at: deletedAt })
+      .eq('key', modal.data.key)
+    if (error) {
+      alert('업체 삭제 실패: ' + error.message)
+      return
+    }
+    setVendors(list => list.filter(vendor => vendor.key !== modal.data.key))
+    setModal(null)
+    await load()
   }
 
   async function addProg() {
@@ -762,7 +780,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     const [pkgR, zoneR, vendorR, bizItemR, linkR] = await Promise.all([
       supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').order('zone_code').order('name'),
       supabase.from('zones').select('code,name,is_deleted').order('code'),
-      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(zone_code,prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(zone_code,prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
       packageType === 'business'
         ? supabase.from('biz_budget_items').select('id,biz_id,item_name,support_unit_amount,planned_people_count').eq('category', 'product_operation').eq('sale_type', 'package').or('is_deleted.is.null,is_deleted.eq.false').order('sort_order')
         : Promise.resolve({ data: [] }),
@@ -772,7 +790,7 @@ function PackagesTab({ packageType = 'general', title = '패키지 목록', addL
     ])
     setPackages((pkgR.data || []).filter(pkg => (pkg.package_type || 'general') === packageType && pkg.is_deleted !== true))
     setZones(zoneR.data || [])
-    setVendors((vendorR.data || []).map(vendor => ({
+    setVendors((vendorR.data || []).filter(vendor => vendor.is_deleted !== true).map(vendor => ({
       ...vendor,
       vendor_programs: activeVendorPrograms(vendor.vendor_programs),
     })))

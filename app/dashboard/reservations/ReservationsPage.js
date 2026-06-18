@@ -2658,7 +2658,7 @@ export default function ReservationsPage() {
       supabase.from('drivers').select('id,name,affil,is_deleted').order('name'),
       supabase.from('biz').select('id,name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
-      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(code,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').order('key'),
+      supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(code,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
@@ -2668,7 +2668,7 @@ export default function ReservationsPage() {
     setDrivers(drvR.data || [])
     setBizList(bizR.data || [])
     setLodgeVendors(lodgeR.data || [])
-    setVendors((vendorR.data || []).map(normalizeVendorRow))
+    setVendors((vendorR.data || []).filter(vendor => vendor?.is_deleted !== true).map(normalizeVendorRow))
     setBudgetUsages(usageR.data || [])
     setLoading(false)
   }, [])
