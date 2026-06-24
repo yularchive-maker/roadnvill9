@@ -665,6 +665,56 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
     text-align: center;
   }
   .list-box { max-width: 100%; overflow-x: auto; }
+  .biz-page {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  .biz-page .list-card {
+    max-width: 100%;
+  }
+  .biz-filter-grid,
+  .biz-date-grid,
+  .biz-card-grid,
+  .biz-discount-row,
+  .biz-usage-head,
+  .biz-usage-metrics,
+  .biz-support-grid,
+  .biz-reimburse-row,
+  .biz-reimburse-metrics {
+    grid-template-columns: 1fr !important;
+  }
+  .biz-card-grid {
+    gap: 10px !important;
+  }
+  .biz-card {
+    padding: 12px !important;
+    overflow: hidden;
+  }
+  .biz-discount-row {
+    align-items: stretch !important;
+  }
+  .biz-discount-row > span {
+    min-width: 0;
+    white-space: normal !important;
+  }
+  .biz-program-list {
+    overflow-x: auto;
+  }
+  .biz-program-list .list-box-header,
+  .biz-program-list .list-box-row {
+    min-width: 480px;
+  }
+  .biz-reimburse-row {
+    align-items: stretch !important;
+  }
+  .biz-reimburse-actions {
+    justify-content: flex-end !important;
+  }
+  .biz-reimburse-actions .btn-sm {
+    width: 100%;
+    min-height: 36px;
+  }
   .notice-popup-box {
     width: calc(100% - 24px);
     max-height: calc(100dvh - 90px);

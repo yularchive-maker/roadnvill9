@@ -612,7 +612,7 @@ export default function BizPage() {
   }
 
   return (
-    <div>
+    <div className="biz-page">
       <div className="section-header" style={{ marginBottom: '14px' }}>
         <div>
           <div className="section-title">사업비 관리</div>
@@ -640,7 +640,7 @@ export default function BizPage() {
       {tab === 'structure' ? (
         <>
           <div className="list-card" style={{ padding: '14px', marginBottom: '14px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '12px', alignItems: 'start' }}>
+            <div className="biz-filter-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '12px', alignItems: 'start' }}>
               <div className="form-field" style={{ margin: 0 }}>
                 <label>사업비명</label>
                 <select className="form-select" value={selectedBizId} onChange={e => setSelectedBizId(e.target.value)}>
@@ -705,7 +705,7 @@ export default function BizPage() {
               {bizGroup.zones.map(group => (
                 <div key={`${bizGroup.id || 'none'}-${group.key || group.code || 'none'}`} style={{ marginBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 900, marginBottom: '8px', color: 'var(--accent)' }}>{group.name}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '12px' }}>
+                  <div className="biz-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '12px' }}>
                     {group.cards.map(card => {
                       const cardOpenKey = `${card.id}-${card.viewZoneCode || 'combined'}`
                       const opened = !!open[cardOpenKey]
@@ -727,7 +727,7 @@ export default function BizPage() {
                       const reservationCount = displayReservationRows.length
                       const recentCustomers = [...new Set(displayReservationRows.map(row => row.customer).filter(Boolean))].slice(0, 2)
                       return (
-                        <div key={`${card.id}-${card.viewZoneCode || 'combined'}`} className="list-card" style={{ padding: '14px', borderColor: opened ? 'rgba(78,205,196,.45)' : 'var(--border)' }}>
+                        <div key={`${card.id}-${card.viewZoneCode || 'combined'}`} className="list-card biz-card" style={{ padding: '14px', borderColor: opened ? 'rgba(78,205,196,.45)' : 'var(--border)' }}>
                           <button
                             type="button"
                             onClick={() => setOpen(prev => ({ ...prev, [cardOpenKey]: !prev[cardOpenKey] }))}
@@ -759,21 +759,21 @@ export default function BizPage() {
                               </div>
                             </div>
 
-                            <div style={{ display: 'grid', gap: '7px' }}>
+                            <div className="biz-discount-list" style={{ display: 'grid', gap: '7px' }}>
                               {emptyZone && (
                                 <div style={{ background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '7px', padding: '10px', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 800 }}>
                                   해당 구역 구성 프로그램 없음
                                 </div>
                               )}
                               {!emptyZone && displayNormalPlanPeople > 0 && (
-                                <div style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr', gap: '8px', alignItems: 'center', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '7px', padding: '8px 10px' }}>
+                                <div className="biz-discount-row" style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr', gap: '8px', alignItems: 'center', background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '7px', padding: '8px 10px' }}>
                                   <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)' }}>할인 없음</span>
                                   <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(displayNormalUsedPeople)} / {fmt(displayNormalPlanPeople)}명</span>
                                   <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', color: 'var(--accent)' }}>고객가 {money(card.normalUnit)}</span>
                                 </div>
                               )}
                               {!emptyZone && card.promo && (
-                                <div style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr auto', gap: '8px', alignItems: 'center', background: 'rgba(247,201,72,.08)', border: '1px solid rgba(247,201,72,.22)', borderRadius: '7px', padding: '8px 10px' }}>
+                                <div className="biz-discount-row" style={{ display: 'grid', gridTemplateColumns: '82px 82px 1fr auto', gap: '8px', alignItems: 'center', background: 'rgba(247,201,72,.08)', border: '1px solid rgba(247,201,72,.22)', borderRadius: '7px', padding: '8px 10px' }}>
                                   <span style={{ fontSize: '11px', fontWeight: 900, color: 'var(--amber)' }}>{Number(card.discountRate)}% 할인</span>
                                   <span style={{ fontSize: '12px', fontWeight: 800 }}>{fmt(displayDiscountUsedPeople)} / {fmt(displayDiscountPlanPeople)}명</span>
                                   <span style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px' }}>고객가 {money(card.discountCustomerUnit)}</span>
@@ -814,7 +814,7 @@ export default function BizPage() {
                                     }}
                                   >
                                     <div style={{ minWidth: 0 }}>
-                                      <div style={{ display: 'grid', gridTemplateColumns: '86px 96px 1fr', gap: '8px', alignItems: 'stretch', marginBottom: '8px' }}>
+                                      <div className="biz-usage-head" style={{ display: 'grid', gridTemplateColumns: '86px 96px 1fr', gap: '8px', alignItems: 'stretch', marginBottom: '8px' }}>
                                         <div style={{ border: '1px solid var(--border2)', borderRadius: '7px', padding: '7px 8px', background: 'rgba(10,31,48,.26)' }}>
                                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>예약번호</div>
                                           <div style={{ fontFamily: 'DM Mono,monospace', fontSize: '12px', fontWeight: 900 }}>#{row.no}</div>
@@ -832,7 +832,7 @@ export default function BizPage() {
                                         <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>상품</div>
                                         <div style={{ fontSize: '12px', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.package_name || row.item_name || '-'}</div>
                                       </div>
-                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '6px' }}>
+                                      <div className="biz-usage-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '6px' }}>
                                         <div style={{ borderRadius: '7px', padding: '7px 8px', background: 'rgba(10,31,48,.22)' }}>
                                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>인원</div>
                                           <div style={{ fontSize: '12px', fontWeight: 900 }}>{fmt(row.people)}명</div>
@@ -864,7 +864,7 @@ export default function BizPage() {
                               </div>
 
                               <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>패키지 구성 프로그램</div>
-                              <div className="list-box" style={{ marginBottom: '12px' }}>
+                              <div className="list-box biz-program-list" style={{ marginBottom: '12px' }}>
                                 <div className="list-box-header" style={{ gridTemplateColumns: '1fr 1fr 80px 110px' }}>
                                   <span>업체</span><span>프로그램</span><span>이용</span><span>업체 정산액</span>
                                 </div>
@@ -881,7 +881,7 @@ export default function BizPage() {
                               </div>
 
                               <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>지원금 정산</div>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
+                              <div className="biz-support-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
                                 {[
                                   ['인당 지원금', money(card.prepaidUnit)],
                                   ['지원금 총액', money(card.prepaidTotal)],
@@ -908,7 +908,7 @@ export default function BizPage() {
       ) : (
         <>
           <div className="list-card" style={{ padding: '14px', marginBottom: '14px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '12px', alignItems: 'start', marginBottom: '12px' }}>
+            <div className="biz-filter-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '12px', alignItems: 'start', marginBottom: '12px' }}>
               <div className="form-field" style={{ margin: 0 }}>
                 <label>사업비명</label>
                 <select className="form-select" value={reimburseBizId} onChange={e => setReimburseBizId(e.target.value)}>
@@ -933,7 +933,7 @@ export default function BizPage() {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '150px 150px auto', gap: '10px', alignItems: 'end' }}>
+            <div className="biz-date-grid" style={{ display: 'grid', gridTemplateColumns: '150px 150px auto', gap: '10px', alignItems: 'end' }}>
               <div className="form-field" style={{ margin: 0 }}>
                 <label>정산 시작일</label>
                 <input className="form-input" value={dateFrom} onChange={e => setDateFrom(formatDateTyping(e.target.value))} placeholder="2026-05-01" maxLength={10} inputMode="numeric" />
@@ -974,7 +974,7 @@ export default function BizPage() {
                   background: 'rgba(255,255,255,.025)',
                   marginBottom: '10px',
                 }}
-              >
+              className="biz-reimburse-row">
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '7px', flexWrap: 'wrap' }}>
                     <span style={{ fontFamily: 'DM Mono,monospace', color: 'var(--accent)', fontWeight: 900 }}>#{row.reservation_no}</span>
@@ -988,7 +988,7 @@ export default function BizPage() {
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{row.biz_name} · {row.zone_name}</div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '7px' }}>
+                <div className="biz-reimburse-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '7px' }}>
                   {[
                     ['정산처', row.target],
                     ['인원', `${fmt(row.people)}명`],
@@ -1003,7 +1003,7 @@ export default function BizPage() {
                   ))}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div className="biz-reimburse-actions" style={{ display: 'flex', justifyContent: 'center' }}>
                   {row.status === '정산완료' ? (
                     <button className="btn-outline btn-sm" style={{ minWidth: '82px' }} onClick={() => updateReimbursement(row, 'reset')}>정산취소</button>
                   ) : (
