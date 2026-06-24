@@ -111,6 +111,7 @@ export default function SettleDetailPage() {
   const [checkedItems, setCheckedItems] = useState({}) // { [groupKey]: Set<itemIndex> }
   const [hasQueried,   setHasQueried]   = useState(false)
   const [typeFilter,   setTypeFilter]   = useState('전체')
+  const [mobileView,   setMobileView]   = useState('pending')
 
   useEffect(() => {
     Promise.all([
@@ -418,7 +419,7 @@ export default function SettleDetailPage() {
         </div>
       </div>
 
-      <div style={{ display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'12px' }}>
+      <div className="settle-type-filters" style={{ display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'12px' }}>
         {SETTLE_TYPE_FILTERS.map(type => {
           const active = typeFilter === type
           return (
@@ -435,11 +436,28 @@ export default function SettleDetailPage() {
         })}
       </div>
 
+      <div className="mobile-settle-tabs" aria-label="정산 내역 보기">
+        <button
+          type="button"
+          className={mobileView === 'pending' ? 'active' : ''}
+          onClick={() => setMobileView('pending')}
+        >
+          미정산 <span>{visibleGroups.length}</span>
+        </button>
+        <button
+          type="button"
+          className={mobileView === 'history' ? 'active' : ''}
+          onClick={() => setMobileView('history')}
+        >
+          완료 이력 <span>{displayedHistory.length}</span>
+        </button>
+      </div>
+
       {/* 2단 레이아웃 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      <div className="settle-detail-grid">
 
         {/* 좌: 미정산 내역 */}
-        <div>
+        <div className={`settle-detail-panel pending${mobileView === 'pending' ? ' mobile-active' : ''}`}>
           <div className="section-header">
             <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               미정산 내역
@@ -561,7 +579,7 @@ export default function SettleDetailPage() {
         </div>
 
         {/* 우: 정산 완료 이력 */}
-        <div>
+        <div className={`settle-detail-panel history${mobileView === 'history' ? ' mobile-active' : ''}`}>
           <div className="section-header">
             <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               정산 완료 이력

@@ -54,6 +54,13 @@ const PAGE_TITLE = {
 }
 
 const SESSION = { name: '관리자', role: '운영팀장', avatar: '관' }
+const MOBILE_NAV = [
+  { id: 'today', label: '오늘', href: '/dashboard', icon: IconGrid },
+  { id: 'calendar', label: '달력', href: '/dashboard/timetable', icon: IconCalendar },
+  { id: 'reservations', label: '예약', href: '/dashboard/reservations', icon: IconList },
+  { id: 'settle', label: '정산', href: '/dashboard/settle-detail', icon: IconMoney },
+  { id: 'biz', label: '사업비', href: '/dashboard/biz', icon: IconBriefcase },
+]
 
 export default function DashboardLayout({ children }) {
   const router = useRouter()
@@ -114,7 +121,17 @@ export default function DashboardLayout({ children }) {
 
       <div className="main">
         <div className="topbar">
-          <div className="page-title">{title}</div>
+          <div className="mobile-brand">
+            <span className="mobile-brand-dot">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--navy)">
+                <path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7zm0 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/>
+              </svg>
+            </span>
+            <div>
+              <div className="mobile-brand-name">체험예약관리</div>
+              <div className="page-title">{title}</div>
+            </div>
+          </div>
           <div className="topbar-right">
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
               <div className="status-dot"></div>연결됨
@@ -132,6 +149,27 @@ export default function DashboardLayout({ children }) {
         </div>
         <div className="content">{children}</div>
       </div>
+
+      <nav className="mobile-bottom-nav" aria-label="모바일 주요 메뉴">
+        {MOBILE_NAV.map(item => {
+          const active = item.id === 'settle'
+            ? pathname.startsWith('/dashboard/settle')
+            : item.href === '/dashboard'
+              ? pathname === '/dashboard'
+              : pathname === item.href || pathname.startsWith(`${item.href}/`)
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`mobile-bottom-item${active ? ' active' : ''}`}
+              onClick={() => router.push(item.href)}
+            >
+              <span className="mobile-bottom-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          )
+        })}
+      </nav>
     </div>
   )
 }
