@@ -6,8 +6,25 @@ import { useRouter } from 'next/navigation'
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const STATUS_COLOR = { confirmed:'var(--green)', pending:'var(--amber)', cancelled:'var(--red)', consult:'var(--accent)' }
 const DAYS = ['일','월','화','수','목','금','토']
+const NOTICE_TYPES = ['일반', '긴급', '완료']
+const NOTICE_TYPE_COLOR = {
+  일반: { color:'var(--accent)', bg:'rgba(78,205,196,.12)', border:'rgba(78,205,196,.26)' },
+  긴급: { color:'var(--red)', bg:'rgba(255,107,107,.12)', border:'rgba(255,107,107,.32)' },
+  완료: { color:'var(--green)', bg:'rgba(92,184,92,.12)', border:'rgba(92,184,92,.3)' },
+}
 
-function todayStr() { return new Date().toISOString().slice(0,10) }
+function normalizeNoticeType(value) {
+  return NOTICE_TYPES.includes(value) ? value : '일반'
+}
+
+function noticeTypeStyle(value) {
+  return NOTICE_TYPE_COLOR[normalizeNoticeType(value)]
+}
+
+function todayStr() {
+  const d = new Date()
+  return dateStr(d.getFullYear(), d.getMonth() + 1, d.getDate())
+}
 function addDaysStr(baseDate, days) {
   const d = new Date(baseDate + 'T00:00:00')
   d.setDate(d.getDate() + days)
@@ -120,6 +137,11 @@ export default function DashboardPage() {
   const [noticePopup,  setNoticePopup]  = useState(null)  // { date, specials, notices }
   const [limitAlertSending, setLimitAlertSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [handoffText, setHandoffText] = useState('')
+  const [handoffType, setHandoffType] = useState('일반')
+  const [handoffSaving, setHandoffSaving] = useState(false)
+  const [urgentQueue, setUrgentQueue] = useState([])
+  const [urgentAcking, setUrgentAcking] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -127,15 +149,16 @@ export default function DashboardPage() {
       supabase.from('reservations').select('no,date,end_date,customer,tel,package_name,pax,type,is_deleted,total,settle_status,reservation_status,biz_id,op,payto,pickup_fee').order('date', { ascending: false }),
       supabase.from('packages').select('id,name,zone_code,pax_limit,total_price,is_deleted,package_zones(zone_code,is_deleted),package_programs(vendor_key,prog_name,is_deleted,vendors(key,name,color))'),
       supabase.from('zones').select('code,name,is_deleted').order('code'),
-      supabase.from('notices').select('id,date,end_date,title,content,start_time,end_time,is_all_day,type,is_deleted').order('date'),
+      supabase.from('notices').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date'),
       supabase.from('vendor_confirms').select('reservation_no,vendor_key,reply_status,status,request_date,is_deleted'),
-      supabase.from('lodge_confirms').select('reservation_no,is_deleted'),
+      supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('reservation_pickup').select('reservation_no,pickup_fee,is_deleted'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,people_count,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setPackages(pkgR.data || [])
     setZones(zoneR.data || [])
+    if (notR.error) console.error('NOTICE load failed:', notR.error)
     setNotices(notR.data || [])
     setVendorConfirms(vcR.data || [])
     setLodgeConfirms(lcR.data || [])
@@ -145,6 +168,19 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const loadUrgentUnread = useCallback(async () => {
+    try {
+      const res = await fetch('/api/notices/urgent-unread', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      setUrgentQueue(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Urgent notice popup load failed:', error)
+    }
+  }, [])
+
+  useEffect(() => { loadUrgentUnread() }, [loadUrgentUnread])
 
   // ── KPI 계산: 달력에서 보고 있는 년/월 기준
   const selectedMonth = `${calYear}-${String(calMonth).padStart(2,'0')}`
@@ -325,7 +361,7 @@ export default function DashboardPage() {
   }
 
   function getLodges(no) {
-    return lodgeConfirms.filter(l => l.reservation_no === no)
+    return lodgeConfirms.filter(l => String(l.reservation_no) === String(no) && l.is_deleted !== true)
   }
 
   function getPickups(no) {
@@ -343,12 +379,169 @@ export default function DashboardPage() {
 
   // 상태별 현황
   const byStatus = { confirmed:0, pending:0, cancelled:0, consult:0 }
-  reservations.forEach(r => { if (byStatus[r.type] !== undefined) byStatus[r.type]++ })
+  reservations
+    .filter(r => r.date?.startsWith(selectedMonth) && r.is_deleted !== true)
+    .forEach(r => { if (byStatus[r.type] !== undefined) byStatus[r.type]++ })
 
   function openNoticePopup(ds) {
     const ns = getDateNotices(ds)
     if (!ns.length) return
     setNoticePopup({ date: ds, notices: ns })
+  }
+
+  const handoffNotices = notices
+    .filter(n => n.is_deleted !== true)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+  const completedHandoffs = handoffNotices.filter(n => n.special === '완료' || normalizeNoticeType(n.notice_type) === '완료')
+  const pendingHandoffs = handoffNotices.filter(n => n.special !== '완료' && normalizeNoticeType(n.notice_type) !== '완료')
+  const urgentHandoffs = pendingHandoffs.filter(n => normalizeNoticeType(n.notice_type) === '긴급')
+  const generalPendingHandoffs = pendingHandoffs.filter(n => normalizeNoticeType(n.notice_type) !== '긴급')
+
+  async function addHandoffNotice() {
+    const title = handoffText.trim()
+    if (!title) return
+    setHandoffSaving(true)
+    const today = todayStr()
+    const res = await fetch('/api/notices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: today,
+        end_date: today,
+        title,
+        content: '',
+        special: handoffType === '완료' ? '완료' : '',
+        notice_type: handoffType,
+        color: handoffType === '긴급' ? '#FF6B6B' : handoffType === '완료' ? '#5CB85C' : '#4ECDC4',
+        is_all_day: true,
+      }),
+    })
+    setHandoffSaving(false)
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      alert('전달사항 등록 실패: ' + (payload.error?.message || payload.error || res.status))
+      return
+    }
+    setHandoffText('')
+    setHandoffType('일반')
+    await load()
+  }
+
+  async function updateHandoffStatus(notice, done) {
+    const res = await fetch('/api/notices', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...notice,
+        special: done ? '완료' : '',
+        notice_type: done ? '완료' : '일반',
+        color: done ? '#5CB85C' : '#4ECDC4',
+      }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      alert('전달사항 상태 변경 실패: ' + (payload.error?.message || payload.error || res.status))
+      return
+    }
+    await load()
+  }
+
+  async function deleteHandoffNotice(notice) {
+    if (!confirm('이 전달사항을 삭제하시겠습니까?')) return
+    const res = await fetch('/api/notices', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: notice.id }),
+    })
+    if (!res.ok) {
+      alert('전달사항 삭제 실패')
+      return
+    }
+    await load()
+  }
+
+  async function acknowledgeUrgentNotice(notice) {
+    if (!notice?.id || urgentAcking) return
+    setUrgentAcking(true)
+    try {
+      await fetch('/api/notices/urgent-unread', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notice_id: notice.id }),
+      })
+    } finally {
+      setUrgentAcking(false)
+      setUrgentQueue(prev => prev.filter(item => String(item.id) !== String(notice.id)))
+    }
+  }
+
+  function handoffRow(notice, done = false) {
+    const type = normalizeNoticeType(notice.notice_type)
+    const typeStyle = noticeTypeStyle(type)
+    return (
+      <div key={notice.id} style={{
+        display:'grid',
+        gridTemplateColumns:'24px minmax(0,1fr) 76px 72px',
+        alignItems:'center',
+        gap:'8px',
+        padding:'8px 10px',
+        borderBottom:'1px solid var(--border2)',
+      }}>
+        <button
+          className="icon-btn"
+          style={{
+            width:'20px',
+            height:'20px',
+            borderRadius:'5px',
+            borderColor: done ? 'rgba(92,184,92,.4)' : 'var(--border)',
+            color: done ? 'var(--green)' : 'var(--text-muted)',
+            fontSize:'11px',
+          }}
+          onClick={() => updateHandoffStatus(notice, !done)}
+          title={done ? '미완료로 되돌리기' : '완료 처리'}
+        >
+          {done ? '✓' : ''}
+        </button>
+        <div style={{ minWidth:0 }}>
+          <div style={{
+            fontSize:'12px',
+            fontWeight:700,
+            color: done ? 'var(--text-muted)' : 'var(--text-primary)',
+            textDecoration: done ? 'line-through' : 'none',
+            overflow:'hidden',
+            textOverflow:'ellipsis',
+            whiteSpace:'nowrap',
+          }}>
+            {noticeTitle(notice)}
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:'6px', marginTop:'3px', minWidth:0 }}>
+            <span style={{
+              flex:'0 0 auto',
+              fontSize:'10px',
+              lineHeight:'16px',
+              padding:'0 6px',
+              borderRadius:'999px',
+              background:typeStyle.bg,
+              border:`1px solid ${typeStyle.border}`,
+              color:typeStyle.color,
+              fontWeight:700,
+            }}>
+              {type}
+            </span>
+            <span style={{ minWidth:0, fontSize:'10px', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {noticeTimeLabel(notice)}
+            </span>
+          </div>
+          {notice.content && <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'2px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{notice.content}</div>}
+        </div>
+        <span style={{ fontSize:'11px', color: notice.date === todayStr() && !done ? 'var(--amber)' : 'var(--text-muted)', textAlign:'center' }}>
+          {notice.date === todayStr() ? '오늘' : (notice.date || '').slice(5)}
+        </span>
+        <button className="btn-outline btn-sm" style={{ height:'26px', fontSize:'11px', padding:'0 8px' }} onClick={() => deleteHandoffNotice(notice)}>
+          삭제
+        </button>
+      </div>
+    )
   }
 
   if (loading) return (
@@ -357,24 +550,45 @@ export default function DashboardPage() {
     </div>
   )
 
+  const urgentPopupNotice = urgentQueue[0]
+
   return (
     <div>
-      {/* 예약 상태 현황 */}
-      <div className="kpi-grid">
-        {Object.entries(byStatus).map(([type, count]) => (
-          <div
-            key={type}
-            className="kpi-card"
-            style={{ cursor:'pointer' }}
-            onClick={() => router.push(`/dashboard/reservations?type=${type}`)}
-          >
-            <div className="kpi-label">{STATUS_LABEL[type]}</div>
-            <div className="kpi-value" style={{ color: STATUS_COLOR[type] }}>
-              {count}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span>
-            </div>
-            <div className="kpi-sub">예약 상태별 현황</div>
+      {/* 운영 KPI 바 */}
+      <div className="card" style={{ padding:'16px 18px', marginBottom:'24px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px', marginBottom:'12px' }}>
+          <div>
+            <div style={{ fontSize:'14px', fontWeight:800, color:'var(--text-primary)' }}>오늘 확인할 운영 지표</div>
+            <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'3px' }}>바로 처리할 항목을 우선 표시합니다.</div>
           </div>
-        ))}
+          <div style={{ fontSize:'11px', color:'var(--text-muted)' }}>{selectedMonth} 기준</div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(6,minmax(0,1fr))', gap:'10px' }}>
+          {[
+            { label:'확정', value:`${byStatus.confirmed}건`, color:'var(--green)', href:'/dashboard/reservations?type=confirmed' },
+            { label:'상담필요', value:`${byStatus.consult}건`, color:'var(--accent)', href:'/dashboard/reservations?type=consult' },
+            { label:'업체 확인 대기', value:`${waitVendorCount}건`, color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)', hot: waitVendorCount > 0 },
+            { label:'미정산', value:`${unsettledCount}건`, color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)', hot: unsettledCount > 0 },
+            { label:'이번 달 매출', value:fmtMoney(selectedMonthSales), color:'var(--text-primary)' },
+            { label:'취소', value:`${byStatus.cancelled}건`, color:'var(--red)', href:'/dashboard/reservations?type=cancelled' },
+          ].map(item => (
+            <div
+              key={item.label}
+              onClick={() => item.href && router.push(item.href)}
+              style={{
+                minWidth:0,
+                cursor:item.href ? 'pointer' : 'default',
+                padding:'12px 14px',
+                borderRadius:'9px',
+                background:item.hot ? 'rgba(255,107,107,.07)' : 'var(--navy3)',
+                border:`1px solid ${item.hot ? 'rgba(255,107,107,.24)' : 'var(--border2)'}`,
+              }}
+            >
+              <div style={{ fontSize:'11px', color:item.hot ? 'rgba(255,180,180,.9)' : 'var(--text-muted)', fontWeight:700, marginBottom:'7px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</div>
+              <div style={{ fontSize:item.label === '이번 달 매출' ? '16px' : '20px', fontWeight:900, color:item.color, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="dashboard-main-grid">
@@ -407,9 +621,9 @@ export default function DashboardPage() {
               </span>
               <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid var(--border2)',borderRadius:'999px'}}>
                 <span className="cal-notice-dot" />
-                <span>알림</span>
+                <span>NOTICE</span>
               </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid rgba(247,201,72,.28)',borderRadius:'999px',color:'var(--amber)',fontWeight:700}}>특일</span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid rgba(255,107,107,.28)',borderRadius:'999px',color:'var(--red)',fontWeight:700}}>긴급</span>
             </div>
             <div className="cal-grid">
               {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
@@ -443,11 +657,17 @@ export default function DashboardPage() {
                         const start = isNoticeStartOn(n, ds)
                         const end = isNoticeEndOn(n, ds)
                         const isRange = (n.end_date || n.date) !== n.date
+                        const noticeColor = n.color || (normalizeNoticeType(n.notice_type) === '긴급' ? '#FF6B6B' : normalizeNoticeType(n.notice_type) === '완료' ? '#5CB85C' : '#F7C948')
                         return (
                           <div
                             key={n.id}
                             className={`cal-notice-title${isRange ? ' cal-notice-range' : ''}${start ? ' range-start' : ''}${end ? ' range-end' : ''}`}
                             title={noticeTitle(n)}
+                            style={{
+                              borderColor: noticeColor,
+                              color: noticeColor,
+                              background: `${noticeColor}18`,
+                            }}
                           >
                             {start ? noticeTitle(n) : ''}
                           </div>
@@ -629,29 +849,48 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 선택월 KPI */}
-      <div style={{ marginTop:'8px' }}>
-        <div style={{ fontSize:'13px', fontWeight:700, marginBottom:'10px' }}>{selectedMonth} 운영 요약</div>
-        <div className="kpi-grid" style={{ marginBottom:0 }}>
-          <div className="kpi-card">
-            <div className="kpi-label">선택월 예약</div>
-            <div className="kpi-value">{selectedMonthRes.length}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-            <div className="kpi-sub">{selectedMonth} 기준</div>
+      {/* 담당자 전달사항 */}
+      <div style={{ marginTop:'24px' }}>
+        <div className="section-header" style={{ marginBottom:'10px' }}>
+          <div className="section-title" style={{ fontSize:'13px' }}>
+            담당자 전달사항
+            <span style={{ fontSize:'12px', fontWeight:400, color:'var(--text-muted)', marginLeft:'8px' }}>미완료 {pendingHandoffs.length}건 · 완료 {completedHandoffs.length}건</span>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">선택월 매출</div>
-            <div className="kpi-value" style={{fontSize:'20px'}}>{fmtMoney(selectedMonthSales)}</div>
-            <div className="kpi-sub">취소 제외</div>
+          <button className="btn-outline btn-sm" onClick={() => router.push('/dashboard/notice')}>전체 관리</button>
+        </div>
+        <div className="card" style={{ padding:'14px' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'120px minmax(0,1fr) 82px', gap:'8px', marginBottom:'12px' }}>
+            <select
+              className="form-input"
+              value={handoffType}
+              onChange={e => setHandoffType(e.target.value)}
+            >
+              {NOTICE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <input
+              className="form-input"
+              value={handoffText}
+              onChange={e => setHandoffText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addHandoffNotice() }}
+              placeholder="전달할 내용 입력..."
+            />
+            <button className="btn-primary" onClick={addHandoffNotice} disabled={handoffSaving || !handoffText.trim()}>
+              + 등록
+            </button>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">미정산</div>
-            <div className="kpi-value" style={{color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)'}}>{unsettledCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-            <div className="kpi-sub">선택월 정산 전 예약</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">업체 확인 대기</div>
-            <div className="kpi-value" style={{color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)'}}>{waitVendorCount}<span style={{fontSize:'14px',fontWeight:400,color:'var(--text-muted)',marginLeft:'4px'}}>건</span></div>
-            <div className="kpi-sub">선택월 응답 대기</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'12px' }}>
+            <div className="list-card">
+              <div className="list-header" style={{ gridTemplateColumns:'1fr', color:'var(--accent)' }}>일반 {generalPendingHandoffs.length}건</div>
+              {generalPendingHandoffs.length === 0 ? <div className="list-box-empty">일반 전달사항이 없습니다.</div> : generalPendingHandoffs.slice(0, 5).map(n => handoffRow(n, false))}
+            </div>
+            <div className="list-card">
+              <div className="list-header" style={{ gridTemplateColumns:'1fr', color:'var(--red)' }}>긴급 {urgentHandoffs.length}건</div>
+              {urgentHandoffs.length === 0 ? <div className="list-box-empty">긴급 전달사항이 없습니다.</div> : urgentHandoffs.slice(0, 5).map(n => handoffRow(n, false))}
+            </div>
+            <div className="list-card">
+              <div className="list-header" style={{ gridTemplateColumns:'1fr', color:'var(--green)' }}>완료 {completedHandoffs.length}건</div>
+              {completedHandoffs.length === 0 ? <div className="list-box-empty">완료된 전달사항이 없습니다.</div> : completedHandoffs.slice(0, 5).map(n => handoffRow(n, true))}
+            </div>
           </div>
         </div>
       </div>
@@ -684,6 +923,41 @@ export default function DashboardPage() {
             <div style={{ padding:'10px 20px', borderTop:'1px solid var(--border2)', display:'flex', justifyContent:'flex-end', gap:'8px' }}>
               <button className="btn-outline" onClick={() => setNoticePopup(null)}>닫기</button>
               <button className="btn-primary" onClick={() => { setNoticePopup(null); router.push('/dashboard/notice') }}>알림 관리</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {urgentPopupNotice && (
+        <div className="modal-overlay open" style={{ zIndex: 1200 }}>
+          <div className="modal-box" style={{ maxWidth:'520px', borderColor:'rgba(255,107,107,.36)' }}>
+            <div className="modal-header" style={{ borderBottom:'1px solid rgba(255,107,107,.22)' }}>
+              <div>
+                <div className="modal-title" style={{ color:'var(--red)' }}>긴급 전달사항</div>
+                <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'4px' }}>
+                  {urgentPopupNotice.date || todayStr()} · {noticeTimeLabel(urgentPopupNotice)}
+                </div>
+              </div>
+            </div>
+            <div className="modal-body">
+              <div style={{ fontSize:'16px', fontWeight:900, color:'var(--text-primary)', marginBottom:'10px', lineHeight:1.45 }}>
+                {noticeTitle(urgentPopupNotice)}
+              </div>
+              {urgentPopupNotice.content && (
+                <div style={{ fontSize:'13px', color:'var(--text-secondary)', whiteSpace:'pre-wrap', lineHeight:1.65 }}>
+                  {urgentPopupNotice.content}
+                </div>
+              )}
+              {urgentPopupNotice.place && (
+                <div style={{ marginTop:'12px', fontSize:'12px', color:'var(--text-muted)' }}>
+                  장소: {urgentPopupNotice.place}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn-primary" onClick={() => acknowledgeUrgentNotice(urgentPopupNotice)} disabled={urgentAcking}>
+                {urgentAcking ? '처리 중...' : '확인했습니다'}
+              </button>
             </div>
           </div>
         </div>

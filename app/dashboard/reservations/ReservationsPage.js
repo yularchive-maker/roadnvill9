@@ -5,12 +5,13 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { formatDateTyping, formatMonthTyping } from '@/lib/date-input'
 import { refreshReservationProgramSnapshots } from '@/lib/price-snapshots'
 import { numberInputValue, numberInputChange } from '@/lib/number-format'
+import { formatPhoneTyping } from '@/lib/phone-format'
 
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const INFLOW_OPTS  = ['플랫폼','여행사','직접']
 const OP_OPTS      = ['일반','사업비']
 const RESERVATION_LIST_GRID = '60px 78px 94px minmax(150px,1.05fr) minmax(150px,1fr) 88px 70px 104px 112px 72px 72px'
-const VENDOR_CHECK_GRID = '44px minmax(92px, 1fr) minmax(118px, 1fr) 88px 96px 86px minmax(110px, 1.15fr) 88px'
+const VENDOR_CHECK_GRID = '36px minmax(80px,.9fr) minmax(96px,.95fr) 76px 80px 62px minmax(94px,1fr) 78px'
 const CENTER_CELL = { display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', width:'100%' }
 const RIGHT_CELL = { display:'flex', alignItems:'center', justifyContent:'flex-end', textAlign:'right', width:'100%' }
 const NOWRAP_CELL = { overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
@@ -1428,6 +1429,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   // 숙소 배정 추가
   async function addLodge() {
+    if (!needsLodgeAssignment) { alert('숙소 상태를 배정필요로 변경한 뒤 객실을 추가하세요.'); return }
     if (!lgRow.lodge_name || !lgRow.room_name) { alert('숙박공간과 객실을 선택하세요.'); return }
     const conflict = await findLodgeConflict(lgRow)
     if (conflict) { alert(conflict); return }
@@ -1907,7 +1909,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   </div>
                   <div className="form-field">
                     <label>연락처</label>
-                    <input className="form-input" value={form.tel} onChange={e=>inp('tel',e.target.value)} placeholder="010-0000-0000"/>
+                    <input className="form-input" value={form.tel} onChange={e=>inp('tel',formatPhoneTyping(e.target.value))} placeholder="010-0000-0000"/>
                   </div>
                 </div>
                 <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'8px'}}>
@@ -2253,76 +2255,80 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     숙박이 없는 예약은 해당없음으로 두고, 숙박이 필요한 예약은 배정필요를 선택하면 숙박업체와 객실 입력칸이 표시됩니다.
                   </div>
                 )}
-                <div className="form-grid form-grid-4" style={{marginBottom:'8px',gap:'8px'}}>
-                  <div className="form-field">
-                    <label>숙박업체</label>
-                    <select className="form-select" value={lgRow.lodge_vendor_id||''} onChange={e=>setLgRow(r=>({
-                      ...r,
-                      lodge_vendor_id:e.target.value,
-                      lodge_id:'',
-                      lodge_name:'',
-                      room_name:'',
-                      room_price:0,
-                      price_type:'per_room',
-                    }))}>
-                      <option value="">선택</option>
-                      {visibleLodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                    {selectedLodgeZoneCodes.length > 0 && hasLodgeZoneMetadata && (
-                      <div className="field-help" style={{ marginTop:'5px', fontSize:'11px', lineHeight:1.35, color:'var(--text-muted)' }}>예약 상품 구성 구역에 맞는 숙박업체만 표시됩니다.</div>
-                    )}
-                    {selectedLodgeZoneCodes.length > 0 && !hasLodgeZoneMetadata && (
-                      <div className="field-help" style={{ marginTop:'5px', fontSize:'11px', lineHeight:1.35, color:'var(--text-muted)' }}>숙박공간에 구역을 지정하면 선택 구역 기준으로 라인업이 좁혀집니다.</div>
-                    )}
-                  </div>
-                  <div className="form-field">
-                    <label>숙박공간</label>
-                    <select className="form-select" value={lgRow.lodge_id||''} disabled={!lgRow.lodge_vendor_id} onChange={e=>{
-                      const space = lodgeSpaces.find(s=>s.id===e.target.value)
-                      setLgRow(r=>({
-                        ...r,
-                        lodge_id:e.target.value,
-                        lodge_name:space?.name||'',
-                        room_name:'',
-                        room_price:0,
-                        price_type:'per_room',
-                      }))
-                    }}>
-                      <option value="">선택</option>
-                      {lodgeSpaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>객실</label>
-                    <select className="form-select" value={lgRow.room_name||''} disabled={!lgRow.lodge_id} onChange={e=>{
-                      const room = lodgeRooms.find(x=>x.name===e.target.value)
-                      setLgRow(r=>({
-                        ...r,
-                        room_name:room?.name||'',
-                        room_price:calcRoomPrice(room, form.pax),
-                        price_type:room?.price_type || 'per_room',
-                      }))
-                    }}>
-                      <option value="">선택</option>
-                      {lodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {(room.price||0).toLocaleString()}원 ({priceTypeLabel(room.price_type)})</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>객실금액 ({priceTypeLabel(lgRow.price_type)})</label>
-                    <input className="form-input auto-fill" inputMode="numeric" value={numberInputValue(lgRow.room_price)} onChange={e=>setLgRow(r=>({...r,room_price:numberInputChange(e.target.value)}))}/>
-                  </div>
-                </div>
-                <div className="form-grid form-grid-2" style={{marginBottom:'8px',gap:'8px'}}>
-                  <div className="form-field">
-                    <label>숙박지원금</label>
-                    <input className="form-input" inputMode="numeric" value={numberInputValue(lgRow.support_amt)} onChange={e=>setLgRow(r=>({...r,support_amt:numberInputChange(e.target.value)}))}/>
-                  </div>
-                  <div className="form-field">
-                    <label>비고</label>
-                    <input className="form-input" value={lgRow.note||''} onChange={e=>setLgRow(r=>({...r,note:e.target.value}))}/>
-                  </div>
-                </div>
-                <button className="btn-add-row" onClick={addLodge} style={{marginBottom:'8px'}}>+ 객실 추가</button>
+                {needsLodgeAssignment && (
+                  <>
+                    <div className="form-grid form-grid-4" style={{marginBottom:'8px',gap:'8px'}}>
+                      <div className="form-field">
+                        <label>숙박업체</label>
+                        <select className="form-select" value={lgRow.lodge_vendor_id||''} onChange={e=>setLgRow(r=>({
+                          ...r,
+                          lodge_vendor_id:e.target.value,
+                          lodge_id:'',
+                          lodge_name:'',
+                          room_name:'',
+                          room_price:0,
+                          price_type:'per_room',
+                        }))}>
+                          <option value="">선택</option>
+                          {visibleLodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                        </select>
+                        {selectedLodgeZoneCodes.length > 0 && hasLodgeZoneMetadata && (
+                          <div className="field-help" style={{ marginTop:'5px', fontSize:'11px', lineHeight:1.35, color:'var(--text-muted)' }}>예약 상품 구성 구역에 맞는 숙박업체만 표시됩니다.</div>
+                        )}
+                        {selectedLodgeZoneCodes.length > 0 && !hasLodgeZoneMetadata && (
+                          <div className="field-help" style={{ marginTop:'5px', fontSize:'11px', lineHeight:1.35, color:'var(--text-muted)' }}>숙박공간에 구역을 지정하면 선택 구역 기준으로 라인업이 좁혀집니다.</div>
+                        )}
+                      </div>
+                      <div className="form-field">
+                        <label>숙박공간</label>
+                        <select className="form-select" value={lgRow.lodge_id||''} disabled={!lgRow.lodge_vendor_id} onChange={e=>{
+                          const space = lodgeSpaces.find(s=>s.id===e.target.value)
+                          setLgRow(r=>({
+                            ...r,
+                            lodge_id:e.target.value,
+                            lodge_name:space?.name||'',
+                            room_name:'',
+                            room_price:0,
+                            price_type:'per_room',
+                          }))
+                        }}>
+                          <option value="">선택</option>
+                          {lodgeSpaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-field">
+                        <label>객실</label>
+                        <select className="form-select" value={lgRow.room_name||''} disabled={!lgRow.lodge_id} onChange={e=>{
+                          const room = lodgeRooms.find(x=>x.name===e.target.value)
+                          setLgRow(r=>({
+                            ...r,
+                            room_name:room?.name||'',
+                            room_price:calcRoomPrice(room, form.pax),
+                            price_type:room?.price_type || 'per_room',
+                          }))
+                        }}>
+                          <option value="">선택</option>
+                          {lodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {(room.price||0).toLocaleString()}원 ({priceTypeLabel(room.price_type)})</option>)}
+                        </select>
+                      </div>
+                      <div className="form-field">
+                        <label>객실금액 ({priceTypeLabel(lgRow.price_type)})</label>
+                        <input className="form-input auto-fill" inputMode="numeric" value={numberInputValue(lgRow.room_price)} onChange={e=>setLgRow(r=>({...r,room_price:numberInputChange(e.target.value)}))}/>
+                      </div>
+                    </div>
+                    <div className="form-grid form-grid-2" style={{marginBottom:'8px',gap:'8px'}}>
+                      <div className="form-field">
+                        <label>숙박지원금</label>
+                        <input className="form-input" inputMode="numeric" value={numberInputValue(lgRow.support_amt)} onChange={e=>setLgRow(r=>({...r,support_amt:numberInputChange(e.target.value)}))}/>
+                      </div>
+                      <div className="form-field">
+                        <label>비고</label>
+                        <input className="form-input" value={lgRow.note||''} onChange={e=>setLgRow(r=>({...r,note:e.target.value}))}/>
+                      </div>
+                    </div>
+                    <button className="btn-add-row" onClick={addLodge} style={{marginBottom:'8px'}}>+ 객실 추가</button>
+                  </>
+                )}
                 <div className="list-box">
                   <div className="list-box-header" style={{gridTemplateColumns:'1fr 1fr 70px 80px 80px 40px'}}>
                     <span>숙소</span><span>객실</span><span>유형</span><span>금액</span><span>부담금</span><span/>
@@ -2466,28 +2472,30 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
               ) : vendorCheckRows.length === 0 ? (
                 <div className="list-box-empty">선택한 패키지에 연결된 업체 프로그램이 없습니다.</div>
               ) : (
-                <div className="list-box">
-                  <div className="list-box-header" style={{gridTemplateColumns:VENDOR_CHECK_GRID}}>
-                    <span style={CENTER_CELL}>선택</span><span>프로그램</span><span>업체</span><span style={CENTER_CELL}>발송</span><span style={CENTER_CELL}>회신</span><span style={CENTER_CELL}>판단</span><span>당일 업체 일정</span><span style={CENTER_CELL}>관리</span>
-                  </div>
-                  {vendorCheckRows.map(row => (
-                    <div key={row.vendor_key} className="list-box-row" style={{gridTemplateColumns:VENDOR_CHECK_GRID}}>
-                      <span style={CENTER_CELL}>
-                        <input type="checkbox" checked={selectedVendorKeys.has(row.vendor_key)} onChange={() => toggleVendorSelection(row.vendor_key)} />
-                      </span>
-                      <span style={NOWRAP_CELL} title={row.programs.join(', ') || '-'}>{row.programs.join(', ') || '-'}</span>
-                      <span style={NOWRAP_CELL} title={row.vendor_name}>{row.vendor_name}</span>
-                      <span style={CENTER_CELL}><span className="badge pending" style={{ minWidth:'76px', justifyContent:'center' }}>{vendorSendLabel(row)}</span></span>
-                      <span style={CENTER_CELL}><span className="badge consult" style={{ minWidth:'82px', justifyContent:'center' }}>{vendorReplyLabel(row)}</span></span>
-                      <span style={{ ...CENTER_CELL, fontSize:'11px', color:'var(--text-muted)', fontWeight:600 }}>{vendorDecision(row)}</span>
-                      <span style={{ fontSize:'11px', color: row.events.length ? 'var(--amber)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {row.events.length
-                          ? row.events.map(ev => `${ev.start_time || ''}${ev.end_time ? '~' + ev.end_time : ''} ${ev.title || ev.prog_name || ''}`).join(' / ')
-                          : '등록된 일정 없음'}
-                      </span>
-                      <span style={CENTER_CELL}><button className="btn-outline btn-sm" style={COMPACT_ACTION_BUTTON} onClick={openVendorConfirmManager}>수동 입력</button></span>
+                <div style={{ overflowX:'auto', paddingBottom:'2px' }}>
+                  <div className="list-box" style={{ minWidth:'660px' }}>
+                    <div className="list-box-header" style={{gridTemplateColumns:VENDOR_CHECK_GRID}}>
+                      <span style={CENTER_CELL}>선택</span><span>프로그램</span><span>업체</span><span style={CENTER_CELL}>발송</span><span style={CENTER_CELL}>회신</span><span style={CENTER_CELL}>판단</span><span>당일 업체 일정</span><span style={CENTER_CELL}>관리</span>
                     </div>
-                  ))}
+                    {vendorCheckRows.map(row => (
+                      <div key={row.vendor_key} className="list-box-row" style={{gridTemplateColumns:VENDOR_CHECK_GRID}}>
+                        <span style={CENTER_CELL}>
+                          <input type="checkbox" checked={selectedVendorKeys.has(row.vendor_key)} onChange={() => toggleVendorSelection(row.vendor_key)} />
+                        </span>
+                        <span style={NOWRAP_CELL} title={row.programs.join(', ') || '-'}>{row.programs.join(', ') || '-'}</span>
+                        <span style={NOWRAP_CELL} title={row.vendor_name}>{row.vendor_name}</span>
+                        <span style={CENTER_CELL}><span className="badge pending" style={{ minWidth:'64px', justifyContent:'center' }}>{vendorSendLabel(row)}</span></span>
+                        <span style={CENTER_CELL}><span className="badge consult" style={{ minWidth:'68px', justifyContent:'center' }}>{vendorReplyLabel(row)}</span></span>
+                        <span style={{ ...CENTER_CELL, fontSize:'11px', color:'var(--text-muted)', fontWeight:600 }}>{vendorDecision(row)}</span>
+                        <span style={{ fontSize:'11px', color: row.events.length ? 'var(--amber)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {row.events.length
+                            ? row.events.map(ev => `${ev.start_time || ''}${ev.end_time ? '~' + ev.end_time : ''} ${ev.title || ev.prog_name || ''}`).join(' / ')
+                            : '등록된 일정 없음'}
+                        </span>
+                        <span style={CENTER_CELL}><button className="btn-outline btn-sm" style={{ ...COMPACT_ACTION_BUTTON, minWidth:'68px', padding:'0 8px' }} onClick={openVendorConfirmManager}>수동 입력</button></span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -2656,7 +2664,7 @@ export default function ReservationsPage() {
       supabase.from('zones').select('code,name,is_deleted').order('code'),
       supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').order('name'),
       supabase.from('platforms').select('id,type,name,fee_ind,fee_grp,is_deleted').order('type').order('name'),
-      supabase.from('drivers').select('id,name,affil,is_deleted').order('name'),
+      supabase.from('drivers').select('id,name,affil,is_deleted').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('biz').select('id,name,is_deleted').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(code,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
@@ -2666,7 +2674,7 @@ export default function ReservationsPage() {
     setZones(zoneR.data || [])
     setPackages((pkgR.data || []).filter(pkg => pkg?.is_deleted !== true).map(normalizePackageRow))
     setPlatforms(platR.data || [])
-    setDrivers(drvR.data || [])
+    setDrivers((drvR.data || []).filter(driver => driver?.is_deleted !== true))
     setBizList(bizR.data || [])
     setLodgeVendors(lodgeR.data || [])
     setVendors((vendorR.data || []).filter(vendor => vendor?.is_deleted !== true).map(normalizeVendorRow))

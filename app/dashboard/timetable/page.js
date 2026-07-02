@@ -8,6 +8,17 @@ const TT_START = 0
 const TT_END   = 24
 const HOUR_H   = 52
 const TOTAL_H  = (TT_END - TT_START) * HOUR_H
+const NOTICE_TYPES = ['일반', '긴급', '완료']
+
+function normalizeNoticeType(value) {
+  return NOTICE_TYPES.includes(value) ? value : '일반'
+}
+
+function colorForNoticeType(type, fallback = '#6E8DFB') {
+  if (type === '긴급') return '#FF6B6B'
+  if (type === '완료') return '#5CB85C'
+  return fallback
+}
 
 // ── 유틸
 function timeToMin(t) { const [h, m] = t.slice(0,5).split(':').map(Number); return h * 60 + m }
@@ -180,7 +191,9 @@ function noticeTitle(n) {
 function buildNoticeEvents(notices = []) {
   return notices
     .filter(n => n && n.is_deleted !== true && n.date)
-    .map(n => ({
+    .map(n => {
+      const noticeType = normalizeNoticeType(n.notice_type)
+      return ({
       id: `notice_${n.id}`,
       notice_id: n.id,
       date: n.date,
@@ -189,7 +202,7 @@ function buildNoticeEvents(notices = []) {
       end_time: (n.is_all_day === true || !n.start_time || !n.end_time) ? '24:00' : n.end_time.slice(0, 5),
       type: 'notice',
       vendor_key: 'NOTICE',
-      vendor_name: n.notice_type || '일반 일정',
+      vendor_name: noticeType,
       vendor_color: n.color || '#6E8DFB',
       prog_name: noticeTitle(n),
       pkg_name: 'NOTICE',
@@ -197,13 +210,14 @@ function buildNoticeEvents(notices = []) {
       title: n.title || '',
       content: n.content || '',
       special: n.special || '',
-      notice_type: n.notice_type || '',
+      notice_type: noticeType,
       color: n.color || '#6E8DFB',
       place: n.place || '',
       is_manual: true,
       is_notice: true,
       is_all_day_notice: n.is_all_day === true || !n.start_time || !n.end_time,
-    }))
+    })
+  })
 }
 
 function dateOnlyNotices(notices = [], date) {
@@ -412,7 +426,7 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
           content: initialNotice.content || '',
           special: initialNotice.special || '',
           color: initialNotice.color || initialNotice.vendor_color || '#6E8DFB',
-          notice_type: initialNotice.notice_type || initialNotice.vendor_name || '일반',
+          notice_type: normalizeNoticeType(initialNotice.notice_type || initialNotice.vendor_name),
         }
       }
       const date = defaultDate || f.date || ''
@@ -462,9 +476,9 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
       is_all_day: !!form.is_all_day,
       place: form.place.trim() || null,
       content: form.content.trim(),
-      special: form.special.trim() || null,
-      color: form.color || '#6E8DFB',
-      notice_type: form.notice_type || '일반',
+      notice_type: normalizeNoticeType(form.notice_type),
+      special: normalizeNoticeType(form.notice_type) === '완료' ? '완료' : (form.special.trim() || null),
+      color: colorForNoticeType(normalizeNoticeType(form.notice_type), form.color || '#6E8DFB'),
     })
   }
   const dateRangeLabel = form.date
@@ -507,11 +521,7 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
             <div>
               <label style={label}>구분</label>
               <select style={input} value={form.notice_type} onChange={e => set('notice_type', e.target.value)}>
-                <option value="일반">일반</option>
-                <option value="공지">공지</option>
-                <option value="운영">운영</option>
-                <option value="휴무">휴무</option>
-                <option value="특일">특일</option>
+                {NOTICE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
               </select>
             </div>
           </div>

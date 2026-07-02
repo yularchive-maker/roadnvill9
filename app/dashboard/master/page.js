@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { numberInputValue, numberInputChange } from '@/lib/number-format'
+import { formatPhoneTyping } from '@/lib/phone-format'
 
 function activePackagePrograms(programs) {
   return (programs || []).filter(program => program && program.is_deleted !== true)
@@ -675,7 +676,7 @@ function VendorsTab() {
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="담당자"><input className="form-input" value={form.contact || ''} onChange={e => inp('contact', e.target.value)} /></Field>
-            <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', e.target.value)} placeholder="010-0000-0000" /></Field>
+            <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', formatPhoneTyping(e.target.value))} placeholder="010-0000-0000" /></Field>
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="텔레그램 chat_id">
@@ -1665,7 +1666,7 @@ function PlatformsTab() {
           </div>
           <div className="form-grid form-grid-2" style={{ marginBottom: '12px' }}>
             <Field label="담당자"><input className="form-input" value={form.contact || ''} onChange={e => inp('contact', e.target.value)} /></Field>
-            <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', e.target.value)} /></Field>
+            <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', formatPhoneTyping(e.target.value))} placeholder="010-0000-0000" /></Field>
           </div>
           <div className="form-grid form-grid-2">
             <Field label="개인 수수료(%)"><input className="form-input fee-input" type="number" value={form.fee_ind || 0} onChange={e => inp('fee_ind', e.target.value)} /></Field>
@@ -1686,7 +1687,12 @@ function DriversTab() {
   const [form,  setForm]  = useState({})
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('drivers').select('*').order('name')
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('*')
+      .or('is_deleted.is.null,is_deleted.eq.false')
+      .order('name')
+    if (error) { alert('픽업수행자 목록을 불러오지 못했습니다: ' + error.message); return }
     setList(data || [])
   }, [])
   useEffect(() => { load() }, [load])
@@ -1698,17 +1704,25 @@ function DriversTab() {
     if (!form.name) { alert('이름을 입력하세요.'); return }
     const payload = { name: form.name, tel: form.tel || '', affil: form.affil || '자체' }
     if (modal.mode === 'new') {
-      await supabase.from('drivers').insert(payload)
+      const { error } = await supabase.from('drivers').insert(payload)
+      if (error) { alert('저장 실패: ' + error.message); return }
     } else {
-      await supabase.from('drivers').update(payload).eq('id', form.id)
+      const { error } = await supabase.from('drivers').update(payload).eq('id', form.id)
+      if (error) { alert('저장 실패: ' + error.message); return }
     }
     setModal(null); load()
   }
 
   async function del() {
     if (!confirm(`"${modal.data.name}"을 삭제하시겠습니까?`)) return
-    await supabase.from('drivers').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
-    setModal(null); load()
+    const { error } = await supabase
+      .from('drivers')
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .eq('id', modal.data.id)
+    if (error) { alert('삭제 실패: ' + error.message); return }
+    setList(list => list.filter(driver => driver.id !== modal.data.id))
+    setModal(null)
+    await load()
   }
 
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -1731,7 +1745,7 @@ function DriversTab() {
           <div key={d.id} className="list-row" style={{ gridTemplateColumns: '1fr 130px 70px' }} onClick={() => openEdit(d)}>
             <span style={{ fontWeight: 500 }}>{d.name}</span>
             <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{d.tel || '-'}</span>
-            <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: d.affil === '자체' ? 'rgba(92,184,92,.1)' : 'rgba(247,201,72,.1)', color: d.affil === '자체' ? 'var(--green)' : 'var(--amber)', fontWeight: 600 }}>{d.affil || '-'}</span>
+            <span style={{ justifySelf: 'center', minWidth: '54px', textAlign: 'center', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: d.affil === '자체' ? 'rgba(92,184,92,.1)' : 'rgba(247,201,72,.1)', color: d.affil === '자체' ? 'var(--green)' : 'var(--amber)', fontWeight: 600 }}>{d.affil || '-'}</span>
           </div>
         ))}
       </div>
@@ -1739,7 +1753,7 @@ function DriversTab() {
         <Modal title={modal.mode === 'new' ? '픽업수행자 추가' : '픽업수행자 수정'} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === 'edit' ? del : null}>
           <div className="form-grid" style={{ gap: '12px' }}>
             <Field label="이름" required><input className="form-input" value={form.name || ''} onChange={e => inp('name', e.target.value)} /></Field>
-            <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', e.target.value)} placeholder="010-0000-0000" /></Field>
+            <Field label="연락처"><input className="form-input" value={form.tel || ''} onChange={e => inp('tel', formatPhoneTyping(e.target.value))} placeholder="010-0000-0000" /></Field>
             <Field label="소속">
               <select className="form-select" value={form.affil || '자체'} onChange={e => inp('affil', e.target.value)}>
                 <option value="자체">자체</option>

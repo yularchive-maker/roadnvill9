@@ -5,6 +5,12 @@ import { formatDateTyping } from '@/lib/date-input'
 
 const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 const COLORS = ['#6E8DFB', '#4ECDC4', '#F7C948', '#FF6B6B', '#B8B8FF']
+const NOTICE_TYPES = ['일반', '긴급', '완료']
+const TYPE_COLORS = {
+  일반: { color:'var(--accent)', bg:'rgba(78,205,196,.12)' },
+  긴급: { color:'var(--red)', bg:'rgba(255,107,107,.12)' },
+  완료: { color:'var(--green)', bg:'rgba(92,184,92,.12)' },
+}
 
 const EMPTY_FORM = {
   date: '',
@@ -22,6 +28,16 @@ const EMPTY_FORM = {
 
 function displayTitle(n) {
   return n.title || (n.content || '').split('\n')[0] || n.special || '알림'
+}
+
+function normalizeNoticeType(value) {
+  return NOTICE_TYPES.includes(value) ? value : '일반'
+}
+
+function colorForType(type, fallback = '#6E8DFB') {
+  if (type === '긴급') return '#FF6B6B'
+  if (type === '완료') return '#5CB85C'
+  return fallback
 }
 
 function timeLabel(n) {
@@ -88,7 +104,7 @@ export default function NoticePage() {
       end_time: notice.end_time ? notice.end_time.slice(0,5) : '',
       place: notice.place || '',
       color: notice.color || '#6E8DFB',
-      notice_type: notice.notice_type || '일반',
+      notice_type: normalizeNoticeType(notice.notice_type),
       is_all_day: notice.is_all_day === true || (!notice.start_time && !notice.end_time),
     })
     setModal({ mode:'edit', data: notice })
@@ -105,12 +121,12 @@ export default function NoticePage() {
       end_date: endDate,
       title: form.title.trim(),
       content: form.content.trim(),
-      special: form.special.trim() || null,
+      special: form.notice_type === '완료' ? '완료' : (form.special.trim() || null),
       start_time: form.is_all_day ? null : form.start_time,
       end_time: form.is_all_day ? null : form.end_time,
       place: form.place.trim() || null,
-      color: form.color || '#6E8DFB',
-      notice_type: form.notice_type || '일반',
+      color: colorForType(form.notice_type, form.color || '#6E8DFB'),
+      notice_type: normalizeNoticeType(form.notice_type),
       is_all_day: !!form.is_all_day,
     }
     let res
@@ -178,7 +194,11 @@ export default function NoticePage() {
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
                       <span style={{ fontSize:'13px', fontWeight:800, color:'var(--text-primary)' }}>{displayTitle(n)}</span>
-                      <span style={{ fontSize:'10px', padding:'2px 7px', borderRadius:'999px', background:'rgba(78,205,196,.12)', color:'var(--accent)', fontWeight:700 }}>{n.notice_type || '일반'}</span>
+                      {(() => {
+                        const type = normalizeNoticeType(n.notice_type)
+                        const style = TYPE_COLORS[type]
+                        return <span style={{ fontSize:'10px', padding:'2px 7px', borderRadius:'999px', background:style.bg, color:style.color, fontWeight:700 }}>{type}</span>
+                      })()}
                       <span style={{ fontSize:'11px', color:'var(--text-muted)' }}>{timeLabel(n)}</span>
                     </div>
                     {n.place && <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'4px' }}>장소: {n.place}</div>}
@@ -216,11 +236,7 @@ export default function NoticePage() {
                 <div className="form-field">
                   <label>구분</label>
                   <select className="form-input" value={form.notice_type} onChange={e => set('notice_type', e.target.value)}>
-                    <option value="일반">일반</option>
-                    <option value="공지">공지</option>
-                    <option value="운영">운영</option>
-                    <option value="휴무">휴무</option>
-                    <option value="특일">특일</option>
+                    {NOTICE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
                   </select>
                 </div>
               </div>
@@ -263,7 +279,7 @@ export default function NoticePage() {
 
               <div className="form-field" style={{ marginBottom:'14px' }}>
                 <label>내용/메모</label>
-                <textarea className="form-input" rows={3} style={{ resize:'vertical', paddingTop:'16px', lineHeight:'1.45' }} value={form.content} onChange={e => set('content', e.target.value)} placeholder="자세한 내용은 NOTICE 탭과 타임테이블에서 확인합니다."/>
+                <textarea className="form-input" rows={3} style={{ resize:'vertical', padding:'10px 12px', lineHeight:'1.45' }} value={form.content} onChange={e => set('content', e.target.value)} placeholder="자세한 내용은 NOTICE 탭과 타임테이블에서 확인합니다."/>
               </div>
 
               <div className="form-field">
