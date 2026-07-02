@@ -148,6 +148,7 @@ export default function DashboardPage() {
   const [handoffSaving, setHandoffSaving] = useState(false)
   const [urgentQueue, setUrgentQueue] = useState([])
   const [urgentAcking, setUrgentAcking] = useState(false)
+  const [openMetricDetail, setOpenMetricDetail] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -204,17 +205,40 @@ export default function DashboardPage() {
   // ── KPI 계산: 달력에서 보고 있는 년/월 기준
   const selectedMonth = `${calYear}-${String(calMonth).padStart(2,'0')}`
   const selectedMonthRes = reservations.filter(r => r.date?.startsWith(selectedMonth) && r.type !== 'cancelled' && r.is_deleted !== true)
-  const selectedMonthNos = new Set(selectedMonthRes.map(r => r.no))
+  const selectedMonthNos = new Set(selectedMonthRes.map(r => String(r.no)))
+  const reservationByNo = new Map(reservations.map(r => [String(r.no), r]))
   const selectedMonthSales = selectedMonthRes.reduce((s,r) => s + (r.total||0), 0)
-  const unsettledCount = selectedMonthRes.filter(r => (r.settle_status || 'unsettled') === 'unsettled').length
-  const waitVendorCount = vendorConfirms.filter(v => {
+  const unsettledReservations = selectedMonthRes.filter(r => (r.settle_status || 'unsettled') === 'unsettled')
+  const unsettledCount = unsettledReservations.length
+  const waitingVendorRows = vendorConfirms.filter(v => {
     if (v.is_deleted === true) return false
     const replyStatus = v.reply_status || v.status || '회신대기'
     const isWaiting = ['회신대기', 'wait', 'pending', '미회신'].includes(replyStatus)
-    const inReservationMonth = selectedMonthNos.has(v.reservation_no)
+    const inReservationMonth = selectedMonthNos.has(String(v.reservation_no))
     const inRequestMonth = v.request_date?.startsWith(selectedMonth)
     return isWaiting && (inReservationMonth || inRequestMonth)
-  }).length
+  })
+  const waitVendorCount = waitingVendorRows.length
+  const waitingVendorReservations = [...waitingVendorRows.reduce((map, row) => {
+    const key = String(row.reservation_no)
+    const reservation = reservationByNo.get(key)
+    if (!reservation || reservation.is_deleted === true || reservation.type === 'cancelled') return map
+    const current = map.get(key) || { reservation, waitingCount: 0 }
+    current.waitingCount += 1
+    map.set(key, current)
+    return map
+  }, new Map()).values()].sort((a, b) => String(a.reservation.date || '').localeCompare(String(b.reservation.date || '')))
+  const metricDetailRows = openMetricDetail === 'vendor'
+    ? waitingVendorReservations
+    : openMetricDetail === 'settle'
+      ? unsettledReservations.map(reservation => ({ reservation }))
+      : []
+
+  function openMetricReservation(reservation) {
+    if (!reservation?.date) return
+    setSelectedDate(reservation.date)
+    setOpenResNo(reservation.no)
+  }
 
   // ── 달력 데이터
   const first    = new Date(calYear, calMonth-1, 1).getDay()
@@ -586,17 +610,20 @@ export default function DashboardPage() {
           {[
             { label:'확정', value:`${byStatus.confirmed}건`, color:'var(--green)', href:'/dashboard/reservations?type=confirmed' },
             { label:'상담필요', value:`${byStatus.consult}건`, color:'var(--accent)', href:'/dashboard/reservations?type=consult' },
-            { label:'업체 확인 대기', value:`${waitVendorCount}건`, color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)', hot: waitVendorCount > 0 },
-            { label:'미정산', value:`${unsettledCount}건`, color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)', hot: unsettledCount > 0 },
+            { label:'업체 확인 대기', value:`${waitVendorCount}건`, color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)', hot: waitVendorCount > 0, detailKey:'vendor' },
+            { label:'미정산', value:`${unsettledCount}건`, color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)', hot: unsettledCount > 0, detailKey:'settle' },
             { label:'이번 달 매출', value:fmtMoney(selectedMonthSales), color:'var(--text-primary)' },
             { label:'취소', value:`${byStatus.cancelled}건`, color:'var(--red)', href:'/dashboard/reservations?type=cancelled' },
           ].map(item => (
             <div
               key={item.label}
-              onClick={() => item.href && router.push(item.href)}
+              onClick={() => {
+                if (item.href) router.push(item.href)
+                if (item.detailKey && item.hot) setOpenMetricDetail(current => current === item.detailKey ? '' : item.detailKey)
+              }}
               style={{
                 minWidth:0,
-                cursor:item.href ? 'pointer' : 'default',
+                cursor:item.href || (item.detailKey && item.hot) ? 'pointer' : 'default',
                 padding:'12px 14px',
                 borderRadius:'9px',
                 background:item.hot ? 'rgba(255,107,107,.07)' : 'var(--navy3)',
@@ -914,6 +941,66 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* 운영 지표 상세 팝업 */}
+      {openMetricDetail && (
+        <div className="notice-popup open" onClick={e => { if(e.target===e.currentTarget) setOpenMetricDetail('') }}>
+          <div className="notice-popup-box">
+            <div className="notice-popup-header">
+              <div>
+                <div style={{ fontSize:'14px', fontWeight:700 }}>
+                  {openMetricDetail === 'vendor' ? '업체 확인 대기' : '미정산'}
+                </div>
+                <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'2px' }}>
+                  {openMetricDetail === 'vendor'
+                    ? `${selectedMonth} · 예약 ${waitingVendorReservations.length}건 · 회신 ${waitVendorCount}건`
+                    : `${selectedMonth} · ${unsettledCount}건`}
+                </div>
+              </div>
+              <button className="close-btn" onClick={() => setOpenMetricDetail('')}>✕</button>
+            </div>
+            <div style={{ padding:'16px 20px', maxHeight:'58vh', overflowY:'auto' }}>
+              {metricDetailRows.map((row, i) => {
+                const reservation = row.reservation
+                return (
+                  <button
+                    key={`${openMetricDetail}-${reservation.no}`}
+                    type="button"
+                    className="notice-item"
+                    onClick={() => {
+                      openMetricReservation(reservation)
+                      setOpenMetricDetail('')
+                    }}
+                    style={{ width:'100%', border:0, background:'transparent', color:'inherit', textAlign:'left', cursor:'pointer' }}
+                  >
+                    <div className="notice-item-num">{i+1}</div>
+                    <div className="notice-item-content">
+                      <div style={{fontWeight:800,color:'var(--text-primary)',marginBottom:'3px'}}>
+                        #{reservation.no} {reservation.customer || '-'}
+                      </div>
+                      <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>
+                        {reservation.date || '-'} · {reservation.package_name || '-'}
+                      </div>
+                      <div style={{ fontSize:'12px', color:'var(--text-secondary)' }}>
+                        {openMetricDetail === 'vendor' ? `업체 회신대기 ${row.waitingCount}건` : `예약금액 ${fmtMoney(reservation.total || 0)}`}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+              {!metricDetailRows.length && (
+                <div style={{ padding:'14px', textAlign:'center', color:'var(--text-muted)', fontSize:'12px' }}>
+                  표시할 예약이 없습니다.
+                </div>
+              )}
+            </div>
+            <div style={{ padding:'10px 20px', borderTop:'1px solid var(--border2)', display:'flex', justifyContent:'flex-end', gap:'8px' }}>
+              <button className="btn-outline" onClick={() => setOpenMetricDetail('')}>닫기</button>
+              <button className="btn-primary" onClick={() => { setOpenMetricDetail(''); router.push('/dashboard/reservations') }}>예약 관리</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* NOTICE 팝업 */}
       {noticePopup && (
