@@ -204,7 +204,11 @@ export default function DashboardPage() {
 
   // ── KPI 계산: 달력에서 보고 있는 년/월 기준
   const selectedMonth = `${calYear}-${String(calMonth).padStart(2,'0')}`
-  const selectedMonthRes = reservations.filter(r => r.date?.startsWith(selectedMonth) && r.type !== 'cancelled' && r.is_deleted !== true)
+  const selectedMonthAllRes = reservations.filter(r => r.date?.startsWith(selectedMonth) && r.is_deleted !== true)
+  const selectedMonthRes = selectedMonthAllRes.filter(r => r.type !== 'cancelled')
+  const confirmedReservations = selectedMonthAllRes.filter(r => r.type === 'confirmed')
+  const consultReservations = selectedMonthAllRes.filter(r => r.type === 'consult')
+  const cancelledReservations = selectedMonthAllRes.filter(r => r.type === 'cancelled')
   const selectedMonthNos = new Set(selectedMonthRes.map(r => String(r.no)))
   const reservationByNo = new Map(reservations.map(r => [String(r.no), r]))
   const selectedMonthSales = selectedMonthRes.reduce((s,r) => s + (r.total||0), 0)
@@ -232,9 +236,30 @@ export default function DashboardPage() {
     ? waitingVendorReservations
     : openMetricDetail === 'settle'
       ? unsettledReservations.map(reservation => ({ reservation }))
+      : openMetricDetail === 'confirmed'
+        ? confirmedReservations.map(reservation => ({ reservation }))
+        : openMetricDetail === 'consult'
+          ? consultReservations.map(reservation => ({ reservation }))
+          : openMetricDetail === 'cancelled'
+            ? cancelledReservations.map(reservation => ({ reservation }))
+            : openMetricDetail === 'sales'
+              ? selectedMonthRes.map(reservation => ({ reservation }))
       : []
+  const metricDetailMeta = {
+    confirmed: { title:'확정', subtitle:`${selectedMonth} · ${confirmedReservations.length}건` },
+    consult: { title:'상담필요', subtitle:`${selectedMonth} · ${consultReservations.length}건` },
+    vendor: { title:'업체 확인 대기', subtitle:`${selectedMonth} · 예약 ${waitingVendorReservations.length}건 · 회신 ${waitVendorCount}건` },
+    settle: { title:'미정산', subtitle:`${selectedMonth} · ${unsettledCount}건` },
+    sales: { title:'이번 달 매출', subtitle:`${selectedMonth} · ${selectedMonthRes.length}건 · ${fmtMoney(selectedMonthSales)}` },
+    cancelled: { title:'취소', subtitle:`${selectedMonth} · ${cancelledReservations.length}건` },
+  }
+  const activeMetricMeta = metricDetailMeta[openMetricDetail] || { title:'운영 지표', subtitle:selectedMonth }
 
   function openMetricReservation(reservation) {
+    if (reservation?.type === 'cancelled') {
+      router.push(`/dashboard/reservations?no=${reservation.no}&from=dashboard`)
+      return
+    }
     if (!reservation?.date) return
     setSelectedDate(reservation.date)
     setOpenResNo(reservation.no)
@@ -608,22 +633,22 @@ export default function DashboardPage() {
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(6,minmax(0,1fr))', gap:'10px' }}>
           {[
-            { label:'확정', value:`${byStatus.confirmed}건`, color:'var(--green)', href:'/dashboard/reservations?type=confirmed' },
-            { label:'상담필요', value:`${byStatus.consult}건`, color:'var(--accent)', href:'/dashboard/reservations?type=consult' },
-            { label:'업체 확인 대기', value:`${waitVendorCount}건`, color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)', hot: waitVendorCount > 0, detailKey:'vendor' },
-            { label:'미정산', value:`${unsettledCount}건`, color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)', hot: unsettledCount > 0, detailKey:'settle' },
-            { label:'이번 달 매출', value:fmtMoney(selectedMonthSales), color:'var(--text-primary)' },
-            { label:'취소', value:`${byStatus.cancelled}건`, color:'var(--red)', href:'/dashboard/reservations?type=cancelled' },
+            { label:'확정', value:`${byStatus.confirmed}건`, color:'var(--green)', detailKey:'confirmed', enabled: byStatus.confirmed > 0 },
+            { label:'상담필요', value:`${byStatus.consult}건`, color:'var(--accent)', detailKey:'consult', enabled: byStatus.consult > 0 },
+            { label:'업체 확인 대기', value:`${waitVendorCount}건`, color: waitVendorCount > 0 ? 'var(--red)' : 'var(--green)', hot: waitVendorCount > 0, detailKey:'vendor', enabled: waitVendorCount > 0 },
+            { label:'미정산', value:`${unsettledCount}건`, color: unsettledCount > 0 ? 'var(--amber)' : 'var(--green)', hot: unsettledCount > 0, detailKey:'settle', enabled: unsettledCount > 0 },
+            { label:'이번 달 매출', value:fmtMoney(selectedMonthSales), color:'var(--text-primary)', detailKey:'sales', enabled: selectedMonthRes.length > 0 },
+            { label:'취소', value:`${byStatus.cancelled}건`, color:'var(--red)', detailKey:'cancelled', enabled: byStatus.cancelled > 0 },
           ].map(item => (
             <div
               key={item.label}
               onClick={() => {
                 if (item.href) router.push(item.href)
-                if (item.detailKey && item.hot) setOpenMetricDetail(current => current === item.detailKey ? '' : item.detailKey)
+                if (item.detailKey && item.enabled) setOpenMetricDetail(item.detailKey)
               }}
               style={{
                 minWidth:0,
-                cursor:item.href || (item.detailKey && item.hot) ? 'pointer' : 'default',
+                cursor:item.href || (item.detailKey && item.enabled) ? 'pointer' : 'default',
                 padding:'12px 14px',
                 borderRadius:'9px',
                 background:item.hot ? 'rgba(255,107,107,.07)' : 'var(--navy3)',
@@ -949,12 +974,10 @@ export default function DashboardPage() {
             <div className="notice-popup-header">
               <div>
                 <div style={{ fontSize:'14px', fontWeight:700 }}>
-                  {openMetricDetail === 'vendor' ? '업체 확인 대기' : '미정산'}
+                  {activeMetricMeta.title}
                 </div>
                 <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'2px' }}>
-                  {openMetricDetail === 'vendor'
-                    ? `${selectedMonth} · 예약 ${waitingVendorReservations.length}건 · 회신 ${waitVendorCount}건`
-                    : `${selectedMonth} · ${unsettledCount}건`}
+                  {activeMetricMeta.subtitle}
                 </div>
               </div>
               <button className="close-btn" onClick={() => setOpenMetricDetail('')}>✕</button>
@@ -982,7 +1005,13 @@ export default function DashboardPage() {
                         {reservation.date || '-'} · {reservation.package_name || '-'}
                       </div>
                       <div style={{ fontSize:'12px', color:'var(--text-secondary)' }}>
-                        {openMetricDetail === 'vendor' ? `업체 회신대기 ${row.waitingCount}건` : `예약금액 ${fmtMoney(reservation.total || 0)}`}
+                        {openMetricDetail === 'vendor'
+                          ? `업체 회신대기 ${row.waitingCount}건`
+                          : openMetricDetail === 'settle'
+                            ? `예약금액 ${fmtMoney(reservation.total || 0)}`
+                            : openMetricDetail === 'sales'
+                              ? `매출 ${fmtMoney(reservation.total || 0)}`
+                              : STATUS_LABEL[reservation.type] || '예약'}
                       </div>
                     </div>
                   </button>
