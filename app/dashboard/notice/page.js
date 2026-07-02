@@ -5,11 +5,14 @@ import { formatDateTyping } from '@/lib/date-input'
 
 const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 const COLORS = ['#6E8DFB', '#4ECDC4', '#F7C948', '#FF6B6B', '#B8B8FF']
-const NOTICE_TYPES = ['일반', '긴급', '완료']
+const NOTICE_TYPES = ['일반', '공지', '운영', '전달사항', '휴무', '특일']
 const TYPE_COLORS = {
   일반: { color:'var(--accent)', bg:'rgba(78,205,196,.12)' },
-  긴급: { color:'var(--red)', bg:'rgba(255,107,107,.12)' },
-  완료: { color:'var(--green)', bg:'rgba(92,184,92,.12)' },
+  공지: { color:'var(--amber)', bg:'rgba(247,201,72,.12)' },
+  운영: { color:'#B8B8FF', bg:'rgba(184,184,255,.12)' },
+  전달사항: { color:'var(--green)', bg:'rgba(92,184,92,.12)' },
+  휴무: { color:'var(--red)', bg:'rgba(255,107,107,.12)' },
+  특일: { color:'var(--amber)', bg:'rgba(247,201,72,.12)' },
 }
 
 const EMPTY_FORM = {
@@ -32,12 +35,6 @@ function displayTitle(n) {
 
 function normalizeNoticeType(value) {
   return NOTICE_TYPES.includes(value) ? value : '일반'
-}
-
-function colorForType(type, fallback = '#6E8DFB') {
-  if (type === '긴급') return '#FF6B6B'
-  if (type === '완료') return '#5CB85C'
-  return fallback
 }
 
 function timeLabel(n) {
@@ -121,11 +118,11 @@ export default function NoticePage() {
       end_date: endDate,
       title: form.title.trim(),
       content: form.content.trim(),
-      special: form.notice_type === '완료' ? '완료' : (form.special.trim() || null),
+      special: form.special.trim() || null,
       start_time: form.is_all_day ? null : form.start_time,
       end_time: form.is_all_day ? null : form.end_time,
       place: form.place.trim() || null,
-      color: colorForType(form.notice_type, form.color || '#6E8DFB'),
+      color: form.color || '#6E8DFB',
       notice_type: normalizeNoticeType(form.notice_type),
       is_all_day: !!form.is_all_day,
     }

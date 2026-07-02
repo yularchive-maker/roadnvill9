@@ -4,18 +4,11 @@ import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
-function normalizeNoticePayload(body, user, options = {}) {
-  const payload = {
+function normalizeNoticePayload(body) {
+  return {
     ...body,
     content: body?.content ?? '',
   }
-  if (options.insert && user?.id) payload.created_by = user.id
-  return payload
-}
-
-function isMissingCreatedBy(error) {
-  const message = String(error?.message || '')
-  return error?.code === 'PGRST204' || message.includes('created_by')
 }
 
 export async function GET(req) {
@@ -39,12 +32,7 @@ export async function POST(req) {
   if (!user) return unauthorizedResponse()
 
   const body = await req.json()
-  let payload = normalizeNoticePayload(body, user, { insert: true })
-  let { data, error } = await supabase.from('notices').insert(payload).select().single()
-  if (error && isMissingCreatedBy(error)) {
-    const { created_by, ...fallbackPayload } = payload
-    ;({ data, error } = await supabase.from('notices').insert(fallbackPayload).select().single())
-  }
+  const { data, error } = await supabase.from('notices').insert(normalizeNoticePayload(body)).select().single()
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }
@@ -55,8 +43,7 @@ export async function PUT(req) {
 
   const body = await req.json()
   const { id, ...rest } = body
-  const { created_by, ...safeRest } = rest
-  const { data, error } = await supabase.from('notices').update(normalizeNoticePayload(safeRest, user)).eq('id', id).select().single()
+  const { data, error } = await supabase.from('notices').update(normalizeNoticePayload(rest)).eq('id', id).select().single()
   if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }

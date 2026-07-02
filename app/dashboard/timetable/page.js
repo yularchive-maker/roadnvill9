@@ -8,16 +8,10 @@ const TT_START = 0
 const TT_END   = 24
 const HOUR_H   = 52
 const TOTAL_H  = (TT_END - TT_START) * HOUR_H
-const NOTICE_TYPES = ['일반', '긴급', '완료']
+const NOTICE_TYPES = ['일반', '공지', '운영', '전달사항', '휴무', '특일']
 
 function normalizeNoticeType(value) {
   return NOTICE_TYPES.includes(value) ? value : '일반'
-}
-
-function colorForNoticeType(type, fallback = '#6E8DFB') {
-  if (type === '긴급') return '#FF6B6B'
-  if (type === '완료') return '#5CB85C'
-  return fallback
 }
 
 // ── 유틸
@@ -477,8 +471,8 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
       place: form.place.trim() || null,
       content: form.content.trim(),
       notice_type: normalizeNoticeType(form.notice_type),
-      special: normalizeNoticeType(form.notice_type) === '완료' ? '완료' : (form.special.trim() || null),
-      color: colorForNoticeType(normalizeNoticeType(form.notice_type), form.color || '#6E8DFB'),
+      special: form.special.trim() || null,
+      color: form.color || '#6E8DFB',
     })
   }
   const dateRangeLabel = form.date

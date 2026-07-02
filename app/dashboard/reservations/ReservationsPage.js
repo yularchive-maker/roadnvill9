@@ -44,8 +44,40 @@ function calcTotal(price, pax, discount, pickupFee, burden) {
     + (Number(burden)||0)
 }
 
-function calcRoomPrice(room, pax) {
-  const unitPrice = Number(room?.price) || 0
+function isWeekendDate(date) {
+  if (!date) return false
+  const day = new Date(`${date}T00:00:00`).getDay()
+  return day === 0 || day === 6
+}
+
+function dayKey(date) {
+  if (!date) return ''
+  return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${date}T00:00:00`).getDay()]
+}
+
+function roomWeekendDays(room) {
+  return Array.isArray(room?.weekend_days) && room.weekend_days.length ? room.weekend_days : ['sat', 'sun']
+}
+
+function roomUsesWeekendRate(room, date) {
+  return !!date && Number(room?.weekend_price) > 0 && roomWeekendDays(room).includes(dayKey(date))
+}
+
+function roomRateLabel(date) {
+  return isWeekendDate(date) ? '주말' : '기본'
+}
+
+function roomBasePrice(room, date) {
+  if (roomUsesWeekendRate(room, date)) return Number(room?.weekend_price) || 0
+  return Number(room?.price) || Number(room?.weekday_price) || Number(room?.weekend_price) || 0
+}
+
+function roomAvailableForDate(room, date) {
+  return true
+}
+
+function calcRoomPrice(room, pax, date) {
+  const unitPrice = roomBasePrice(room, date)
   return (room?.price_type || 'per_room') === 'per_person'
     ? unitPrice * (Number(pax) || 0)
     : unitPrice
@@ -276,6 +308,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   })
   const selectedLodgeSpace = lodgeSpaces.find(l => l.id === lgRow.lodge_id)
   const lodgeRooms = selectedLodgeSpace?.rooms || []
+  const visibleLodgeRooms = lodgeRooms.filter(room => roomAvailableForDate(room, form.date))
   const needsLodgeAssignment = form.lodging_status && form.lodging_status !== '해당없음'
 
   useEffect(() => {
@@ -461,6 +494,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     const next = { ...f, [k]: v }
     // 자동계산
     next.total = calcTotal(next.price, next.pax, next.discount, next.pickup_fee, next.burden)
+    if (k === 'date') {
+      setLgRow(row => {
+        if (!row.room_name) return row
+        const room = lodgeRooms.find(x => x.name === row.room_name)
+        if (!room || !roomAvailableForDate(room, v)) {
+          return { ...row, room_name:'', room_price:0, price_type:'per_room' }
+        }
+        return { ...row, room_price: calcRoomPrice(room, row.price_type === 'per_person' ? next.pax : next.pax, v) }
+      })
+    }
     return next
   })
 
@@ -476,7 +519,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     setLgRow(r => {
       if (r.price_type !== 'per_person' || !r.room_name) return r
       const room = lodgeRooms.find(x => x.name === r.room_name)
-      return { ...r, room_price: calcRoomPrice(room, value) }
+      return { ...r, room_price: calcRoomPrice(room, value, form.date) }
     })
   }
 
@@ -2299,16 +2342,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       <div className="form-field">
                         <label>객실</label>
                         <select className="form-select" value={lgRow.room_name||''} disabled={!lgRow.lodge_id} onChange={e=>{
-                          const room = lodgeRooms.find(x=>x.name===e.target.value)
+                          const room = visibleLodgeRooms.find(x=>x.name===e.target.value)
                           setLgRow(r=>({
                             ...r,
                             room_name:room?.name||'',
-                            room_price:calcRoomPrice(room, form.pax),
+                            room_price:calcRoomPrice(room, form.pax, form.date),
                             price_type:room?.price_type || 'per_room',
                           }))
                         }}>
                           <option value="">선택</option>
-                          {lodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {(room.price||0).toLocaleString()}원 ({priceTypeLabel(room.price_type)})</option>)}
+                          {visibleLodgeRooms.map((room,i)=><option key={`${room.name}-${i}`} value={room.name}>{room.name} · {roomBasePrice(room, form.date).toLocaleString()}원 ({roomUsesWeekendRate(room, form.date) ? '주말' : '기본'} · {priceTypeLabel(room.price_type)})</option>)}
                         </select>
                       </div>
                       <div className="form-field">

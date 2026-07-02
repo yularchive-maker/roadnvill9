@@ -1366,7 +1366,7 @@ function LodgesTab() {
   const selVendor = vendors.find(v => v.id === selVendorId)
   const spaces    = selVendor?.lodges || []
   const selSpace  = spaces.find(s => s.id === selSpaceId)
-  const rooms     = selSpace?.rooms || []   // [{name, price, price_type}]
+  const rooms     = selSpace?.rooms || []   // [{name, price, weekend_price, weekend_days, price_type}]
 
   // ── 숙박업체 CRUD
   async function saveVendor() {
@@ -1412,6 +1412,8 @@ function LodgesTab() {
     const newRoom = {
       name: roomForm.name,
       price: Number(roomForm.price) || 0,
+      weekend_price: Number(roomForm.weekend_price) || 0,
+      weekend_days: Array.isArray(roomForm.weekend_days) ? roomForm.weekend_days : ['sat', 'sun'],
       price_type: roomForm.price_type || 'per_room',
     }
     const newRooms = roomModal.mode === 'new'
@@ -1504,7 +1506,7 @@ function LodgesTab() {
             </span>
             {selSpaceId && (
               <button className="btn-primary" style={{ height: '24px', fontSize: '11px', padding: '0 10px' }}
-                onClick={() => { setRoomForm({ name: '', price: '', price_type: 'per_room' }); setRoomModal({ mode: 'new' }) }}>+ 추가</button>
+                onClick={() => { setRoomForm({ name: '', price: '', weekend_price: '', weekend_days: ['sat', 'sun'], price_type: 'per_room' }); setRoomModal({ mode: 'new' }) }}>+ 추가</button>
             )}
           </div>
           <div style={{ ...bodyStyle, padding: '12px' }}>
@@ -1513,12 +1515,19 @@ function LodgesTab() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {rooms.map((r, i) => (
                 <div key={i}
-                  onClick={() => { setRoomForm({ name: r.name, price: r.price, price_type: r.price_type || 'per_room' }); setRoomModal({ mode: 'edit', idx: i, data: r }) }}
+                  onClick={() => { setRoomForm({ name: r.name, price: r.price, weekend_price: r.weekend_price || '', weekend_days: Array.isArray(r.weekend_days) && r.weekend_days.length ? r.weekend_days : ['sat', 'sun'], price_type: r.price_type || 'per_room' }); setRoomModal({ mode: 'edit', idx: i, data: r }) }}
                   style={{ background: 'var(--navy3)', border: '1px solid var(--border2)', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', minWidth: '130px' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border2)'}>
                   <div style={{ fontSize: '13px', fontWeight: 600 }}>{r.name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--accent)', fontFamily: 'DM Mono,monospace', marginTop: '2px' }}>₩{(r.price || 0).toLocaleString()}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--accent)', fontFamily: 'DM Mono,monospace', marginTop: '2px' }}>
+                    ₩{(r.price || 0).toLocaleString()}
+                  </div>
+                  {r.weekend_price ? (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', lineHeight:1.35 }}>
+                      주말 {(r.weekend_price || 0).toLocaleString()} · {(Array.isArray(r.weekend_days) && r.weekend_days.length ? r.weekend_days : ['sat','sun']).map(day => ({ fri:'금', sat:'토', sun:'일' }[day])).filter(Boolean).join('/')}
+                    </div>
+                  ) : null}
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{(r.price_type || 'per_room') === 'per_person' ? '인원당' : '객실당'}</div>
                 </div>
               ))}
@@ -1566,8 +1575,38 @@ function LodgesTab() {
             <Field label="객실명" required>
               <input className="form-input" value={roomForm.name || ''} onChange={e => setRoomForm(f => ({ ...f, name: e.target.value }))} placeholder="디럭스룸" />
             </Field>
-            <Field label="금액(원)">
+            <Field label="기본 금액(원)">
               <input className="form-input" inputMode="numeric" value={numberInputValue(roomForm.price)} onChange={e => setRoomForm(f => ({ ...f, price: numberInputChange(e.target.value) }))} placeholder="150,000" />
+            </Field>
+            <Field label="주말 금액(원)">
+              <input className="form-input" inputMode="numeric" value={numberInputValue(roomForm.weekend_price)} onChange={e => setRoomForm(f => ({ ...f, weekend_price: numberInputChange(e.target.value) }))} placeholder="선택 요일 적용 금액" />
+            </Field>
+            <Field label="주말 금액 적용 요일">
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:'6px' }}>
+                {[
+                  ['fri', '금'],
+                  ['sat', '토'],
+                  ['sun', '일'],
+                ].map(([key, label]) => {
+                  const selected = (roomForm.weekend_days || []).includes(key)
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={selected ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                      style={{ height:'34px', justifyContent:'center' }}
+                      onClick={() => setRoomForm(f => {
+                        const current = new Set(f.weekend_days || [])
+                        if (current.has(key)) current.delete(key)
+                        else current.add(key)
+                        return { ...f, weekend_days: [...current] }
+                      })}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
             </Field>
             <Field label="요금 유형">
               <select className="form-select" value={roomForm.price_type || 'per_room'} onChange={e => setRoomForm(f => ({ ...f, price_type: e.target.value }))}>

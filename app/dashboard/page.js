@@ -6,19 +6,24 @@ import { useRouter } from 'next/navigation'
 const STATUS_LABEL = { confirmed:'확정', pending:'대기', cancelled:'취소', consult:'상담필요' }
 const STATUS_COLOR = { confirmed:'var(--green)', pending:'var(--amber)', cancelled:'var(--red)', consult:'var(--accent)' }
 const DAYS = ['일','월','화','수','목','금','토']
-const NOTICE_TYPES = ['일반', '긴급', '완료']
-const NOTICE_TYPE_COLOR = {
+const NOTICE_TYPES = ['일반', '공지', '운영', '전달사항', '휴무', '특일']
+const HANDOFF_STATUSES = ['일반', '긴급', '완료']
+const HANDOFF_STATUS_COLOR = {
   일반: { color:'var(--accent)', bg:'rgba(78,205,196,.12)', border:'rgba(78,205,196,.26)' },
   긴급: { color:'var(--red)', bg:'rgba(255,107,107,.12)', border:'rgba(255,107,107,.32)' },
   완료: { color:'var(--green)', bg:'rgba(92,184,92,.12)', border:'rgba(92,184,92,.3)' },
+}
+
+function normalizeHandoffStatus(value) {
+  return HANDOFF_STATUSES.includes(value) ? value : '일반'
 }
 
 function normalizeNoticeType(value) {
   return NOTICE_TYPES.includes(value) ? value : '일반'
 }
 
-function noticeTypeStyle(value) {
-  return NOTICE_TYPE_COLOR[normalizeNoticeType(value)]
+function handoffStatusStyle(value) {
+  return HANDOFF_STATUS_COLOR[normalizeHandoffStatus(value)]
 }
 
 function todayStr() {
@@ -126,6 +131,7 @@ export default function DashboardPage() {
   const [packages,     setPackages]     = useState([])
   const [zones,        setZones]        = useState([])
   const [notices,      setNotices]      = useState([])
+  const [handoffNotes, setHandoffNotes] = useState([])
   const [vendorConfirms, setVendorConfirms] = useState([])
   const [lodgeConfirms,  setLodgeConfirms]  = useState([])
   const [pickups,        setPickups]        = useState([])
@@ -171,7 +177,7 @@ export default function DashboardPage() {
 
   const loadUrgentUnread = useCallback(async () => {
     try {
-      const res = await fetch('/api/notices/urgent-unread', { cache: 'no-store' })
+      const res = await fetch('/api/handoff-notes/urgent-unread', { cache: 'no-store' })
       if (!res.ok) return
       const data = await res.json()
       setUrgentQueue(Array.isArray(data) ? data : [])
@@ -181,6 +187,19 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => { loadUrgentUnread() }, [loadUrgentUnread])
+
+  const loadHandoffNotes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/handoff-notes', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      setHandoffNotes(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Handoff notes load failed:', error)
+    }
+  }, [])
+
+  useEffect(() => { loadHandoffNotes() }, [loadHandoffNotes])
 
   // ── KPI 계산: 달력에서 보고 있는 년/월 기준
   const selectedMonth = `${calYear}-${String(calMonth).padStart(2,'0')}`
@@ -289,6 +308,11 @@ export default function DashboardPage() {
     if (n.start_time && n.end_time) return `${n.start_time.slice(0,5)} ~ ${n.end_time.slice(0,5)}`
     return (n.start_time || n.end_time || '').slice(0,5)
   }
+  function handoffDateLabel(n) {
+    const ds = String(n.created_at || '').slice(0, 10)
+    if (!ds) return '-'
+    return ds === todayStr() ? '오늘' : ds.slice(5)
+  }
 
   // 달력 셀 생성
   const cells = []
@@ -389,31 +413,25 @@ export default function DashboardPage() {
     setNoticePopup({ date: ds, notices: ns })
   }
 
-  const handoffNotices = notices
+  const handoffRows = handoffNotes
     .filter(n => n.is_deleted !== true)
-    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.id || '').localeCompare(String(a.id || '')))
-  const completedHandoffs = handoffNotices.filter(n => n.special === '완료' || normalizeNoticeType(n.notice_type) === '완료')
-  const pendingHandoffs = handoffNotices.filter(n => n.special !== '완료' && normalizeNoticeType(n.notice_type) !== '완료')
-  const urgentHandoffs = pendingHandoffs.filter(n => normalizeNoticeType(n.notice_type) === '긴급')
-  const generalPendingHandoffs = pendingHandoffs.filter(n => normalizeNoticeType(n.notice_type) !== '긴급')
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+  const completedHandoffs = handoffRows.filter(n => normalizeHandoffStatus(n.status) === '완료')
+  const pendingHandoffs = handoffRows.filter(n => normalizeHandoffStatus(n.status) !== '완료')
+  const urgentHandoffs = pendingHandoffs.filter(n => normalizeHandoffStatus(n.status) === '긴급')
+  const generalPendingHandoffs = pendingHandoffs.filter(n => normalizeHandoffStatus(n.status) !== '긴급')
 
   async function addHandoffNotice() {
     const title = handoffText.trim()
     if (!title) return
     setHandoffSaving(true)
-    const today = todayStr()
-    const res = await fetch('/api/notices', {
+    const res = await fetch('/api/handoff-notes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        date: today,
-        end_date: today,
         title,
         content: '',
-        special: handoffType === '완료' ? '완료' : '',
-        notice_type: handoffType,
-        color: handoffType === '긴급' ? '#FF6B6B' : handoffType === '완료' ? '#5CB85C' : '#4ECDC4',
-        is_all_day: true,
+        status: handoffType,
       }),
     })
     setHandoffSaving(false)
@@ -424,18 +442,17 @@ export default function DashboardPage() {
     }
     setHandoffText('')
     setHandoffType('일반')
-    await load()
+    await loadHandoffNotes()
+    await loadUrgentUnread()
   }
 
   async function updateHandoffStatus(notice, done) {
-    const res = await fetch('/api/notices', {
+    const res = await fetch('/api/handoff-notes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...notice,
-        special: done ? '완료' : '',
-        notice_type: done ? '완료' : '일반',
-        color: done ? '#5CB85C' : '#4ECDC4',
+        status: done ? '완료' : '일반',
       }),
     })
     if (!res.ok) {
@@ -443,12 +460,13 @@ export default function DashboardPage() {
       alert('전달사항 상태 변경 실패: ' + (payload.error?.message || payload.error || res.status))
       return
     }
-    await load()
+    await loadHandoffNotes()
+    await loadUrgentUnread()
   }
 
   async function deleteHandoffNotice(notice) {
     if (!confirm('이 전달사항을 삭제하시겠습니까?')) return
-    const res = await fetch('/api/notices', {
+    const res = await fetch('/api/handoff-notes', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: notice.id }),
@@ -457,17 +475,18 @@ export default function DashboardPage() {
       alert('전달사항 삭제 실패')
       return
     }
-    await load()
+    await loadHandoffNotes()
+    await loadUrgentUnread()
   }
 
   async function acknowledgeUrgentNotice(notice) {
     if (!notice?.id || urgentAcking) return
     setUrgentAcking(true)
     try {
-      await fetch('/api/notices/urgent-unread', {
+      await fetch('/api/handoff-notes/urgent-unread', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_id: notice.id }),
+        body: JSON.stringify({ handoff_id: notice.id }),
       })
     } finally {
       setUrgentAcking(false)
@@ -476,8 +495,8 @@ export default function DashboardPage() {
   }
 
   function handoffRow(notice, done = false) {
-    const type = normalizeNoticeType(notice.notice_type)
-    const typeStyle = noticeTypeStyle(type)
+    const type = normalizeHandoffStatus(notice.status)
+    const typeStyle = handoffStatusStyle(type)
     return (
       <div key={notice.id} style={{
         display:'grid',
@@ -529,13 +548,13 @@ export default function DashboardPage() {
               {type}
             </span>
             <span style={{ minWidth:0, fontSize:'10px', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              {noticeTimeLabel(notice)}
+              {handoffDateLabel(notice)}
             </span>
           </div>
           {notice.content && <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'2px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{notice.content}</div>}
         </div>
-        <span style={{ fontSize:'11px', color: notice.date === todayStr() && !done ? 'var(--amber)' : 'var(--text-muted)', textAlign:'center' }}>
-          {notice.date === todayStr() ? '오늘' : (notice.date || '').slice(5)}
+        <span style={{ fontSize:'11px', color: handoffDateLabel(notice) === '오늘' && !done ? 'var(--amber)' : 'var(--text-muted)', textAlign:'center' }}>
+          {handoffDateLabel(notice)}
         </span>
         <button className="btn-outline btn-sm" style={{ height:'26px', fontSize:'11px', padding:'0 8px' }} onClick={() => deleteHandoffNotice(notice)}>
           삭제
@@ -657,19 +676,20 @@ export default function DashboardPage() {
                         const start = isNoticeStartOn(n, ds)
                         const end = isNoticeEndOn(n, ds)
                         const isRange = (n.end_date || n.date) !== n.date
-                        const noticeColor = n.color || (normalizeNoticeType(n.notice_type) === '긴급' ? '#FF6B6B' : normalizeNoticeType(n.notice_type) === '완료' ? '#5CB85C' : '#F7C948')
+                        const noticeType = normalizeNoticeType(n.notice_type)
+                        const noticeStyle = noticeType === '긴급'
+                          ? { borderColor:'rgba(255,107,107,.9)', color:'var(--red)', background:'transparent' }
+                          : noticeType === '완료'
+                            ? { borderColor:'rgba(92,184,92,.82)', color:'var(--green)', background:'transparent' }
+                            : { borderColor:'rgba(78,205,196,.8)', color:'var(--accent)', background:'transparent' }
                         return (
                           <div
                             key={n.id}
                             className={`cal-notice-title${isRange ? ' cal-notice-range' : ''}${start ? ' range-start' : ''}${end ? ' range-end' : ''}`}
                             title={noticeTitle(n)}
-                            style={{
-                              borderColor: noticeColor,
-                              color: noticeColor,
-                              background: `${noticeColor}18`,
-                            }}
+                            style={noticeStyle}
                           >
-                            {start ? noticeTitle(n) : ''}
+                            {noticeType}
                           </div>
                         )
                       })}
@@ -865,7 +885,7 @@ export default function DashboardPage() {
               value={handoffType}
               onChange={e => setHandoffType(e.target.value)}
             >
-              {NOTICE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+              {HANDOFF_STATUSES.map(type => <option key={type} value={type}>{type}</option>)}
             </select>
             <input
               className="form-input"
@@ -935,7 +955,7 @@ export default function DashboardPage() {
               <div>
                 <div className="modal-title" style={{ color:'var(--red)' }}>긴급 전달사항</div>
                 <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'4px' }}>
-                  {urgentPopupNotice.date || todayStr()} · {noticeTimeLabel(urgentPopupNotice)}
+                  {handoffDateLabel(urgentPopupNotice)}
                 </div>
               </div>
             </div>
