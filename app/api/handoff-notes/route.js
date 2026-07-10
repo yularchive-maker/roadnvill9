@@ -5,9 +5,14 @@ import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
 export const dynamic = 'force-dynamic'
 
 const STATUSES = ['일반', '긴급', '완료']
+const RESTORABLE_STATUSES = ['일반', '긴급']
 
 function normalizeStatus(value) {
   return STATUSES.includes(value) ? value : '일반'
+}
+
+function normalizeRestorableStatus(value) {
+  return RESTORABLE_STATUSES.includes(value) ? value : null
 }
 
 function isMissingTable(error) {
@@ -68,6 +73,7 @@ export async function PUT(req) {
     title: String(body?.title || '').trim(),
     content: String(body?.content || ''),
     status: normalizeStatus(body?.status),
+    previous_status: normalizeRestorableStatus(body?.previous_status),
     updated_at: new Date().toISOString(),
   }
   if (!payload.title) delete payload.title

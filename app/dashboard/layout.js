@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -57,6 +57,12 @@ const PAGE_TITLE = {
 
 const SESSION = { name: '관리자', role: '운영팀장', avatar: '관' }
 const CEO_EMAIL = 'roadnvill@roadnvill.com'
+const HANDOFF_STATUSES = ['일반', '긴급', '완료']
+const HANDOFF_STATUS_COLOR = {
+  일반: 'var(--accent)',
+  긴급: 'var(--red)',
+  완료: 'var(--green)',
+}
 const MOBILE_NAV = [
   { id: 'today', label: '오늘', href: '/dashboard', icon: IconGrid },
   { id: 'calendar', label: '달력', href: '/dashboard/timetable', icon: IconCalendar },
@@ -69,7 +75,50 @@ export default function DashboardLayout({ children }) {
   const router = useRouter()
   const pathname = usePathname()
   const [session, setSession] = useState(SESSION)
+  const [handoffNotes, setHandoffNotes] = useState([])
+  const [openHandoffDetail, setOpenHandoffDetail] = useState('')
+  const [handoffInputType, setHandoffInputType] = useState('일반')
+  const [handoffInputText, setHandoffInputText] = useState('')
+  const [handoffSaving, setHandoffSaving] = useState(false)
   const title = PAGE_TITLE[pathname] || '대시보드'
+  const handoffRows = handoffNotes
+    .filter(n => n.is_deleted !== true)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+  const completedHandoffs = handoffRows.filter(n => normalizeHandoffStatus(n.status) === '완료')
+  const pendingHandoffs = handoffRows.filter(n => normalizeHandoffStatus(n.status) !== '완료')
+  const urgentHandoffs = pendingHandoffs.filter(n => normalizeHandoffStatus(n.status) === '긴급')
+  const handoffDetailRows = openHandoffDetail === 'done' ? completedHandoffs : pendingHandoffs
+  const handoffDetailTitle = openHandoffDetail === 'done' ? '완료된 메모' : '작성된 메모'
+  const handoffDetailSubtitle = openHandoffDetail === 'done'
+    ? `완료 ${completedHandoffs.length}건`
+    : `메모 ${pendingHandoffs.length}건 · 긴급 ${urgentHandoffs.length}건`
+
+  function normalizeHandoffStatus(value) {
+    return HANDOFF_STATUSES.includes(value) ? value : '일반'
+  }
+
+  function handoffDateLabel(n) {
+    const ds = String(n.created_at || '').slice(0, 10)
+    if (!ds) return '-'
+    const today = new Date()
+    const todayText = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+    return ds === todayText ? '오늘' : ds.slice(5)
+  }
+
+  function handoffTitle(n) {
+    return n.title || (n.content || '').split('\n')[0] || '메모'
+  }
+
+  const loadHandoffNotes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/handoff-notes', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      setHandoffNotes(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Handoff notes load failed:', error)
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -85,6 +134,68 @@ export default function DashboardLayout({ children }) {
     loadUser()
     return () => { mounted = false }
   }, [])
+
+  useEffect(() => { loadHandoffNotes() }, [loadHandoffNotes])
+
+  async function updateHandoffStatus(notice, done) {
+    const currentStatus = normalizeHandoffStatus(notice.status)
+    const restoreStatus = normalizeHandoffStatus(notice.previous_status)
+    const nextStatus = done ? '완료' : (restoreStatus === '완료' ? '일반' : restoreStatus)
+    const res = await fetch('/api/handoff-notes', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...notice,
+        status: nextStatus,
+        previous_status: done && currentStatus !== '완료' ? currentStatus : null,
+      }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      alert('전달사항 상태 변경 실패: ' + (payload.error?.message || payload.error || res.status))
+      return
+    }
+    await loadHandoffNotes()
+  }
+
+  async function addHandoffNotice() {
+    const title = handoffInputText.trim()
+    if (!title || handoffSaving) return
+    setHandoffSaving(true)
+    const res = await fetch('/api/handoff-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        content: '',
+        status: handoffInputType === '긴급' ? '긴급' : '일반',
+      }),
+    })
+    setHandoffSaving(false)
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      alert('전달사항 등록 실패: ' + (payload.error?.message || payload.error || res.status))
+      return
+    }
+    setHandoffInputText('')
+    setHandoffInputType('일반')
+    setOpenHandoffDetail('memo')
+    await loadHandoffNotes()
+  }
+
+  async function deleteHandoffNotice(notice) {
+    if (!confirm('이 전달사항을 삭제하시겠습니까?')) return
+    const res = await fetch('/api/handoff-notes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: notice.id }),
+    })
+    if (!res.ok) {
+      alert('전달사항 삭제 실패')
+      return
+    }
+    await loadHandoffNotes()
+  }
 
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -124,6 +235,23 @@ export default function DashboardLayout({ children }) {
             ))}
           </div>
         ))}
+
+        <div className="sidebar-handoff">
+          <div className="sidebar-handoff-title">담당자 전달사항</div>
+          <div className="sidebar-handoff-links">
+            <button type="button" onClick={() => setOpenHandoffDetail('memo')}>
+              메모 <strong>{pendingHandoffs.length}</strong>건
+            </button>
+            <button type="button" onClick={() => setOpenHandoffDetail('done')}>
+              완료 <strong>{completedHandoffs.length}</strong>건
+            </button>
+          </div>
+          {urgentHandoffs.length > 0 && (
+            <button type="button" className="sidebar-handoff-urgent" onClick={() => setOpenHandoffDetail('memo')}>
+              긴급 {urgentHandoffs.length}건 확인
+            </button>
+          )}
+        </div>
 
         <div className="sb-bottom">
           <div className="user-card">
@@ -167,6 +295,83 @@ export default function DashboardLayout({ children }) {
         </div>
         <div className="content">{children}</div>
       </div>
+
+      {openHandoffDetail && (
+        <div className="notice-popup open" onClick={e => { if(e.target===e.currentTarget) setOpenHandoffDetail('') }}>
+          <div className="notice-popup-box">
+            <div className="notice-popup-header">
+              <div>
+                <div style={{ fontSize:'14px', fontWeight:700 }}>{handoffDetailTitle}</div>
+                <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'2px' }}>{handoffDetailSubtitle}</div>
+              </div>
+              <button className="close-btn" onClick={() => setOpenHandoffDetail('')}>✕</button>
+            </div>
+            {openHandoffDetail === 'memo' && (
+              <div className="handoff-popup-input">
+                <select
+                  className="form-select"
+                  value={handoffInputType}
+                  onChange={e => setHandoffInputType(e.target.value)}
+                >
+                  <option value="일반">일반</option>
+                  <option value="긴급">긴급</option>
+                </select>
+                <input
+                  className="form-input"
+                  value={handoffInputText}
+                  onChange={e => setHandoffInputText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') addHandoffNotice()
+                  }}
+                  placeholder="전달할 내용 입력..."
+                />
+                <button
+                  className="btn-primary"
+                  onClick={addHandoffNotice}
+                  disabled={handoffSaving || !handoffInputText.trim()}
+                >
+                  {handoffSaving ? '등록중' : '+ 등록'}
+                </button>
+              </div>
+            )}
+            <div style={{ padding:'12px 16px', maxHeight:'58vh', overflowY:'auto' }}>
+              {handoffDetailRows.length === 0 ? (
+                <div style={{ padding:'18px 10px', textAlign:'center', color:'var(--text-muted)', fontSize:'12px' }}>
+                  표시할 메모가 없습니다.
+                </div>
+              ) : handoffDetailRows.map((notice, i) => {
+                const status = normalizeHandoffStatus(notice.status)
+                const done = status === '완료'
+                return (
+                  <div key={notice.id} className="notice-item">
+                    <div className="notice-item-num">{i+1}</div>
+                    <div className="notice-item-content">
+                      <div style={{ fontWeight:800, color:done ? 'var(--text-muted)' : 'var(--text-primary)', marginBottom:'3px', textDecoration:done ? 'line-through' : 'none' }}>
+                        {handoffTitle(notice)}
+                      </div>
+                      <div style={{ display:'flex', gap:'6px', alignItems:'center', fontSize:'11px', color:'var(--text-muted)', marginBottom:'4px' }}>
+                        <span style={{ color:HANDOFF_STATUS_COLOR[status], fontWeight:800 }}>{status}</span>
+                        <span>{handoffDateLabel(notice)}</span>
+                      </div>
+                      {notice.content && <div>{notice.content}</div>}
+                      <div style={{ display:'flex', gap:'6px', marginTop:'8px' }}>
+                        <button className="btn-outline btn-sm" onClick={() => updateHandoffStatus(notice, !done)}>
+                          {done ? '미완료' : '완료'}
+                        </button>
+                        <button className="btn-danger btn-sm" onClick={() => deleteHandoffNotice(notice)}>삭제</button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ padding:'10px 20px', borderTop:'1px solid var(--border2)', display:'flex', justifyContent:'flex-end', gap:'8px' }}>
+              <button className="btn-outline" onClick={() => setOpenHandoffDetail('')}>닫기</button>
+              <button className="btn-primary" onClick={() => { setOpenHandoffDetail(''); router.push('/dashboard/notice') }}>전체 관리</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <nav className="mobile-bottom-nav" aria-label="모바일 주요 메뉴">
         {MOBILE_NAV.map(item => {

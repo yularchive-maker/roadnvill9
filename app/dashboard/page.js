@@ -149,6 +149,7 @@ export default function DashboardPage() {
   const [urgentQueue, setUrgentQueue] = useState([])
   const [urgentAcking, setUrgentAcking] = useState(false)
   const [openMetricDetail, setOpenMetricDetail] = useState('')
+  const [openHandoffDetail, setOpenHandoffDetail] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -469,6 +470,11 @@ export default function DashboardPage() {
   const pendingHandoffs = handoffRows.filter(n => normalizeHandoffStatus(n.status) !== '완료')
   const urgentHandoffs = pendingHandoffs.filter(n => normalizeHandoffStatus(n.status) === '긴급')
   const generalPendingHandoffs = pendingHandoffs.filter(n => normalizeHandoffStatus(n.status) !== '긴급')
+  const handoffDetailRows = openHandoffDetail === 'done' ? completedHandoffs : pendingHandoffs
+  const handoffDetailTitle = openHandoffDetail === 'done' ? '완료된 메모' : '작성된 메모'
+  const handoffDetailSubtitle = openHandoffDetail === 'done'
+    ? `완료 ${completedHandoffs.length}건`
+    : `미완료 ${pendingHandoffs.length}건 · 긴급 ${urgentHandoffs.length}건`
 
   async function addHandoffNotice() {
     const title = handoffText.trim()
@@ -496,12 +502,16 @@ export default function DashboardPage() {
   }
 
   async function updateHandoffStatus(notice, done) {
+    const currentStatus = normalizeHandoffStatus(notice.status)
+    const restoreStatus = normalizeHandoffStatus(notice.previous_status)
+    const nextStatus = done ? '완료' : (restoreStatus === '완료' ? '일반' : restoreStatus)
     const res = await fetch('/api/handoff-notes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...notice,
-        status: done ? '완료' : '일반',
+        status: nextStatus,
+        previous_status: done && currentStatus !== '완료' ? currentStatus : null,
       }),
     })
     if (!res.ok) {
@@ -621,17 +631,17 @@ export default function DashboardPage() {
   const urgentPopupNotice = urgentQueue[0]
 
   return (
-    <div>
+    <div className="dashboard-page">
       {/* 운영 KPI 바 */}
-      <div className="card" style={{ padding:'16px 18px', marginBottom:'24px' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'14px', marginBottom:'12px' }}>
+      <div className="card dashboard-metrics-card">
+        <div className="dashboard-metrics-head">
           <div>
-            <div style={{ fontSize:'14px', fontWeight:800, color:'var(--text-primary)' }}>오늘 확인할 운영 지표</div>
-            <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'3px' }}>바로 처리할 항목을 우선 표시합니다.</div>
+            <div className="dashboard-metrics-title">오늘 확인할 운영 지표</div>
+            <div className="dashboard-metrics-subtitle">바로 처리할 항목을 우선 표시합니다.</div>
           </div>
-          <div style={{ fontSize:'11px', color:'var(--text-muted)' }}>{selectedMonth} 기준</div>
+          <div className="dashboard-metrics-month">{selectedMonth} 기준</div>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(6,minmax(0,1fr))', gap:'10px' }}>
+        <div className="dashboard-metrics-grid">
           {[
             { label:'확정', value:`${byStatus.confirmed}건`, color:'var(--green)', detailKey:'confirmed', enabled: byStatus.confirmed > 0 },
             { label:'상담필요', value:`${byStatus.consult}건`, color:'var(--accent)', detailKey:'consult', enabled: byStatus.consult > 0 },
@@ -642,21 +652,17 @@ export default function DashboardPage() {
           ].map(item => (
             <div
               key={item.label}
+              className={`dashboard-metric-card${item.hot ? ' is-hot' : ''}${item.enabled ? ' is-clickable' : ''}`}
               onClick={() => {
                 if (item.href) router.push(item.href)
                 if (item.detailKey && item.enabled) setOpenMetricDetail(item.detailKey)
               }}
               style={{
-                minWidth:0,
                 cursor:item.href || (item.detailKey && item.enabled) ? 'pointer' : 'default',
-                padding:'12px 14px',
-                borderRadius:'9px',
-                background:item.hot ? 'rgba(255,107,107,.07)' : 'var(--navy3)',
-                border:`1px solid ${item.hot ? 'rgba(255,107,107,.24)' : 'var(--border2)'}`,
               }}
             >
-              <div style={{ fontSize:'11px', color:item.hot ? 'rgba(255,180,180,.9)' : 'var(--text-muted)', fontWeight:700, marginBottom:'7px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</div>
-              <div style={{ fontSize:item.label === '이번 달 매출' ? '16px' : '20px', fontWeight:900, color:item.color, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.value}</div>
+              <div className="dashboard-metric-label" style={{ color:item.hot ? 'rgba(255,180,180,.9)' : 'var(--text-muted)' }}>{item.label}</div>
+              <div className="dashboard-metric-value" style={{ fontSize:item.label === '이번 달 매출' ? '17px' : '24px', color:item.color }}>{item.value}</div>
             </div>
           ))}
         </div>
@@ -664,16 +670,16 @@ export default function DashboardPage() {
 
       <div className="dashboard-main-grid">
         {/* 달력 */}
-        <div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
-            <span style={{ fontSize:'14px', fontWeight:700 }}>{calYear}년 {calMonth}월</span>
-            <div style={{ display:'flex', gap:'6px' }}>
+        <div className="dashboard-calendar-pane">
+          <div className="dashboard-calendar-header">
+            <span className="dashboard-calendar-title">{calYear}년 {calMonth}월</span>
+            <div className="dashboard-calendar-nav">
               <button className="cal-nav-btn" onClick={() => { if(calMonth===1){setCalYear(y=>y-1);setCalMonth(12)}else setCalMonth(m=>m-1) }}>‹</button>
               <button className="cal-nav-btn" onClick={() => { if(calMonth===12){setCalYear(y=>y+1);setCalMonth(1)}else setCalMonth(m=>m+1) }}>›</button>
             </div>
           </div>
           <div className="cal-card">
-            <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'8px', fontSize:'10px', color:'var(--text-muted)', flexWrap:'wrap' }}>
+            <div className="dashboard-calendar-legend">
               <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid var(--border2)',borderRadius:'999px'}}>
                 <span style={{ color:'var(--accent)', fontWeight:700 }}>예약 n건</span>
                 <span>해당 날짜 예약 수</span>
@@ -762,8 +768,8 @@ export default function DashboardPage() {
         </div>
 
         {/* 선택일 예약 목록 */}
-        <div>
-          <div className="section-header" style={{ marginBottom:'10px' }}>
+        <div className="dashboard-selected-pane">
+          <div className="section-header dashboard-list-header" style={{ marginBottom:'10px' }}>
             <div className="section-title" style={{ fontSize:'13px' }}>
               {selectedDate} 예약 목록
               <span style={{ fontSize:'12px', fontWeight:400, color:'var(--text-muted)', marginLeft:'8px' }}>{selRes.length}건</span>
@@ -917,52 +923,6 @@ export default function DashboardPage() {
           )}
           <div style={{ marginTop:'12px', padding:'10px 14px', background:'var(--navy3)', borderRadius:'8px', border:'1px dashed var(--border2)', textAlign:'center', fontSize:'11px', color:'var(--text-muted)' }}>
             달력 날짜를 클릭하면 해당 날짜 예약 조회 · 더블클릭하면 신규 예약 등록
-          </div>
-        </div>
-      </div>
-
-      {/* 담당자 전달사항 */}
-      <div style={{ marginTop:'24px' }}>
-        <div className="section-header" style={{ marginBottom:'10px' }}>
-          <div className="section-title" style={{ fontSize:'13px' }}>
-            담당자 전달사항
-            <span style={{ fontSize:'12px', fontWeight:400, color:'var(--text-muted)', marginLeft:'8px' }}>미완료 {pendingHandoffs.length}건 · 완료 {completedHandoffs.length}건</span>
-          </div>
-          <button className="btn-outline btn-sm" onClick={() => router.push('/dashboard/notice')}>전체 관리</button>
-        </div>
-        <div className="card" style={{ padding:'14px' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'120px minmax(0,1fr) 82px', gap:'8px', marginBottom:'12px' }}>
-            <select
-              className="form-input"
-              value={handoffType}
-              onChange={e => setHandoffType(e.target.value)}
-            >
-              {HANDOFF_STATUSES.map(type => <option key={type} value={type}>{type}</option>)}
-            </select>
-            <input
-              className="form-input"
-              value={handoffText}
-              onChange={e => setHandoffText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addHandoffNotice() }}
-              placeholder="전달할 내용 입력..."
-            />
-            <button className="btn-primary" onClick={addHandoffNotice} disabled={handoffSaving || !handoffText.trim()}>
-              + 등록
-            </button>
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'12px' }}>
-            <div className="list-card">
-              <div className="list-header" style={{ gridTemplateColumns:'1fr', color:'var(--accent)' }}>일반 {generalPendingHandoffs.length}건</div>
-              {generalPendingHandoffs.length === 0 ? <div className="list-box-empty">일반 전달사항이 없습니다.</div> : generalPendingHandoffs.slice(0, 5).map(n => handoffRow(n, false))}
-            </div>
-            <div className="list-card">
-              <div className="list-header" style={{ gridTemplateColumns:'1fr', color:'var(--red)' }}>긴급 {urgentHandoffs.length}건</div>
-              {urgentHandoffs.length === 0 ? <div className="list-box-empty">긴급 전달사항이 없습니다.</div> : urgentHandoffs.slice(0, 5).map(n => handoffRow(n, false))}
-            </div>
-            <div className="list-card">
-              <div className="list-header" style={{ gridTemplateColumns:'1fr', color:'var(--green)' }}>완료 {completedHandoffs.length}건</div>
-              {completedHandoffs.length === 0 ? <div className="list-box-empty">완료된 전달사항이 없습니다.</div> : completedHandoffs.slice(0, 5).map(n => handoffRow(n, true))}
-            </div>
           </div>
         </div>
       </div>

@@ -23,6 +23,30 @@ function monthRange() {
   return [`${y}-${m}-01`, `${y}-${m}-${String(last).padStart(2, '0')}`]
 }
 
+function monthValueFromDate(date) {
+  return String(date || '').slice(0, 7)
+}
+
+function monthDateRange(monthValue) {
+  const [year, month] = String(monthValue || '').split('-').map(Number)
+  if (!year || !month) return monthRange()
+  const last = new Date(year, month, 0).getDate()
+  const paddedMonth = String(month).padStart(2, '0')
+  return [`${year}-${paddedMonth}-01`, `${year}-${paddedMonth}-${String(last).padStart(2, '0')}`]
+}
+
+function addMonthValue(monthValue, diff) {
+  const [year, month] = String(monthValue || '').split('-').map(Number)
+  if (!year || !month) return monthValueFromDate(monthRange()[0])
+  const date = new Date(year, month - 1 + diff, 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function monthLabel(monthValue) {
+  const [year, month] = String(monthValue || '').split('-')
+  return year && month ? `${year}년 ${Number(month)}월` : '월 선택'
+}
+
 function emptyRows() {
   return Object.fromEntries(SETTLE_TYPES.map(type => [type.key, []]))
 }
@@ -117,6 +141,8 @@ export default function SettleSummaryPage() {
   const [endDate, setEndDate] = useState(defaultEnd)
   const [draftStartDate, setDraftStartDate] = useState(defaultStart)
   const [draftEndDate, setDraftEndDate] = useState(defaultEnd)
+  const [periodMode, setPeriodMode] = useState('range')
+  const [selectedMonth, setSelectedMonth] = useState(monthValueFromDate(defaultStart))
   const [loading, setLoading] = useState(false)
   const [vendors, setVendors] = useState([])
   const [lodgeVendors, setLodgeVendors] = useState([])
@@ -373,33 +399,90 @@ export default function SettleSummaryPage() {
     setEndDate(draftEndDate)
   }
 
+  const applyMonthlyPeriod = (monthValue = selectedMonth) => {
+    if (!monthValue) return
+    const [nextStart, nextEnd] = monthDateRange(monthValue)
+    setSelectedMonth(monthValue)
+    setDraftStartDate(nextStart)
+    setDraftEndDate(nextEnd)
+    setHasQueried(true)
+    if (nextStart === startDate && nextEnd === endDate) {
+      load()
+      return
+    }
+    setStartDate(nextStart)
+    setEndDate(nextEnd)
+  }
+
+  const moveMonth = diff => {
+    const nextMonth = addMonthValue(selectedMonth, diff)
+    const [nextStart, nextEnd] = monthDateRange(nextMonth)
+    setSelectedMonth(nextMonth)
+    setDraftStartDate(nextStart)
+    setDraftEndDate(nextEnd)
+  }
+
   return (
     <div>
+      <div className="settle-mode-tabs" aria-label="정산 요약 조회 방식">
+        <button
+          type="button"
+          className={periodMode === 'range' ? 'active' : ''}
+          onClick={() => setPeriodMode('range')}
+        >
+          기간 직접 조회
+        </button>
+        <button
+          type="button"
+          className={periodMode === 'month' ? 'active' : ''}
+          onClick={() => setPeriodMode('month')}
+        >
+          월별 정산내역
+        </button>
+      </div>
+
       <div className="settle-period-bar" style={{ marginBottom: '14px' }}>
-        <label>정산 시작일</label>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={10}
-          className="form-input"
-          style={{ width: '140px', height: '34px' }}
-          value={draftStartDate}
-          onChange={event => setDraftStartDate(formatDateTyping(event.target.value))}
-          placeholder="2026-05-01"
-        />
-        <span style={{ color: 'var(--text-muted)' }}>~</span>
-        <label>정산 종료일</label>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={10}
-          className="form-input"
-          style={{ width: '140px', height: '34px' }}
-          value={draftEndDate}
-          onChange={event => setDraftEndDate(formatDateTyping(event.target.value))}
-          placeholder="2026-05-31"
-        />
-        <button className="btn-primary" style={{ height: '34px' }} onClick={applyPeriod}>조회</button>
+        {periodMode === 'month' ? (
+          <>
+            <label>조회 월</label>
+            <div className="settle-month-stepper">
+              <button type="button" className="cal-nav-btn" onClick={() => moveMonth(-1)}>‹</button>
+              <div className="settle-month-current">{monthLabel(selectedMonth)}</div>
+              <button type="button" className="cal-nav-btn" onClick={() => moveMonth(1)}>›</button>
+            </div>
+            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+              {draftStartDate} ~ {draftEndDate}
+            </span>
+            <button className="btn-primary" style={{ height: '34px' }} onClick={() => applyMonthlyPeriod()}>월별 조회</button>
+          </>
+        ) : (
+          <>
+            <label>정산 시작일</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              className="form-input"
+              style={{ width: '140px', height: '34px' }}
+              value={draftStartDate}
+              onChange={event => setDraftStartDate(formatDateTyping(event.target.value))}
+              placeholder="2026-05-01"
+            />
+            <span style={{ color: 'var(--text-muted)' }}>~</span>
+            <label>정산 종료일</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              className="form-input"
+              style={{ width: '140px', height: '34px' }}
+              value={draftEndDate}
+              onChange={event => setDraftEndDate(formatDateTyping(event.target.value))}
+              placeholder="2026-05-31"
+            />
+            <button className="btn-primary" style={{ height: '34px' }} onClick={applyPeriod}>조회</button>
+          </>
+        )}
         <Link href="/dashboard/settle-detail" className="btn-outline" style={{ height: '34px', display: 'inline-flex', alignItems: 'center' }}>
           업체별 정산내역
         </Link>
@@ -412,15 +495,15 @@ export default function SettleSummaryPage() {
         </div>
         <div className="summary-card">
           <div className="summary-label">기간 내 정산 대상</div>
-          <div className="summary-value">₩{fmt(overallAmount)}</div>
+          <div className="summary-value settle-money">₩{fmt(overallAmount)}</div>
         </div>
         <div className="summary-card">
           <div className="summary-label">미정산 합계</div>
-          <div className="summary-value" style={{ color: 'var(--amber)' }}>₩{fmt(overallUnsettled)}</div>
+          <div className="summary-value settle-money" style={{ color: 'var(--amber)' }}>₩{fmt(overallUnsettled)}</div>
         </div>
         <div className="summary-card">
           <div className="summary-label">정산완료 합계</div>
-          <div className="summary-value" style={{ color: 'var(--green)' }}>₩{fmt(overallSettled)}</div>
+          <div className="summary-value settle-money" style={{ color: 'var(--green)' }}>₩{fmt(overallSettled)}</div>
         </div>
       </div>
 
@@ -463,7 +546,7 @@ export default function SettleSummaryPage() {
             </div>
           </div>
           <div className="list-header" style={{ gridTemplateColumns: 'minmax(180px,1fr) 70px 130px 120px 120px 38px', fontSize: '10px', alignItems: 'center' }}>
-            <span style={{ textAlign: 'center' }}>대상</span><span style={{ textAlign: 'center' }}>건수</span><span style={{ textAlign: 'center' }}>합계</span><span style={{ textAlign: 'center' }}>미정산</span><span style={{ textAlign: 'center' }}>완료</span><span />
+            <span style={{ textAlign: 'center' }}>대상</span><span style={{ textAlign: 'center' }}>건수</span><span style={{ textAlign: 'right' }}>합계</span><span style={{ textAlign: 'right' }}>미정산</span><span style={{ textAlign: 'right' }}>완료</span><span />
           </div>
           {activeData.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
@@ -497,15 +580,15 @@ export default function SettleSummaryPage() {
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.vendor}</span>
                   </span>
                   <span style={{ color: 'var(--text-muted)', textAlign: 'center' }}>{row.count}건</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace", textAlign: 'center' }}>₩{fmt(row.settled + row.unsettled)}</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(row.unsettled)}</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(row.settled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", textAlign: 'right' }}>₩{fmt(row.settled + row.unsettled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.unsettled > 0 ? 'var(--amber)' : 'var(--text-muted)', textAlign: 'right' }}>₩{fmt(row.unsettled)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", color: row.settled > 0 ? 'var(--green)' : 'var(--text-muted)', textAlign: 'right' }}>₩{fmt(row.settled)}</span>
                   <span style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '11px' }}>{isOpen ? '접기' : '상세'}</span>
                 </button>
                 {isOpen && (
                   <div style={{ padding: '8px 18px 14px', background: 'rgba(0,0,0,0.08)' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '76px 92px minmax(92px,1fr) 58px minmax(120px,1.2fr) 110px 72px', gap: '8px', padding: '7px 10px', color: 'var(--text-muted)', fontSize: '10px', borderBottom: '1px solid var(--border2)' }}>
-                      <span>예약번호</span><span>날짜</span><span>고객명</span><span>인원</span><span>내용</span><span>금액</span><span>상태</span>
+                      <span>예약번호</span><span>날짜</span><span>고객명</span><span>인원</span><span>내용</span><span style={{ textAlign:'right' }}>금액</span><span>상태</span>
                     </div>
                     {(row.details || []).length === 0 ? (
                       <div style={{ padding: '12px 10px', color: 'var(--text-muted)', fontSize: '12px' }}>예약별 상세 없음</div>
@@ -516,7 +599,7 @@ export default function SettleSummaryPage() {
                         <span style={{ fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.customer || '-'}</span>
                         <span style={{ fontWeight: 700 }}>{detail.pax ? `${detail.pax}명` : '-'}</span>
                         <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.detail || '-'}</span>
-                        <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 800, color: detail.status === '정산완료' ? 'var(--green)' : 'var(--amber)' }}>₩{fmt(detail.amount)}</span>
+                        <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 800, color: detail.status === '정산완료' ? 'var(--green)' : 'var(--amber)', textAlign:'right' }}>₩{fmt(detail.amount)}</span>
                         <span style={{ fontSize: '11px', fontWeight: 800, color: detail.status === '정산완료' ? 'var(--green)' : 'var(--amber)' }}>{detail.status}</span>
                       </div>
                     ))}
@@ -529,9 +612,9 @@ export default function SettleSummaryPage() {
             <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border2)', display: 'grid', gridTemplateColumns: 'minmax(180px,1fr) 70px 130px 120px 120px 38px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', alignItems: 'center' }}>
               <span>합계</span>
               <span style={{ textAlign: 'center' }}>{totalCount}건</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: activeMeta.color, textAlign: 'center' }}>₩{fmt(totalAmount)}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(totalUnsettled)}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)', textAlign: 'center' }}>₩{fmt(totalSettled)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: activeMeta.color, textAlign: 'right' }}>₩{fmt(totalAmount)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: totalUnsettled > 0 ? 'var(--amber)' : 'var(--text-muted)', textAlign: 'right' }}>₩{fmt(totalUnsettled)}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", color: totalSettled > 0 ? 'var(--green)' : 'var(--text-muted)', textAlign: 'right' }}>₩{fmt(totalSettled)}</span>
               <span />
             </div>
           )}

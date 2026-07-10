@@ -1630,7 +1630,16 @@ function PlatformsTab() {
   const [form,  setForm]  = useState({})
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('platforms').select('*').order('type').order('name')
+    const { data, error } = await supabase
+      .from('platforms')
+      .select('*')
+      .or('is_deleted.is.null,is_deleted.eq.false')
+      .order('type')
+      .order('name')
+    if (error) {
+      alert('플랫폼/여행사 목록을 불러오지 못했습니다: ' + error.message)
+      return
+    }
     setList(data || [])
   }, [])
   useEffect(() => { load() }, [load])
@@ -1652,13 +1661,18 @@ function PlatformsTab() {
 
   async function del() {
     if (!confirm(`"${modal.data.name}"을 삭제하시겠습니까?`)) return
-    await supabase.from('platforms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', modal.data.id)
+    const { error } = await supabase
+      .from('platforms')
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .eq('id', modal.data.id)
+    if (error) { alert('삭제 실패: ' + error.message); return }
     setModal(null); load()
   }
 
   const inp = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const platforms = list.filter(p => p.type === '플랫폼')
-  const agencies  = list.filter(p => p.type === '여행사')
+  const activeList = list.filter(p => p.is_deleted !== true)
+  const platforms = activeList.filter(p => p.type === '플랫폼')
+  const agencies  = activeList.filter(p => p.type === '여행사')
 
   const renderGroup = (title, type, items) => (
     <div className="list-card" style={{ marginBottom: '14px' }}>

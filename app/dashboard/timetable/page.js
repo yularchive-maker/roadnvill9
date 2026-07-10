@@ -83,7 +83,43 @@ function activeProductUsages(usages, reservationNo) {
 
 function buildAutoEvents(reservations, packages, usages = [], vendors = []) {
   const events = []
+  const eventKeys = new Set()
   let counter = 0
+
+  const activePrograms = pkg => (pkg?.package_programs || [])
+    .filter(pp => pp && pp.is_deleted !== true)
+    .sort((a, b) =>
+      (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) ||
+      String(a.default_start || '').localeCompare(String(b.default_start || '')) ||
+      String(a.id || '').localeCompare(String(b.id || ''))
+    )
+  const scheduledPrograms = pkg => {
+    let dayOffset = 0
+    let prevStart = null
+    return activePrograms(pkg).map(pp => {
+      const start = pp.default_start ? timeToMin(pp.default_start) : null
+      if (prevStart !== null && start !== null && start < prevStart) dayOffset += 1
+      if (start !== null) prevStart = start
+      return { pp, dayOffset }
+    })
+  }
+  const pushEvent = ev => {
+    const key = [
+      ev.date,
+      ev.reservation_no || '',
+      ev.type || '',
+      ev.vendor_key || '',
+      ev.prog_name || '',
+      ev.start_time || '',
+      ev.end_time || '',
+      ev.zone_code || '',
+      ev.pkg_name || '',
+    ].map(v => String(v)).join('|')
+    if (eventKeys.has(key)) return
+    eventKeys.add(key)
+    events.push(ev)
+  }
+
   reservations.forEach(r => {
     if (r.type === 'cancelled') return
     const zoneCode = r.zone_code || r.zone
@@ -99,7 +135,7 @@ function buildAutoEvents(reservations, packages, usages = [], vendors = []) {
         if ((row.sale_type || 'package') === 'single') {
           if (!row.start_time || !row.end_time) return
           const vendor = vendors.find(v => String(v.key) === String(row.vendor_key || ''))
-          events.push({
+          pushEvent({
             id: `auto_component_${r.no}_${row.component_uid || row.id || counter++}`,
             date: r.date,
             start_time: row.start_time.slice(0, 5),
@@ -122,13 +158,13 @@ function buildAutoEvents(reservations, packages, usages = [], vendors = []) {
 
         const pkg = findPackageForUsage(packages, row, r)
         if (!pkg) return
-        ;(pkg.package_programs || []).forEach(pp => {
+        scheduledPrograms(pkg).forEach(({ pp, dayOffset }) => {
           if (!pp.default_start || !pp.default_end) return
           if (rowZones.length && pp.zone_code && !rowZones.includes(pp.zone_code)) return
           const vendor = pp.vendors
-          events.push({
+          pushEvent({
             id: `auto_component_${r.no}_${row.component_uid || row.id || counter++}_${pp.id || pp.prog_name}`,
-            date: r.date,
+            date: addDaysStr(r.date, dayOffset),
             start_time: pp.default_start.slice(0, 5),
             end_time: pp.default_end.slice(0, 5),
             type: 'exp',
@@ -152,12 +188,12 @@ function buildAutoEvents(reservations, packages, usages = [], vendors = []) {
     const packageName = r.package_name || r.pkg
     const pkg = packages.find(p => p.name === packageName)
     if (!pkg) return
-    ;(pkg.package_programs || []).forEach(pp => {
+    scheduledPrograms(pkg).forEach(({ pp, dayOffset }) => {
       if (!pp.default_start || !pp.default_end) return
       const vendor = pp.vendors
-      events.push({
+      pushEvent({
         id: `auto_${r.no}_${counter++}`,
-        date: r.date,
+        date: addDaysStr(r.date, dayOffset),
         start_time: pp.default_start.slice(0, 5),
         end_time: pp.default_end.slice(0, 5),
         type: 'exp',
@@ -254,6 +290,7 @@ function buildConflictPairs(evs) {
   for (let i = 0; i < targets.length; i++) {
     for (let j = i + 1; j < targets.length; j++) {
       const a = targets[i], b = targets[j]
+      if (a.reservation_no && b.reservation_no && String(a.reservation_no) === String(b.reservation_no)) continue
       if (!eventsOverlapTime(a, b)) continue
       pairs.push({ a, b, level: conflictLevel(a, b) })
     }
@@ -650,6 +687,7 @@ export default function TimetablePage() {
   const [editingNotice,setEditingNotice]= useState(null)
   const [dragDraft,    setDragDraft]    = useState(null)
   const [popup,        setPopup]        = useState(null)   // { ev, pos }
+  const [monthReservationDetail, setMonthReservationDetail] = useState(null)
   const [conflictPopup,setConflictPopup]= useState(false)
   const lastConflictsRef = useRef([])
   const dragRef = useRef(null)
@@ -778,6 +816,30 @@ export default function TimetablePage() {
     setDragDraft({ date: dragRef.current.date, startMin, endMin: Math.max(endMin, startMin + 15) })
   }
 
+  const timeFromHorizontalPointer = (e, el, axisStart = TT_START, axisEnd = TT_END) => {
+    const rect = el.getBoundingClientRect()
+    const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width)
+    const raw = axisStart * 60 + (x / Math.max(rect.width, 1)) * (axisEnd - axisStart) * 60
+    const snapped = Math.round(raw / 15) * 15
+    return Math.min(Math.max(snapped, axisStart * 60), axisEnd * 60)
+  }
+
+  const beginHorizontalTimeDrag = (e, date, axisStart, axisEnd) => {
+    if (e.button !== 0 || e.target.closest('[data-event-block="true"]')) return
+    const startMin = timeFromHorizontalPointer(e, e.currentTarget, axisStart, axisEnd)
+    dragRef.current = { date, startMin, currentMin: startMin, horizontal: true, axisStart, axisEnd }
+    setDragDraft({ date, startMin, endMin: Math.min(startMin + 15, axisEnd * 60), horizontal: true, axisStart, axisEnd })
+  }
+
+  const moveHorizontalTimeDrag = e => {
+    if (!dragRef.current?.horizontal) return
+    const currentMin = timeFromHorizontalPointer(e, e.currentTarget, dragRef.current.axisStart, dragRef.current.axisEnd)
+    dragRef.current.currentMin = currentMin
+    const startMin = Math.min(dragRef.current.startMin, currentMin)
+    const endMin = Math.max(dragRef.current.startMin, currentMin)
+    setDragDraft({ date: dragRef.current.date, startMin, endMin: Math.max(endMin, startMin + 15), horizontal: true, axisStart: dragRef.current.axisStart, axisEnd: dragRef.current.axisEnd })
+  }
+
   const endTimeDrag = () => {
     if (!dragRef.current) return
     const { date, startMin: rawStart, currentMin } = dragRef.current
@@ -802,6 +864,22 @@ export default function TimetablePage() {
     return (
       <div style={{
         position:'absolute', left:'4px', right:'4px', top, height,
+        background:'rgba(110,141,251,.24)', border:'1px solid rgba(110,141,251,.75)',
+        borderRadius:'7px', pointerEvents:'none', zIndex:4,
+      }}/>
+    )
+  }
+
+  const HorizontalDragSelection = ({ date }) => {
+    if (!dragDraft || dragDraft.date !== date || !dragDraft.horizontal) return null
+    const axisStart = dragDraft.axisStart ?? TT_START
+    const axisEnd = dragDraft.axisEnd ?? TT_END
+    const axisMinutes = Math.max((axisEnd - axisStart) * 60, 60)
+    const start = ((dragDraft.startMin - axisStart * 60) / axisMinutes) * 100
+    const width = Math.max(((dragDraft.endMin - dragDraft.startMin) / axisMinutes) * 100, 1.2)
+    return (
+      <div style={{
+        position:'absolute', left:`${start}%`, width:`${width}%`, top:'9px', bottom:'9px',
         background:'rgba(110,141,251,.24)', border:'1px solid rgba(110,141,251,.75)',
         borderRadius:'7px', pointerEvents:'none', zIndex:4,
       }}/>
@@ -992,6 +1070,157 @@ export default function TimetablePage() {
     )
   }
 
+  const eventTitle = ev => {
+    if (ev.type === 'pickup') return ev.prog_name || ev.vendor_name || '픽업'
+    if (ev.type === 'notice') return ev.prog_name || ev.title || 'NOTICE'
+    return ev.prog_name || ev.pkg_name || ev.vendor_name || '체험'
+  }
+
+  const eventSubTitle = ev => {
+    const parts = []
+    if (ev.vendor_name && ev.type !== 'pickup' && ev.type !== 'notice') parts.push(ev.vendor_name)
+    if (ev.customer && (ev.type === 'pickup' || ev.type === 'notice')) parts.push(`${ev.customer}${ev.pax ? ` ${ev.pax}명` : ''}`)
+    return parts.join(' · ')
+  }
+
+  const packHorizontalRows = events => {
+    const packed = []
+    ;(events || [])
+      .slice()
+      .sort((a, b) => timeToMin(a.start_time) - timeToMin(b.start_time))
+      .forEach(ev => {
+        let rowIdx = packed.findIndex(row => row.every(other => timeToMin(other.end_time) <= timeToMin(ev.start_time) || timeToMin(ev.end_time) <= timeToMin(other.start_time)))
+        if (rowIdx < 0) {
+          packed.push([])
+          rowIdx = packed.length - 1
+        }
+        packed[rowIdx].push(ev)
+        ev._laneRow = rowIdx
+      })
+    return Math.max(packed.length, 1)
+  }
+
+  const HorizontalEventBlock = ({ ev, conflictMap, axisStart, axisEnd }) => {
+    const axisMinutes = Math.max((axisEnd - axisStart) * 60, 60)
+    const start = ((timeToMin(ev.start_time) - axisStart * 60) / axisMinutes) * 100
+    const width = Math.max(((timeToMin(ev.end_time) - timeToMin(ev.start_time)) / axisMinutes) * 100, 4)
+    const color = ev.vendor_color || (ev.type === 'pickup' ? '#B8B8FF' : ev.type === 'notice' ? '#F7C948' : '#4ECDC4')
+    const level = conflictMap?.get(ev.id)
+    const borderColor = level ? '#33FF66' : color
+    const rowTop = 10 + (ev._laneRow || 0) * 34
+    const timeText = `${ev.start_time?.slice(0,5)}~${ev.end_time?.slice(0,5)}`
+
+    return (
+      <button
+        type="button"
+        data-event-block="true"
+        onClick={e => {
+          e.stopPropagation()
+          const rect = e.currentTarget.getBoundingClientRect()
+          setPopup({ ev, pos: { x: Math.min(rect.right + 4, window.innerWidth - 320), y: rect.top } })
+        }}
+        style={{
+          position:'absolute',
+          left:`${start}%`,
+          width:`${width}%`,
+          top:rowTop,
+          height:'28px',
+          minWidth:'34px',
+          padding:'0 9px',
+          border:`${level ? 2 : 1}px solid ${borderColor}`,
+          borderLeft:`3px solid ${borderColor}`,
+          borderRadius:'6px',
+          background: level ? 'rgba(51,255,102,.08)' : `${color}22`,
+          color: level ? '#e8eaed' : color,
+          boxShadow: level ? '0 0 0 1px rgba(51,255,102,.28), 0 0 16px rgba(51,255,102,.12)' : '0 6px 18px rgba(0,0,0,.16)',
+          cursor:'pointer',
+          overflow:'hidden',
+          textAlign:'left',
+          fontFamily:'Noto Sans KR, sans-serif',
+          zIndex: level ? 5 : 3,
+        }}
+        title={`${eventTitle(ev)} · ${timeText}`}
+      >
+        <span style={{display:'block',fontSize:'11px',fontWeight:'800',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'14px'}}>
+          {eventTitle(ev)}
+        </span>
+        <span style={{display:'block',fontSize:'9px',opacity:.82,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'11px',color:'#e8eaed'}}>
+          {eventSubTitle(ev) || timeText}
+        </span>
+      </button>
+    )
+  }
+
+  const HorizontalTimeline = ({ sections, conflictMap, emptyText }) => {
+    const hasRows = sections.some(section => section.rows?.length)
+    const flatEvents = sections.flatMap(section => section.rows || []).flatMap(row => row.events || [])
+    const timedMinutes = flatEvents
+      .filter(ev => ev.start_time && ev.end_time)
+      .flatMap(ev => [timeToMin(ev.start_time), timeToMin(ev.end_time)])
+    const minMinute = timedMinutes.length ? Math.min(...timedMinutes) : 8 * 60
+    const maxMinute = timedMinutes.length ? Math.max(...timedMinutes) : 18 * 60
+    const axisStart = Math.max(0, Math.min(8, Math.floor(minMinute / 60) - 1))
+    const axisEnd = Math.min(24, Math.max(18, Math.ceil(maxMinute / 60) + 1))
+    const hours = Array.from({ length: axisEnd - axisStart + 1 }, (_, i) => axisStart + i)
+    if (!hasRows) {
+      return <div style={{padding:'22px',textAlign:'center',color:'#8a9ab0',fontSize:'13px'}}>{emptyText || '표시할 일정이 없습니다'}</div>
+    }
+
+    return (
+      <div style={{overflowX:'auto'}}>
+        <div style={{minWidth:'1120px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid #2a3a4a',background:'#0f1923'}}>
+            <div style={{padding:'12px 14px',fontSize:'11px',fontWeight:'800',color:'#e8eaed',background:'#122132'}}>구분</div>
+            <div style={{display:'grid',gridTemplateColumns:`repeat(${hours.length}, minmax(0,1fr))`}}>
+              {hours.map(h => (
+                <div key={h} style={{padding:'12px 0',textAlign:'center',fontSize:'11px',fontWeight:'800',color:'#8a9ab0',borderLeft:'1px solid rgba(78,205,196,.08)'}}>
+                  {String(h).padStart(2,'0')}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {sections.map(section => section.rows?.length ? (
+            <div key={section.key}>
+              <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid #2a3a4a',background:'rgba(13,27,42,.32)'}}>
+                <div style={{padding:'9px 14px',fontSize:'12px',fontWeight:'900',color:section.color || '#4ecdc4'}}>{section.title}</div>
+                <div style={{padding:'9px 12px',fontSize:'11px',color:'#8a9ab0'}}>{section.subtitle}</div>
+              </div>
+              {section.rows.map(row => {
+                const rowEvents = row.events || []
+                const packedHeight = packHorizontalRows(rowEvents)
+                const rowHeight = Math.max(56, 20 + packedHeight * 34)
+                return (
+                  <div key={row.key} style={{display:'grid',gridTemplateColumns:'170px 1fr',minHeight:rowHeight,borderBottom:'1px solid rgba(78,205,196,.08)'}}>
+                    <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:'2px',padding:'10px 14px',background:'rgba(18,33,50,.72)',minWidth:0}}>
+                      <div style={{fontSize:'12px',fontWeight:'800',color:'#e8eaed',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.title}</div>
+                      {row.subtitle && <div style={{fontSize:'10px',color:'#8a9ab0',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.subtitle}</div>}
+                    </div>
+                    <div
+                      onMouseDown={e => beginHorizontalTimeDrag(e, row.date, axisStart, axisEnd)}
+                      onMouseMove={moveHorizontalTimeDrag}
+                      onMouseUp={endTimeDrag}
+                      onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
+                      style={{
+                        position:'relative',
+                        minHeight:rowHeight,
+                        cursor:'crosshair',
+                        background:`repeating-linear-gradient(to right, transparent 0, transparent calc(${100 / Math.max(axisEnd - axisStart, 1)}% - 1px), rgba(78,205,196,.08) calc(${100 / Math.max(axisEnd - axisStart, 1)}% - 1px), rgba(78,205,196,.08) ${100 / Math.max(axisEnd - axisStart, 1)}%)`,
+                      }}
+                    >
+                      <HorizontalDragSelection date={row.date}/>
+                      {rowEvents.map(ev => <HorizontalEventBlock key={ev.id} ev={ev} conflictMap={conflictMap} axisStart={axisStart} axisEnd={axisEnd}/>)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : null)}
+        </div>
+      </div>
+    )
+  }
+
   // ── 컬럼 헤더 + 바디 구성 헬퍼
   const makeCol = (key, header, evs, conflictMap, isToday, flex='1') => ({
     key, header, evs, conflictMap, isToday, flex,
@@ -1086,8 +1315,9 @@ export default function TimetablePage() {
     }
 
     const timedEvs  = dayEvs.filter(e => !isAllDayEvent(e))
-    const expEvs    = timedEvs.filter(e => e.type !== 'pickup')
+    const expEvs    = timedEvs.filter(e => e.type !== 'pickup' && e.type !== 'notice')
     const pickupEvs = timedEvs.filter(e => e.type === 'pickup')
+    const noticeEvs = timedEvs.filter(e => e.type === 'notice')
 
     // 겹침 감지 (expEvs 기준)
     const conflictMap = detectConflicts(expEvs)
@@ -1100,154 +1330,103 @@ export default function TimetablePage() {
     const timeCnt = cs.filter(c => c.level === 'time').length
     const totalConflict = realCnt + warnCnt + timeCnt
 
-    let cols = []
+    let rows = []
     if (group === 'all' || group === 'zone') {
       const resNos = [...new Set(expEvs.map(e => e.reservation_no).filter(Boolean))]
-      cols = resNos.map(no => {
+      rows = resNos.map(no => {
         const r = reservations.find(x => x.no === no)
         const packageName = r?.package_name || r?.pkg || ''
         const zoneCode = r?.zone_code || r?.zone || ''
         const zone = zones.find(z => z.code === zoneCode)
         return {
           key: no,
-          header: (
-            <div>
-              {zone && <div style={{fontSize:'9px',color:'#5a7080',marginBottom:'1px'}}>{zone.code} · {zone.name}</div>}
-              <div style={{fontSize:'11px',fontWeight:'700',color:'var(--accent)'}}>{packageName}</div>
-              <div style={{fontSize:'11px',color:'#e8eaed'}}>NO.{no} · {r?.customer || ''} · {r?.pax || 0}명</div>
-            </div>
-          ),
-          evs: expEvs.filter(e => e.reservation_no === no),
-          topColor: 'var(--accent)',
+          title: `NO.${no} · ${r?.customer || ''}`,
+          subtitle: [zone ? `${zone.code} · ${zone.name}` : '', packageName, r?.pax ? `${r.pax}명` : '', `${expEvs.filter(e => e.reservation_no === no).length}개 일정`].filter(Boolean).join(' · '),
+          date: ds,
+          events: expEvs.filter(e => e.reservation_no === no),
         }
       })
       // 예약 미연결 수동 이벤트
       const noRes = expEvs.filter(e => !e.reservation_no)
-      if (noRes.length) cols.push({
+      if (noRes.length) rows.push({
         key: 'unlinked',
-        header: <div style={{fontSize:'12px',color:'#8a9ab0'}}>기타</div>,
-        evs: noRes,
-        topColor: '#8a9ab0',
+        title: '기타',
+        subtitle: '예약 미연결 일정',
+        date: ds,
+        events: noRes,
       })
 
     } else if (group === 'package') {
-      const pkgNames = [...new Set(expEvs.map(e => e.pkg_name).filter(Boolean))]
-      cols = pkgNames.map(name => ({
-        key: name,
-        header: <div style={{fontSize:'12px',fontWeight:'700',color:'var(--accent)'}}>{name}</div>,
-        evs: expEvs.filter(e => e.pkg_name === name),
-        topColor: 'var(--accent)',
-      }))
+      const resNos = [...new Set(expEvs.map(e => e.reservation_no).filter(Boolean))]
+      rows = resNos.map(no => {
+        const r = reservations.find(x => x.no === no)
+        return {
+          key: no,
+          title: `NO.${no} · ${r?.customer || ''}`,
+          subtitle: [r?.package_name || r?.pkg || '', r?.pax ? `${r.pax}명` : '', `${expEvs.filter(e => e.reservation_no === no).length}개 일정`].filter(Boolean).join(' · '),
+          date: ds,
+          events: expEvs.filter(e => e.reservation_no === no),
+        }
+      })
+      const noRes = expEvs.filter(e => !e.reservation_no)
+      if (noRes.length) rows.push({ key:'unlinked', title:'기타', subtitle:'예약 미연결 일정', date:ds, events:noRes })
 
     } else if (group === 'vendor') {
       const vkeys = [...new Set(expEvs.map(e => e.vendor_key).filter(Boolean))]
-      cols = vkeys.map(k => {
+      rows = vkeys.map(k => {
         const v = vendors.find(x => x.key === k)
-        const color = v?.color || '#4ECDC4'
         const evs = expEvs.filter(e => e.vendor_key === k)
         return {
           key: k,
-          header: (
-            <div>
-              <div style={{fontSize:'12px',fontWeight:'700',color}}>{v?.name || k}</div>
-              <div style={{fontSize:'11px',color:'#8a9ab0'}}>{evs.length}건</div>
-            </div>
-          ),
-          evs,
-          topColor: color,
+          title: v?.name || k,
+          subtitle: `${evs.length}건`,
+          date: ds,
+          events: evs,
         }
       })
     }
 
-    if (!cols.length && !pickupEvs.length) {
-      return (
-        <div>
-          <AllDayLane dates={[ds]}/>
-          <div style={{display:'flex'}}>
-          <TimeAxis/>
-          <div style={{flex:1}}>
-            <div style={{padding:'18px',color:'#8a9ab0',fontSize:'13px',
-                         borderBottom:'1px solid #2a3a4a',textAlign:'center'}}>이 날짜의 일정이 없습니다</div>
-            <div
-              onMouseDown={e => beginTimeDrag(e, ds)}
-              onMouseMove={moveTimeDrag}
-              onMouseUp={endTimeDrag}
-              onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
-              style={{position:'relative',height:TOTAL_H,cursor:'crosshair'}}
-            >
-              <Grid isToday={isToday}/>
-              <DragSelection date={ds}/>
-            </div>
-          </div>
-          </div>
-        </div>
-      )
-    }
+    const sections = [
+      {
+        key: 'experience',
+        title: group === 'vendor' ? '업체별 체험 일정' : '예약별 체험 일정',
+        subtitle: group === 'vendor'
+          ? `업체 ${rows.length}곳 · 일정 ${rows.reduce((sum, row) => sum + row.events.length, 0)}개`
+          : `예약 ${rows.length}건 · 하위 일정 ${rows.reduce((sum, row) => sum + row.events.length, 0)}개`,
+        color: '#4ECDC4',
+        rows,
+      },
+      {
+        key: 'pickup',
+        title: '픽업/드랍',
+        subtitle: `${pickupEvs.length}건`,
+        color: '#B8B8FF',
+        rows: pickupEvs.length ? [{ key:'pickup', title:'픽업/드랍', subtitle:`${pickupEvs.length}건`, date:ds, events:pickupEvs }] : [],
+      },
+      {
+        key: 'notice',
+        title: 'NOTICE',
+        subtitle: `${noticeEvs.length}건`,
+        color: '#F7C948',
+        rows: noticeEvs.length ? [{ key:'notice', title:'NOTICE', subtitle:'시간 지정 일정', date:ds, events:noticeEvs }] : [],
+      },
+    ]
 
     return (
       <div>
-        {/* 겹침 알림 바 */}
         <AllDayLane dates={[ds]}/>
         {totalConflict > 0 && (
           <div onClick={showConflicts}
                style={{margin:'0 0 0 0',padding:'8px 16px',cursor:'pointer',
-                       background: realCnt > 0 ? 'rgba(51,255,51,0.08)' : 'rgba(247,201,72,0.08)',
+                       background:'rgba(51,255,102,0.08)',
                        borderBottom:'1px solid',
-                       borderColor: realCnt > 0 ? 'rgba(51,255,51,0.2)' : 'rgba(247,201,72,0.2)',
+                       borderColor:'rgba(51,255,102,0.24)',
                        fontSize:'12px',fontWeight:'700',
-                       color: realCnt > 0 ? '#33ff33' : '#F7C948'}}>
-            ⚠ 겹침 {totalConflict}건 클릭하여 확인
+                       color:'#33FF66'}}>
+            시간/장소 겹침 {totalConflict}건 클릭하여 확인
           </div>
         )}
-        {/* 헤더 */}
-        <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#0f1923'}}>
-          <div style={{width:'56px',flexShrink:0,background:'#122132'}}/>
-          {cols.map(col => (
-            <div key={col.key}
-                 style={{flex:1,minWidth:'164px',padding:'11px 14px',borderRight:'1px solid #2a3a4a',
-                         borderTop:`3px solid ${col.topColor||'#4ecdc4'}`,background:'#132438'}}>
-              {col.header}
-            </div>
-          ))}
-          {pickupEvs.length > 0 && (
-            <div style={{width:'130px',flexShrink:0,padding:'10px 14px',
-                         borderTop:'3px dashed #B8B8FF'}}>
-              <div style={{fontSize:'12px',fontWeight:'700',color:'#B8B8FF'}}>🚐 픽업/드랍</div>
-              <div style={{fontSize:'11px',color:'#8a9ab0',marginTop:'2px'}}>{pickupEvs.length}건</div>
-            </div>
-          )}
-        </div>
-        {/* 바디 */}
-        <div style={{display:'flex',overflow:'auto',maxHeight:'calc(100vh - 330px)',minHeight:'420px'}}>
-          <TimeAxis/>
-          {cols.map(col => (
-            <div
-              key={col.key}
-              onMouseDown={e => beginTimeDrag(e, ds)}
-              onMouseMove={moveTimeDrag}
-              onMouseUp={endTimeDrag}
-              onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
-              style={{flex:1,minWidth:'164px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a',cursor:'crosshair'}}
-            >
-              <Grid isToday={isToday}/>
-              <DragSelection date={ds}/>
-              {col.evs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={conflictMap}/>)}
-            </div>
-          ))}
-          {pickupEvs.length > 0 && (
-            <div
-              onMouseDown={e => beginTimeDrag(e, ds)}
-              onMouseMove={moveTimeDrag}
-              onMouseUp={endTimeDrag}
-              onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
-              style={{width:'130px',flexShrink:0,position:'relative',height:TOTAL_H,cursor:'crosshair'}}
-            >
-              <Grid isToday={isToday}/>
-              <DragSelection date={ds}/>
-              {pickupEvs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={new Map()}/>)}
-            </div>
-          )}
-        </div>
+        <HorizontalTimeline sections={sections} conflictMap={conflictMap} emptyText="이 날짜의 일정이 없습니다"/>
       </div>
     )
   }
@@ -1259,11 +1438,30 @@ export default function TimetablePage() {
     const dateList = days.map(d => dateStr(d))
     const dayNames = ['월','화','수','목','금','토','일']
     const todayS = dateStr(new Date())
+    const weekConflictMap = new Map()
+    days.forEach(d => {
+      const ds = dateStr(d)
+      const evs = allEvents.filter(e => eventActiveOn(e, ds) && e.type !== 'pickup' && e.type !== 'notice' && !isAllDayEvent(e))
+      detectConflicts(evs).forEach((value, key) => weekConflictMap.set(key, value))
+    })
+    const weekRows = days.map((d, i) => {
+      const ds = dateStr(d)
+      const evs = allEvents.filter(e => eventActiveOn(e, ds) && !isAllDayEvent(e))
+      const expCount = evs.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
+      const pickupCount = evs.filter(e => e.type === 'pickup').length
+      const noticeCount = evs.filter(e => e.type === 'notice').length
+      return {
+        key: ds,
+        title: `${dayNames[i]} · ${d.getDate()}일`,
+        subtitle: [`체험 ${expCount}건`, pickupCount ? `픽업 ${pickupCount}건` : '', noticeCount ? `NOTICE ${noticeCount}건` : ''].filter(Boolean).join(' · '),
+        date: ds,
+        events: evs,
+      }
+    })
 
     return (
       <div>
-        <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#0f1923'}}>
-          <div style={{width:'56px',flexShrink:0,background:'#122132'}}/>
+        <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#0f1923',overflowX:'auto'}}>
           {days.map((d, i) => {
             const ds = dateStr(d)
             const isT = ds === todayS
@@ -1283,29 +1481,17 @@ export default function TimetablePage() {
           })}
         </div>
         <AllDayLane dates={dateList}/>
-        <div style={{display:'flex',overflow:'auto',maxHeight:'calc(100vh - 330px)',minHeight:'420px'}}>
-          <TimeAxis/>
-          {days.map((d, i) => {
-            const ds = dateStr(d)
-            const isT = ds === dateStr(new Date())
-            const evs = allEvents.filter(e => eventActiveOn(e, ds) && !isAllDayEvent(e))
-            const conflictMap = detectConflicts(evs)
-            return (
-              <div
-                key={i}
-                onMouseDown={e => beginTimeDrag(e, ds)}
-                onMouseMove={moveTimeDrag}
-                onMouseUp={endTimeDrag}
-                onMouseLeave={() => { dragRef.current = null; setDragDraft(null) }}
-                style={{flex:1,minWidth:'120px',position:'relative',height:TOTAL_H,borderRight:'1px solid #2a3a4a',cursor:'crosshair'}}
-              >
-                <Grid isToday={isT}/>
-                <DragSelection date={ds}/>
-                {evs.map(ev => <EvBlock key={ev.id} ev={ev} conflictMap={conflictMap}/>)}
-              </div>
-            )
-          })}
-        </div>
+        <HorizontalTimeline
+          sections={[{
+            key:'week',
+            title:'주간 일정',
+            subtitle:'요일별 시간 흐름',
+            color:'#4ECDC4',
+            rows:weekRows,
+          }]}
+          conflictMap={weekConflictMap}
+          emptyText="이 주간의 일정이 없습니다"
+        />
       </div>
     )
   }
@@ -1332,62 +1518,207 @@ export default function TimetablePage() {
       }
     })
 
+    const reservationRangeMap = (() => {
+      const map = new Map()
+      allEvents.filter(ev => ev.reservation_no).forEach(ev => {
+        const key = String(ev.reservation_no)
+        if (!map.has(key)) map.set(key, [])
+        map.get(key).push(ev)
+      })
+      return map
+    })()
+
+    const inDateRange = (date, start, end) => date >= start && date <= end
+    const showReservationBars = group === 'all' || group === 'zone' || group === 'package'
+    const reservationRanges = [...reservationRangeMap.entries()].map(([no, allItemEvents]) => {
+      const dates = allItemEvents.map(ev => ev.date).filter(Boolean)
+      const startDate = dates.length ? dates.reduce((a, b) => a < b ? a : b) : ''
+      const endDate = dates.length ? dates.reduce((a, b) => a > b ? a : b) : startDate
+      const r = reservations.find(x => String(x.no) === String(no))
+      const expCount = allItemEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
+      const pickupCount = allItemEvents.filter(e => e.type === 'pickup').length
+      return {
+        key: `res_${no}`,
+        type: 'reservation',
+        no,
+        startDate,
+        endDate,
+        title: r?.customer || allItemEvents[0]?.customer || `NO.${no}`,
+        subtitle: [`NO.${no}`, r?.pax ? `${r.pax}명` : (allItemEvents[0]?.pax ? `${allItemEvents[0].pax}명` : ''), expCount ? `체험 ${expCount}` : '', pickupCount ? `픽업 ${pickupCount}` : ''].filter(Boolean).join(' · '),
+        reservation: r,
+        events: allItemEvents,
+      }
+    }).filter(item => item.startDate && item.endDate)
+
+    const reservationBarsByWeek = Array.from({ length: 6 }, (_, weekIdx) => {
+      const weekStartIdx = weekIdx * 7
+      const weekEndIdx = weekStartIdx + 6
+      const weekStartDate = cells[weekStartIdx]?.date
+      const weekEndDate = cells[weekEndIdx]?.date
+      return reservationRanges
+        .filter(item => item.startDate <= weekEndDate && item.endDate >= weekStartDate)
+        .map(item => {
+          const startIdx = Math.max(weekStartIdx, cells.findIndex(c => c.date === item.startDate))
+          const rawEndIdx = cells.findIndex(c => c.date === item.endDate)
+          const endIdx = Math.min(weekEndIdx, rawEndIdx >= 0 ? rawEndIdx : weekEndIdx)
+          const leftDay = startIdx - weekStartIdx
+          const spanDays = Math.max(endIdx - startIdx + 1, 1)
+          return {
+            ...item,
+            left: `${(leftDay / 7) * 100}%`,
+            width: `${(spanDays / 7) * 100}%`,
+            continuesBefore: item.startDate < cells[startIdx]?.date,
+            continuesAfter: item.endDate > cells[endIdx]?.date,
+          }
+        })
+    })
+
+    const buildMonthItems = (cell, cellIndex) => {
+      const evs = cell.evs || []
+      if (group === 'all' || group === 'zone' || group === 'package') {
+        const noticeItems = evs
+          .filter(ev => ev.type === 'notice' && !ev.reservation_no)
+          .map(ev => ({ key: ev.id, type: 'notice', event: ev, title: ev.prog_name || ev.title || 'NOTICE', subtitle: ev.vendor_name || 'NOTICE' }))
+        return noticeItems
+      }
+      return evs.map(ev => ({
+        key: ev.id,
+        type: 'event',
+        event: ev,
+        title: eventTitle(ev),
+        subtitle: eventSubTitle(ev) || `${ev.start_time?.slice(0,5)}~${ev.end_time?.slice(0,5)}`,
+      }))
+    }
+
     return (
       <div style={{padding:'16px'}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(120px,1fr))',gap:'6px',overflowX:'auto'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(120px,1fr))',gap:'6px',overflowX:'auto',position:'relative'}}>
           {dows.map(d => (
             <div key={d} style={{textAlign:'center',fontSize:'10px',fontWeight:'600',
                                   color:'#5a7080',padding:'4px 0'}}>{d}</div>
           ))}
-          {cells.map((cell, i) => (
+          {cells.map((cell, i) => {
+            const monthItems = buildMonthItems(cell, i)
+            const weekIdx = Math.floor(i / 7)
+            return (
             <div key={i}
                  onClick={() => cell.date && (setCurDate(new Date(cell.date + 'T00:00:00')), setView('day'))}
                  style={{
                    background:cell.isToday ? 'rgba(78,205,196,.08)' : '#1f344b',
                    border:`1px solid ${cell.isToday ? '#4ecdc4' : '#2a3a4a'}`,
-                   borderRadius:'8px', minHeight:'92px', padding:'8px',
+                   borderRadius:'8px', minHeight:'92px', padding:'8px', paddingTop: showReservationBars ? '60px' : '8px',
                    cursor: cell.date ? 'pointer' : 'default',
                    opacity: cell.other ? 0.4 : 1,
                    transition:'border-color .15s',
                    boxSizing:'border-box',
-                 }}>
+                   gridRow: weekIdx + 2,
+                   gridColumn: (i % 7) + 1,
+                   position:'relative',
+                  }}>
               <div style={{fontSize:'12px',fontWeight: cell.isToday ? '700' : '500',
-                           marginBottom:'4px',
+                           marginBottom:'4px', position: showReservationBars ? 'absolute' : 'static', top:'8px', left:'8px',
                            color: cell.isToday ? '#4ecdc4' : '#e8eaed'}}>{cell.day}</div>
-              {cell.evs?.slice(0,3).map((ev, j) => {
-                const color = ev.vendor_color || '#4ECDC4'
-                const end = eventEndDate(ev)
-                const isRange = end !== ev.date
-                const starts = ev.date === cell.date
-                const ends = end === cell.date
-                const isNotice = ev.type === 'notice'
-                const prevCell = cells[i - 1]
-                const showRangeTitle = starts || i % 7 === 0 || !prevCell || !eventActiveOn(ev, prevCell.date)
-                const label = isNotice
-                  ? (showRangeTitle ? ev.prog_name : '')
-                  : `${ev.start_time?.slice(0,5)} ${ev.vendor_name}`
+              {monthItems.slice(0,3).map((item, j) => {
+                const color = item.type === 'notice' ? (item.event?.vendor_color || '#F7C948') : '#4ECDC4'
+                const rangeStyle = item.type === 'reservation' && item.isRange
+                  ? {
+                      borderRadius: item.isStart && item.isEnd ? '4px' : item.isStart ? '4px 0 0 4px' : item.isEnd ? '0 4px 4px 0' : '0',
+                      marginLeft: item.isStart ? 0 : '-9px',
+                      marginRight: item.isEnd ? 0 : '-9px',
+                      borderLeft: item.isStart ? `3px solid ${color}` : '0',
+                      borderRight: item.isEnd ? `1px solid ${color}44` : '0',
+                    }
+                  : {}
                 return (
-                  <div key={j} onClick={e => { e.stopPropagation(); setPopup({ ev, pos:{ x:e.clientX, y:e.clientY } }) }} style={{
+                  <div key={item.key || j} onClick={e => {
+                    e.stopPropagation()
+                    if (item.type === 'reservation') {
+                      setMonthReservationDetail({ date: cell.date, item })
+                      return
+                    }
+                    const ev = item.event
+                    if (ev) setPopup({ ev, pos:{ x:e.clientX, y:e.clientY } })
+                  }} style={{
                     fontSize:'10px',
-                    height:'18px',
-                    lineHeight:'18px',
+                    minHeight:'20px',
+                    lineHeight:'13px',
                     padding:'0 6px',
-                    borderRadius: isRange ? (starts ? '4px 0 0 4px' : ends ? '0 4px 4px 0' : '0') : '4px',
+                    borderRadius:'4px',
                     marginBottom:'2px', whiteSpace:'nowrap', overflow:'hidden',
-                    textOverflow:'ellipsis', fontWeight:isNotice ? '800' : '500',
-                    background: isNotice ? color : color + '22',
-                    color: isNotice ? '#0f1923' : color,
-                    marginLeft: isRange && !starts ? '-17px' : 0,
-                    marginRight: isRange && !ends ? '-17px' : 0,
+                    textOverflow:'ellipsis', fontWeight:'800',
+                    background: item.type === 'notice' ? color : color + '22',
+                    color: item.type === 'notice' ? '#0f1923' : color,
                     cursor:'pointer',
                     position:'relative',
-                    zIndex:isRange ? 3 : 1,
-                  }}>{label}</div>
+                    zIndex:item.isRange ? 3 : 1,
+                    ...rangeStyle,
+                  }}>
+                    <div style={{overflow:'hidden',textOverflow:'ellipsis'}}>{item.showTitle === false ? '↳ 계속' : item.title}</div>
+                    <div style={{fontSize:'9px',fontWeight:'500',color:item.type === 'notice' ? '#0f1923' : '#8a9ab0',overflow:'hidden',textOverflow:'ellipsis'}}>
+                      {item.isRange && item.showTitle === false ? `${item.startDate?.slice(5)}~${item.endDate?.slice(5)}` : item.subtitle}
+                    </div>
+                  </div>
                 )
               })}
-              {cell.evs?.length > 3 && (
+              {monthItems.length > 3 && (
                 <div style={{fontSize:'10px',color:'#5a7080',padding:'1px 4px'}}>
-                  +{cell.evs.length - 3}개
+                  +{monthItems.length - 3}개
+                </div>
+              )}
+            </div>
+          )})}
+          {showReservationBars && reservationBarsByWeek.map((bars, weekIdx) => (
+            <div key={`bars-${weekIdx}`} style={{
+              gridColumn:'1 / 8',
+              gridRow:weekIdx + 2,
+              position:'relative',
+              pointerEvents:'none',
+              alignSelf:'start',
+              height:'54px',
+              margin:'31px 6px 0',
+              zIndex:8,
+            }}>
+              {bars.slice(0, 2).map((item, idx) => (
+                <button
+                  key={`${item.key}-${idx}`}
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation()
+                    setMonthReservationDetail({ date: item.startDate, item })
+                  }}
+                  style={{
+                    position:'absolute',
+                    left:item.left,
+                    width:item.width,
+                    top:idx * 24,
+                    height:'22px',
+                    padding:'0 10px',
+                    border:'1px solid rgba(78,205,196,.35)',
+                    borderLeft:item.continuesBefore ? '0' : '3px solid #4ECDC4',
+                    borderRight:item.continuesAfter ? '0' : '1px solid rgba(78,205,196,.35)',
+                    borderRadius:item.continuesBefore && item.continuesAfter ? '0' : item.continuesBefore ? '0 5px 5px 0' : item.continuesAfter ? '5px 0 0 5px' : '5px',
+                    background:'rgba(78,205,196,.22)',
+                    color:'#4ECDC4',
+                    cursor:'pointer',
+                    pointerEvents:'auto',
+                    fontFamily:'Noto Sans KR, sans-serif',
+                    textAlign:'center',
+                    overflow:'hidden',
+                    whiteSpace:'nowrap',
+                    boxShadow:'0 6px 16px rgba(0,0,0,.14)',
+                  }}
+                >
+                  <span style={{display:'block',fontSize:'10px',fontWeight:'900',lineHeight:'11px',overflow:'hidden',textOverflow:'ellipsis'}}>
+                    {item.title}
+                  </span>
+                  <span style={{display:'block',fontSize:'9px',fontWeight:'500',lineHeight:'10px',color:'#8FE9E3',overflow:'hidden',textOverflow:'ellipsis'}}>
+                    {item.subtitle}
+                  </span>
+                </button>
+              ))}
+              {bars.length > 2 && (
+                <div style={{position:'absolute',right:'8px',top:'48px',fontSize:'10px',color:'#8a9ab0'}}>
+                  +{bars.length - 2}개 예약
                 </div>
               )}
             </div>
@@ -1479,17 +1810,17 @@ export default function TimetablePage() {
           <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
             <div style={{display:'flex',gap:'3px',background:'#122132',border:'1px solid #2a3a4a',
                          borderRadius:'8px',padding:'3px'}}>
-              {[['all','전체'],['zone','구역별'],['package','패키지별'],['vendor','업체별']].map(([v,l]) => (
+              {[['all','전체'],['zone','구역별'],['package','예약별'],['vendor','업체별']].map(([v,l]) => (
                 <button key={v} onClick={() => setGroup(v)} style={tabBtn(group === v)}>{l}</button>
               ))}
             </div>
             {curConflictCount > 0 && (
               <div onClick={showConflicts}
-                   style={{height:'32px',padding:'0 12px',background:'rgba(255,107,107,0.14)',
-                           border:'1px solid rgba(255,107,107,0.32)',borderRadius:'20px',
-                           fontSize:'12px',color:'#ff9f43',fontWeight:'700',cursor:'pointer',
+                   style={{height:'32px',padding:'0 12px',background:'rgba(51,255,102,0.1)',
+                           border:'1px solid rgba(51,255,102,0.32)',borderRadius:'20px',
+                           fontSize:'12px',color:'#33FF66',fontWeight:'700',cursor:'pointer',
                            display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
-                겹침 {curConflictCount}건
+                시간/장소 겹침 {curConflictCount}건
               </div>
             )}
             <button onClick={() => openNoticeModal({ date: dateStr(curDate), start_time:'09:00', end_time:'10:00', is_all_day:false })}
@@ -1545,7 +1876,7 @@ export default function TimetablePage() {
       </div>
 
       <div style={{marginTop:'8px',fontSize:'11px',color:'#5a7080'}}>
-        💡 이벤트 클릭 → 상세 보기 · 🟢 같은 구역·업체 겹침 · 🟡 다른 구역 업체 이동 주의
+        이벤트 클릭 → 상세 보기 · 형광연두 테두리 → 시간/장소 겹침 · 빈 시간 영역 드래그 → 일반 일정 등록
       </div>
 
       {/* ── 모달 */}
@@ -1559,6 +1890,62 @@ export default function TimetablePage() {
         defaultAllDay={modalDefaults.is_all_day}
         initialNotice={editingNotice}
       />
+
+      {monthReservationDetail && (
+        <div style={{position:'fixed',inset:0,zIndex:900,background:'rgba(0,0,0,.35)',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}
+             onClick={() => setMonthReservationDetail(null)}>
+          <div style={{width:'min(520px,100%)',maxHeight:'80vh',overflow:'hidden',background:'#1a2535',border:'1px solid #2a3a4a',borderRadius:'12px',boxShadow:'0 18px 50px rgba(0,0,0,.45)'}}
+               onClick={e => e.stopPropagation()}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',borderBottom:'1px solid #2a3a4a'}}>
+              <div>
+                <div style={{fontSize:'14px',fontWeight:'900',color:'#e8eaed'}}>
+                  {monthReservationDetail.item.title}
+                </div>
+                <div style={{fontSize:'12px',color:'#8a9ab0',marginTop:'3px'}}>
+                  {monthReservationDetail.date} · {monthReservationDetail.item.subtitle}
+                </div>
+              </div>
+              <button onClick={() => setMonthReservationDetail(null)}
+                      style={{width:'30px',height:'30px',border:'1px solid #2a3a4a',borderRadius:'7px',background:'transparent',color:'#8a9ab0',cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{padding:'12px 18px',maxHeight:'56vh',overflowY:'auto'}}>
+              {(monthReservationDetail.item.events || [])
+                .slice()
+                .sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')))
+                .map((ev, idx) => {
+                  const color = ev.vendor_color || (ev.type === 'pickup' ? '#B8B8FF' : '#4ECDC4')
+                  const timeText = ev.is_all_day_notice ? '종일' : `${ev.start_time?.slice(0,5) || '-'} ~ ${ev.end_time?.slice(0,5) || '-'}`
+                  return (
+                    <button key={`${ev.id}-${idx}`} type="button"
+                            onClick={e => {
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              setMonthReservationDetail(null)
+                              setPopup({ ev, pos:{ x: Math.min(rect.right + 4, window.innerWidth - 320), y: rect.top } })
+                            }}
+                            style={{width:'100%',display:'grid',gridTemplateColumns:'82px minmax(0,1fr)',gap:'10px',alignItems:'center',padding:'10px 0',border:'0',borderBottom:'1px solid rgba(78,205,196,.08)',background:'transparent',cursor:'pointer',textAlign:'left',fontFamily:'Noto Sans KR, sans-serif'}}>
+                      <div style={{fontSize:'11px',fontWeight:'800',color,whiteSpace:'nowrap'}}>{timeText}</div>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontSize:'13px',fontWeight:'900',color:'#e8eaed',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                          {eventTitle(ev)}
+                        </div>
+                        <div style={{fontSize:'11px',color:'#8a9ab0',marginTop:'2px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                          {[ev.vendor_name, ev.pkg_name].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:'8px',padding:'12px 18px',borderTop:'1px solid #2a3a4a'}}>
+              <button className="btn-outline" onClick={() => setMonthReservationDetail(null)}>닫기</button>
+              <button className="btn-primary" onClick={() => {
+                const first = monthReservationDetail.item.events?.[0]
+                if (first?.reservation_no) window.location.href = `/dashboard/reservations?edit=${first.reservation_no}`
+              }}>예약 보기</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 이벤트 상세 팝업 */}
       {popup && (

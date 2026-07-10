@@ -154,7 +154,7 @@ async function processUpdate(update) {
 
 function verifySecret(req) {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET
-  if (!expected) return true
+  if (!expected) return false
   return req.headers.get('x-telegram-bot-api-secret-token') === expected
 }
 
