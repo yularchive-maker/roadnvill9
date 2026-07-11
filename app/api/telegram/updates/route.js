@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+﻿import { NextResponse } from 'next/server'
+import { forbiddenResponse, requireApiAdmin } from '@/lib/api-auth'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
 
@@ -26,15 +26,8 @@ function compactUpdate(update) {
   }
 }
 
-async function requireUser() {
-  const supabase = createServerSupabase()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  return error || !user ? null : user
-}
-
 export async function GET() {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
   const token = getToken()
   if (!token) {
@@ -45,7 +38,7 @@ export async function GET() {
   const payload = await res.json()
 
   if (!res.ok || !payload.ok) {
-    return NextResponse.json({ error: payload.description || 'Telegram getUpdates failed.' }, { status: 502 })
+    return NextResponse.json({ error: 'Telegram getUpdates failed.' }, { status: 502 })
   }
 
   const updates = (payload.result || [])

@@ -166,7 +166,7 @@ export default function DashboardPage() {
     setReservations(resR.data || [])
     setPackages(pkgR.data || [])
     setZones(zoneR.data || [])
-    if (notR.error) console.error('NOTICE load failed:', notR.error)
+    if (notR.error) console.error('NOTICE load failed')
     setNotices(notR.data || [])
     setVendorConfirms(vcR.data || [])
     setLodgeConfirms(lcR.data || [])
@@ -183,8 +183,8 @@ export default function DashboardPage() {
       if (!res.ok) return
       const data = await res.json()
       setUrgentQueue(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Urgent notice popup load failed:', error)
+    } catch {
+      console.error('Urgent notice popup load failed')
     }
   }, [])
 
@@ -196,8 +196,8 @@ export default function DashboardPage() {
       if (!res.ok) return
       const data = await res.json()
       setHandoffNotes(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Handoff notes load failed:', error)
+    } catch {
+      console.error('Handoff notes load failed')
     }
   }, [])
 

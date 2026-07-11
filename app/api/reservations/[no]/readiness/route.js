@@ -1,15 +1,13 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+import { LODGE_CONFIRM_FIELDS, PICKUP_FIELDS, RESERVATION_FIELDS, VENDOR_CONFIRM_FIELDS } from '@/lib/api-dto'
+import { badRequestResponse, validateRequiredSafeId } from '@/lib/api-validate'
 
 export const dynamic = 'force-dynamic'
 
 function active(query) {
   return query.or('is_deleted.is.null,is_deleted.eq.false')
-}
-
-async function requireUser() {
-  const { data: { user }, error } = await supabase.auth.getUser()
-  return error || !user ? null : user
 }
 
 function vendorCondition(rows) {
@@ -105,7 +103,7 @@ function nextReservationStatus(reservation, ready, conditions) {
 
 async function evaluate(no, { persist = false } = {}) {
   const { data: activeReservations, error: reservationError } = await active(
-    supabase.from('reservations').select('*').eq('no', no).limit(1)
+    supabase.from('reservations').select(RESERVATION_FIELDS.join(',')).eq('no', no).limit(1)
   )
 
   if (reservationError) {
@@ -116,7 +114,7 @@ async function evaluate(no, { persist = false } = {}) {
   if (!reservation) {
     const { data: allReservations, error: deletedReservationError } = await supabase
       .from('reservations')
-      .select('*')
+      .select(RESERVATION_FIELDS.join(','))
       .eq('no', no)
       .limit(1)
     if (deletedReservationError) return { error: deletedReservationError, status: 404 }
@@ -142,9 +140,9 @@ async function evaluate(no, { persist = false } = {}) {
   }
 
   const [vendorRes, lodgeRes, pickupRes] = await Promise.all([
-    active(supabase.from('vendor_confirms').select('*').eq('reservation_no', no)),
-    active(supabase.from('lodge_confirms').select('*').eq('reservation_no', no)),
-    active(supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', no)),
+    active(supabase.from('vendor_confirms').select(VENDOR_CONFIRM_FIELDS.join(',')).eq('reservation_no', no)),
+    active(supabase.from('lodge_confirms').select(LODGE_CONFIRM_FIELDS.join(',')).eq('reservation_no', no)),
+    active(supabase.from('reservation_pickup').select(`${PICKUP_FIELDS.join(',')}, drivers(name)`).eq('reservation_no', no)),
   ])
 
   const error = vendorRes.error || lodgeRes.error || pickupRes.error
@@ -184,19 +182,23 @@ async function evaluate(no, { persist = false } = {}) {
 }
 
 export async function GET(_, { params }) {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await requireApiUser()
+  if (!user) return unauthorizedResponse()
+  const noError = validateRequiredSafeId(params.no, 'no')
+  if (noError) return badRequestResponse(noError)
 
   const result = await evaluate(params.no)
-  if (result.error) return NextResponse.json({ error: result.error.message || result.error }, { status: result.status })
+  if (result.error) return NextResponse.json({ error: result.status === 404 ? 'Not found' : 'Internal server error' }, { status: result.status })
   return NextResponse.json(result.data)
 }
 
 export async function POST(_, { params }) {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await requireApiUser()
+  if (!user) return unauthorizedResponse()
+  const noError = validateRequiredSafeId(params.no, 'no')
+  if (noError) return badRequestResponse(noError)
 
   const result = await evaluate(params.no, { persist: true })
-  if (result.error) return NextResponse.json({ error: result.error.message || result.error }, { status: result.status })
+  if (result.error) return NextResponse.json({ error: result.status === 404 ? 'Not found' : 'Internal server error' }, { status: result.status })
   return NextResponse.json(result.data)
 }

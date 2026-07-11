@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
 
 :root {
+  color-scheme: dark;
   --navy:   #0D1B2A;
   --navy2:  #1A2E42;
   --navy3:  #243B55;
@@ -17,11 +18,47 @@
   --text-muted:     #5A7080;
   --border:  rgba(78,205,196,0.15);
   --border2: rgba(78,205,196,0.08);
+  --hover-bg: rgba(78,205,196,0.08);
+  --soft-bg: rgba(78,205,196,0.10);
+  --danger-bg: rgba(224,92,92,0.10);
+  --danger-border: rgba(224,92,92,0.22);
+  --topbar-bg: var(--navy);
+  --sidebar-soft: rgba(13,27,42,.18);
+  --control-bg: var(--navy3);
+  --elevated-shadow: 0 24px 70px rgba(0,0,0,.24);
   --c1:#4ECDC4; --c2:#F7C948; --c3:#E05C5C;
   --c4:#7B68EE; --c5:#5CB85C; --c6:#FF8C42;
   --sidebar-w: 220px;
   --header-h:  52px;
   --HOUR_H:    52px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --navy:   #F4F7FB;
+  --navy2:  #FFFFFF;
+  --navy3:  #EAF0F6;
+  --accent: #168E86;
+  --accent2:#0F766E;
+  --amber:  #B7791F;
+  --red:    #D64545;
+  --green:  #2F8F46;
+  --purple: #6654D9;
+  --orange: #C65E16;
+  --pickup: #7373D9;
+  --text-primary:   #132231;
+  --text-secondary: #52677A;
+  --text-muted:     #7D8C9A;
+  --border:  rgba(22,142,134,0.24);
+  --border2: rgba(19,34,49,0.10);
+  --hover-bg: rgba(22,142,134,0.08);
+  --soft-bg: rgba(22,142,134,0.10);
+  --danger-bg: rgba(214,69,69,0.08);
+  --danger-border: rgba(214,69,69,0.22);
+  --topbar-bg: rgba(255,255,255,.92);
+  --sidebar-soft: rgba(244,247,251,.76);
+  --control-bg: #F8FAFD;
+  --elevated-shadow: 0 18px 46px rgba(18,39,58,.12);
 }
 
 *  { box-sizing: border-box; margin: 0; padding: 0; }
@@ -35,17 +72,20 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-x: none;
+  transition: background-color .18s ease, color .18s ease;
 }
 
 /* ── 스크롤바 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(78,205,196,0.2); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(78,205,196,0.4); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 input, select, textarea, button { font-family: 'Noto Sans KR', sans-serif; }
 input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
+[data-theme="light"] input[type=date]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type=time]::-webkit-calendar-picker-indicator { filter: none; }
 .mono { font-family: 'DM Mono', monospace; }
 
 /* ══ 앱 레이아웃 */
@@ -77,8 +117,8 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   cursor: pointer; font-size: 13px; color: var(--text-secondary);
   transition: all .15s; position: relative; text-decoration: none;
 }
-.nav-item:hover { background: rgba(78,205,196,0.08); color: var(--text-primary); }
-.nav-item.active { background: rgba(78,205,196,0.12); color: var(--accent); }
+.nav-item:hover { background: var(--hover-bg); color: var(--text-primary); }
+.nav-item.active { background: var(--soft-bg); color: var(--accent); }
 .nav-item.active::before {
   content: ''; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
   width: 3px; height: 20px; background: var(--accent); border-radius: 0 2px 2px 0;
@@ -95,7 +135,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   padding: 10px;
   border: 1px solid var(--border2);
   border-radius: 8px;
-  background: rgba(13,27,42,.18);
+  background: var(--sidebar-soft);
 }
 .sidebar-handoff-title {
   margin-bottom: 8px;
@@ -114,7 +154,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   min-width: 0;
   border: 1px solid var(--border2);
   border-radius: 7px;
-  background: rgba(36,59,85,.55);
+  background: var(--control-bg);
   color: var(--text-muted);
   cursor: pointer;
   font-size: 11px;
@@ -125,7 +165,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 }
 .sidebar-handoff-links button:hover,
 .sidebar-handoff-urgent:hover {
-  border-color: rgba(78,205,196,.32);
+  border-color: var(--border);
   color: var(--text-primary);
 }
 .sidebar-handoff-links strong {
@@ -150,7 +190,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 8px; cursor: pointer;
 }
-.user-card:hover { background: rgba(255,255,255,0.05); }
+.user-card:hover { background: var(--hover-bg); }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%; background: var(--accent);
   display: flex; align-items: center; justify-content: center;
@@ -178,7 +218,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 28px;
-  box-shadow: 0 24px 70px rgba(0,0,0,.24);
+  box-shadow: var(--elevated-shadow);
 }
 .login-logo {
   display: flex;
@@ -232,6 +272,16 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 }
 .page-title { font-size: 15px; font-weight: 700; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
+.theme-toggle {
+  height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--navy2); color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 12px; font-weight: 800; transition: all .15s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.theme-toggle-icon { width: 15px; height: 15px; display: inline-flex; }
+.theme-toggle-icon svg { width: 100%; height: 100%; }
+.theme-toggle-text { line-height: 1; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
 .content { padding: 24px; flex: 1; }
 .mobile-brand { display: contents; }
@@ -260,7 +310,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
 .btn-danger {
   height: 34px; padding: 0 14px;
-  background: rgba(224,92,92,0.1); border: 1px solid rgba(224,92,92,0.2); border-radius: 7px;
+  background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: 7px;
   color: var(--red); font-size: 13px; font-weight: 700; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; text-align: center; gap: 6px;
 }
@@ -273,7 +323,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .icon-btn:hover { border-color: var(--red); color: var(--red); }
 .btn-add-row {
   height: 32px; padding: 0 12px;
-  background: rgba(78,205,196,.1); border: 1px solid rgba(78,205,196,.2);
+  background: var(--soft-bg); border: 1px solid var(--border);
   border-radius: 6px; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; text-align: center;
 }
@@ -313,7 +363,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   border-bottom: 1px solid var(--border2); align-items: center;
   cursor: pointer; transition: background .12s;
 }
-.list-row:hover { background: rgba(78,205,196,.04); }
+.list-row:hover { background: var(--hover-bg); }
 .list-row:last-child { border-bottom: none; }
 .mobile-reservation-list { display: none; }
 .no-col { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text-muted); }
@@ -361,14 +411,14 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   overflow: visible;
   position: relative;
 }
-.cal-day:hover { background: rgba(78,205,196,.08); }
-.cal-day.today { background: rgba(78,205,196,.15); }
+.cal-day:hover { background: var(--hover-bg); }
+.cal-day.today { background: var(--soft-bg); }
 .cal-day.today .cal-day-num { font-weight: 700; color: var(--accent); }
 .cal-day.other-month .cal-day-num,
 .cal-day.other-month .cal-res-count {
   opacity: .35;
 }
-.cal-day.cal-selected { background: rgba(78,205,196,.22); box-shadow: inset 0 0 0 2px var(--accent); }
+.cal-day.cal-selected { background: var(--soft-bg); box-shadow: inset 0 0 0 2px var(--accent); }
 .cal-day.cal-selected .cal-day-num { font-weight: 700; color: var(--accent); }
 .cal-day-num { width: 100%; font-size: 11px; font-weight: 500; margin-bottom: 1px; line-height: 1; text-align: left; }
 .cal-special  { font-size: 8px; color: var(--amber); font-weight: 600; margin-bottom: 2px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -466,7 +516,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   .topbar {
     height: 58px;
     padding: 0 14px;
-    background: rgba(13,27,42,.97);
+    background: var(--topbar-bg);
     backdrop-filter: blur(12px);
   }
   .mobile-brand {
@@ -923,6 +973,49 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   flex-direction: column;
   gap: 18px;
 }
+
+/* ══ 라이트 테마 보정 */
+[data-theme="light"] .sidebar {
+  box-shadow: 10px 0 30px rgba(18,39,58,.05);
+}
+[data-theme="light"] .card,
+[data-theme="light"] .kpi-card,
+[data-theme="light"] .summary-card,
+[data-theme="light"] .list-card,
+[data-theme="light"] .cal-card,
+[data-theme="light"] .login-panel,
+[data-theme="light"] .modal-box,
+[data-theme="light"] .notice-popup-box {
+  box-shadow: 0 10px 28px rgba(18,39,58,.06);
+}
+[data-theme="light"] .form-input,
+[data-theme="light"] .form-select,
+[data-theme="light"] .search-input,
+[data-theme="light"] .filter-select,
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background-color: var(--control-bg);
+  color: var(--text-primary);
+}
+[data-theme="light"] .btn-primary {
+  color: #FFFFFF;
+}
+[data-theme="light"] .sidebar-logo .dot,
+[data-theme="light"] .mobile-brand-dot,
+[data-theme="light"] .avatar,
+[data-theme="light"] .login-logo .dot {
+  color: #FFFFFF;
+}
+[data-theme="light"] .sidebar-logo .dot svg,
+[data-theme="light"] .mobile-brand-dot svg,
+[data-theme="light"] .login-logo .dot svg {
+  fill: #FFFFFF;
+}
+[data-theme="light"] .badge.confirmed { background: rgba(47,143,70,.12); }
+[data-theme="light"] .badge.pending { background: rgba(183,121,31,.12); }
+[data-theme="light"] .badge.cancelled { background: rgba(214,69,69,.10); }
+[data-theme="light"] .badge.consult { background: rgba(22,142,134,.10); }
 .dashboard-page .card,
 .dashboard-page .list-card,
 .dashboard-page .cal-card {
@@ -968,7 +1061,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   transition: border-color .15s, background .15s, transform .15s;
 }
 .dashboard-metric-card.is-clickable:hover {
-  border-color: rgba(78,205,196,.32);
+  border-color: var(--border);
   background: rgba(36,59,85,.92);
   transform: translateY(-1px);
 }
@@ -1161,7 +1254,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 }
 .dashboard-handoff-col {
   min-height: 180px;
-  background: rgba(13,27,42,.18);
+  background: var(--sidebar-soft);
 }
 
 /* ══ 모달 */
@@ -1279,7 +1372,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   gap: 8px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border2);
-  background: rgba(13,27,42,.18);
+  background: var(--sidebar-soft);
 }
 .handoff-popup-input .form-select,
 .handoff-popup-input .form-input {
@@ -1468,3 +1561,54 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 /* ══ 애니메이션 */
 @keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 .slide-down { animation: slideDown .18s ease; }
+
+/* ══ 테마 최종 보정 */
+[data-theme="light"] .svc-header:hover,
+[data-theme="light"] .dashboard-page .cal-day:hover {
+  background: var(--hover-bg);
+}
+[data-theme="light"] .svc-footer {
+  background: rgba(19,34,49,.04);
+}
+[data-theme="light"] .settle-mode-tabs button.active,
+[data-theme="light"] .btn-primary {
+  color: #fff;
+}
+[data-theme="light"] .settle-period-bar input[type=date],
+[data-theme="light"] .settle-period-bar input[type=month],
+[data-theme="light"] .settle-month-current {
+  background: var(--control-bg);
+}
+[data-theme="light"] .ev-popup,
+[data-theme="light"] .settle-history-card,
+[data-theme="light"] .master-card,
+[data-theme="light"] .settle-vendor-card {
+  box-shadow: 0 12px 30px rgba(18,39,58,.08);
+}
+[data-theme="light"] .tt-grid,
+[data-theme="light"] .tt-cell,
+[data-theme="light"] .tt-row-head,
+[data-theme="light"] .tt-head,
+[data-theme="light"] .tt-hour {
+  border-color: var(--border2) !important;
+}
+[data-theme="light"] .tt-row-head,
+[data-theme="light"] .tt-head,
+[data-theme="light"] .tt-hour {
+  background: #EEF3F8 !important;
+  color: var(--text-secondary) !important;
+}
+[data-theme="light"] .tt-cell,
+[data-theme="light"] .tt-row {
+  background: #F8FAFD !important;
+}
+[data-theme="light"] .tt-section-title,
+[data-theme="light"] .tt-reservation-title {
+  color: var(--text-primary) !important;
+}
+[data-theme="light"] .notice-popup-box {
+  background: var(--navy2);
+}
+[data-theme="light"] .theme-toggle {
+  background: #F8FAFD;
+}

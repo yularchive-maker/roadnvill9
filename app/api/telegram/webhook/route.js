@@ -1,6 +1,6 @@
 import { createAdminSupabase } from '@/lib/supabase-admin'
-import { createServerSupabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { forbiddenResponse, requireApiAdmin } from '@/lib/api-auth'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
 
@@ -25,12 +25,6 @@ function getSupabase() {
   return supabase
 }
 
-async function requireUser() {
-  const supabase = createServerSupabase()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  return error || !user ? null : user
-}
-
 function parseCallbackData(value) {
   const parts = String(value || '').split(':')
   if (parts.length !== 3 || parts[0] !== 'vc') return null
@@ -53,7 +47,7 @@ async function telegram(method, body) {
   })
   const payload = await res.json()
   if (!res.ok || !payload.ok) {
-    throw new Error(payload.description || `Telegram ${method} failed.`)
+    throw new Error(`Telegram ${method} failed.`)
   }
   return payload.result
 }
@@ -126,12 +120,12 @@ async function processCallback(callbackQuery) {
     error = result.error
   } catch (configError) {
     await answerCallback(callbackQuery?.id, '서버 설정이 필요합니다.')
-    return { ok: false, id: parsed.confirmId, error: configError.message }
+    return { ok: false, id: parsed.confirmId, error: 'Internal server error' }
   }
 
   if (error) {
     await answerCallback(callbackQuery?.id, '회신 저장에 실패했습니다.')
-    return { ok: false, id: parsed.confirmId, error: error.message }
+    return { ok: false, id: parsed.confirmId, error: 'Internal server error' }
   }
 
   if (!data) {
@@ -163,14 +157,16 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Invalid Telegram webhook secret.' }, { status: 401 })
   }
 
-  const update = await req.json()
+  const update = await req.json().catch(() => null)
+  if (!update || typeof update !== 'object') {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+  }
   const result = await processUpdate(update)
   return NextResponse.json(result)
 }
 
 export async function GET() {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
   const token = getToken()
   if (!token) {
@@ -181,7 +177,7 @@ export async function GET() {
   const payload = await res.json()
 
   if (!res.ok || !payload.ok) {
-    return NextResponse.json({ error: payload.description || 'Telegram getUpdates failed.' }, { status: 502 })
+    return NextResponse.json({ error: 'Telegram getUpdates failed.' }, { status: 502 })
   }
 
   const results = []

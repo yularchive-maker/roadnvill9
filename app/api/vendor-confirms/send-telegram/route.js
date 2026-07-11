@@ -1,5 +1,9 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { forbiddenResponse, requireApiAdmin } from '@/lib/api-auth'
+import { VENDOR_CONFIRM_FIELDS } from '@/lib/api-dto'
+import { telegramSendSchema } from '@/lib/api-schemas'
+import { badRequestResponse, isSafeId, readJsonObject, validatePayload } from '@/lib/api-validate'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
 
@@ -107,35 +111,38 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup) {
   })
   const payload = await res.json()
   if (!res.ok || !payload.ok) {
-    throw new Error(payload.description || 'Telegram sendMessage failed.')
+    throw new Error('Telegram sendMessage failed.')
   }
   return payload.result
 }
 
 export async function POST(req) {
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN is not configured.' }, { status: 500 })
   }
 
-  const body = await req.json()
-  const ids = Array.isArray(body.ids) ? body.ids : [body.id].filter(Boolean)
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const validated = validatePayload(parsed.body, telegramSendSchema)
+  if (validated.error) return badRequestResponse(validated.error)
+  const body = validated.data
+  const ids = (Array.isArray(body.ids) ? body.ids : [body.id].filter(Boolean))
+    .map(value => String(value || ''))
+    .filter(isSafeId)
   if (!ids.length) {
     return NextResponse.json({ error: 'ids is required.' }, { status: 400 })
   }
 
   const { data: rows, error: rowError } = await supabase
     .from('vendor_confirms')
-    .select('*')
+    .select([...VENDOR_CONFIRM_FIELDS, 'telegram_chat_id'].join(','))
     .in('id', ids)
     .or('is_deleted.is.null,is_deleted.eq.false')
 
-  if (rowError) return NextResponse.json({ error: rowError.message }, { status: 500 })
+  if (rowError) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   if (!rows?.length) return NextResponse.json({ error: 'No vendor confirmation rows found.' }, { status: 404 })
 
   const vendorKeys = [...new Set(rows.map(row => row.vendor_key).filter(Boolean))]
@@ -151,7 +158,7 @@ export async function POST(req) {
   ])
 
   const lookupError = vendorRes.error || reservationRes.error
-  if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 })
+  if (lookupError) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 
   const vendors = new Map((vendorRes.data || []).map(vendor => [vendor.key, vendor]))
   const reservations = new Map((reservationRes.data || []).map(reservation => [reservation.no, reservation]))
@@ -189,9 +196,9 @@ export async function POST(req) {
     } catch (error) {
       await supabase
         .from('vendor_confirms')
-        .update({ send_status: '발송실패', send_error: error.message })
+        .update({ send_status: '발송실패', send_error: 'Telegram send failed.' })
         .eq('id', row.id)
-      results.push({ id: row.id, ok: false, error: error.message })
+      results.push({ id: row.id, ok: false, error: 'Telegram send failed.' })
     }
   }
 

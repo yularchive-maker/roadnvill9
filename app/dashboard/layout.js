@@ -1,7 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 
 const IconGrid = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
 const IconCalendar = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -13,6 +12,8 @@ const IconMoney = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const IconDoc = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
 const IconBriefcase = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
 const IconSettings = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+const IconSun = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+const IconMoon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.7 6.7 0 0 0 9.8 9.8z"/></svg>
 
 const NAV = [
   {
@@ -56,7 +57,6 @@ const PAGE_TITLE = {
 }
 
 const SESSION = { name: '관리자', role: '운영팀장', avatar: '관' }
-const CEO_EMAIL = 'roadnvill@roadnvill.com'
 const HANDOFF_STATUSES = ['일반', '긴급', '완료']
 const HANDOFF_STATUS_COLOR = {
   일반: 'var(--accent)',
@@ -80,6 +80,7 @@ export default function DashboardLayout({ children }) {
   const [handoffInputType, setHandoffInputType] = useState('일반')
   const [handoffInputText, setHandoffInputText] = useState('')
   const [handoffSaving, setHandoffSaving] = useState(false)
+  const [theme, setTheme] = useState('dark')
   const title = PAGE_TITLE[pathname] || '대시보드'
   const handoffRows = handoffNotes
     .filter(n => n.is_deleted !== true)
@@ -115,27 +116,46 @@ export default function DashboardLayout({ children }) {
       if (!res.ok) return
       const data = await res.json()
       setHandoffNotes(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Handoff notes load failed:', error)
+    } catch {
+      console.error('Handoff notes load failed')
     }
   }, [])
 
   useEffect(() => {
     let mounted = true
     async function loadUser() {
-      const { data } = await supabase.auth.getUser()
-      const email = data?.user?.email || ''
-      if (!mounted) return
-      setSession(email.toLowerCase() === CEO_EMAIL
-        ? { name: '대표', role: '대표', avatar: '대' }
-        : SESSION
-      )
+      try {
+        const res = await fetch('/api/auth/me', { cache: 'no-store' })
+        if (!mounted || !res.ok) return
+        const data = await res.json()
+        setSession(data?.profile || SESSION)
+      } catch {
+        console.error('User profile load failed')
+      }
     }
     loadUser()
     return () => { mounted = false }
   }, [])
 
   useEffect(() => { loadHandoffNotes() }, [loadHandoffNotes])
+
+  useEffect(() => {
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('roadnvill-theme') : ''
+    const next = stored === 'light' || stored === 'dark'
+      ? stored
+      : document.documentElement.dataset.theme === 'light'
+        ? 'light'
+        : 'dark'
+    setTheme(next)
+    document.documentElement.dataset.theme = next
+  }, [])
+
+  function toggleTheme() {
+    const next = theme === 'light' ? 'dark' : 'light'
+    setTheme(next)
+    document.documentElement.dataset.theme = next
+    window.localStorage.setItem('roadnvill-theme', next)
+  }
 
   async function updateHandoffStatus(notice, done) {
     const currentStatus = normalizeHandoffStatus(notice.status)
@@ -279,6 +299,16 @@ export default function DashboardLayout({ children }) {
             </div>
           </div>
           <div className="topbar-right">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={theme === 'light' ? '나이트 테마로 전환' : '라이트 테마로 전환'}
+              title={theme === 'light' ? '나이트 테마' : '라이트 테마'}
+            >
+              <span className="theme-toggle-icon">{theme === 'light' ? IconMoon : IconSun}</span>
+              <span className="theme-toggle-text">{theme === 'light' ? '나이트' : '라이트'}</span>
+            </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
               <div className="status-dot"></div>연결됨
             </div>

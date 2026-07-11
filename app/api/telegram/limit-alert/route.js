@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+import { forbiddenResponse, requireApiAdmin } from '@/lib/api-auth'
+import { telegramLimitAlertSchema } from '@/lib/api-schemas'
+import { badRequestResponse, readJsonObject, validatePayload } from '@/lib/api-validate'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
 
@@ -46,20 +48,13 @@ async function sendTelegramMessage(token, chatId, text) {
   })
   const payload = await res.json()
   if (!res.ok || !payload.ok) {
-    throw new Error(payload.description || 'Telegram sendMessage failed.')
+    throw new Error('Telegram sendMessage failed.')
   }
   return payload.result
 }
 
-async function requireUser() {
-  const supabase = createServerSupabase()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  return error || !user ? null : user
-}
-
 export async function POST(req) {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
   const token = process.env.TELEGRAM_BOT_TOKEN
   const chatId = process.env.TELEGRAM_AGENCY_CHAT_ID
@@ -71,7 +66,11 @@ export async function POST(req) {
     return NextResponse.json({ error: 'TELEGRAM_AGENCY_CHAT_ID is not configured.' }, { status: 500 })
   }
 
-  const body = await req.json()
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const validated = validatePayload(parsed.body, telegramLimitAlertSchema)
+  if (validated.error) return badRequestResponse(validated.error)
+  const body = validated.data
   const warnings = Array.isArray(body.warnings) ? body.warnings : []
   if (!warnings.length) {
     return NextResponse.json({ error: 'warnings is required.' }, { status: 400 })

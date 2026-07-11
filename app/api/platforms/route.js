@@ -1,41 +1,56 @@
-import { supabase } from '@/lib/supabase-server'
+﻿import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+import { notFoundResponse, requireApiAdmin, requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+import { PLATFORM_FIELDS, pickFields, pickRows } from '@/lib/api-dto'
+import { platformWriteSchema } from '@/lib/api-schemas'
+import { badRequestResponse, readJsonObject, validatePayload, validateRequiredSafeId } from '@/lib/api-validate'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   if (!await requireApiUser()) return unauthorizedResponse()
 
-  const { data, error } = await supabase.from('platforms').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('type').order('name')
-  if (error) return NextResponse.json({ error }, { status: 500 })
-  return NextResponse.json(data)
+  const { data, error } = await supabase.from('platforms').select(PLATFORM_FIELDS.join(',')).or('is_deleted.is.null,is_deleted.eq.false').order('type').order('name')
+  if (error) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  return NextResponse.json(pickRows(data, PLATFORM_FIELDS))
 }
 
 export async function POST(req) {
-  if (!await requireApiUser()) return unauthorizedResponse()
+  if (!await requireApiAdmin()) return notFoundResponse()
 
-  const body = await req.json()
-  const { data, error } = await supabase.from('platforms').insert(body).select().single()
-  if (error) return NextResponse.json({ error }, { status: 500 })
-  return NextResponse.json(data)
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const validated = validatePayload(parsed.body, platformWriteSchema)
+  if (validated.error) return badRequestResponse(validated.error)
+  const { data, error } = await supabase.from('platforms').insert(validated.data).select(PLATFORM_FIELDS.join(',')).single()
+  if (error) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  return NextResponse.json(pickFields(data, PLATFORM_FIELDS))
 }
 
 export async function PUT(req) {
-  if (!await requireApiUser()) return unauthorizedResponse()
+  if (!await requireApiAdmin()) return notFoundResponse()
 
-  const body = await req.json()
-  const { id, ...rest } = body
-  const { data, error } = await supabase.from('platforms').update(rest).eq('id', id).select().single()
-  if (error) return NextResponse.json({ error }, { status: 500 })
-  return NextResponse.json(data)
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const validated = validatePayload(parsed.body, platformWriteSchema)
+  if (validated.error) return badRequestResponse(validated.error)
+  const { id, ...rest } = validated.data
+  const idError = validateRequiredSafeId(id, 'id')
+  if (idError) return badRequestResponse(idError)
+  const { data, error } = await supabase.from('platforms').update(rest).eq('id', id).select(PLATFORM_FIELDS.join(',')).single()
+  if (error) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  return NextResponse.json(pickFields(data, PLATFORM_FIELDS))
 }
 
 export async function DELETE(req) {
-  if (!await requireApiUser()) return unauthorizedResponse()
+  if (!await requireApiAdmin()) return notFoundResponse()
 
-  const { id } = await req.json()
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const { id } = parsed.body
+  const idError = validateRequiredSafeId(id, 'id')
+  if (idError) return badRequestResponse(idError)
   const { error } = await supabase.from('platforms').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
-  if (error) return NextResponse.json({ error }, { status: 500 })
+  if (error) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

@@ -37,7 +37,8 @@ function LoginForm() {
       return
     }
 
-    router.replace(searchParams.get('next') || '/dashboard')
+    const next = searchParams.get('next') || '/dashboard'
+    router.replace(next.startsWith('/dashboard') ? next : '/dashboard')
     router.refresh()
   }
 

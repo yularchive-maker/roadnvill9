@@ -1,5 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { forbiddenResponse, requireApiAdmin } from '@/lib/api-auth'
+import { LODGE_CONFIRM_FIELDS, PACKAGE_FIELDS, PACKAGE_PROGRAM_FIELDS, PICKUP_FIELDS, RESERVATION_FIELDS } from '@/lib/api-dto'
 
 export const dynamic = 'force-dynamic'
 
@@ -618,11 +620,10 @@ function paymentSummaryRows(reservations, experienceCandidates, lodgeCandidates,
 }
 
 export async function GET() {
+  const user = await requireApiAdmin()
+  if (!user) return forbiddenResponse()
+
   const supabase = createServerSupabase()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
 
   const errors = []
   const [
@@ -635,14 +636,14 @@ export async function GET() {
     snapshotRes,
     settleRes,
   ] = await Promise.all([
-    supabase.from('reservations').select('*').order('date', { ascending: false }).order('no', { ascending: false }),
+    supabase.from('reservations').select(RESERVATION_FIELDS.join(',')).order('date', { ascending: false }).order('no', { ascending: false }),
     supabase.from('vendors').select('key,name,color,vendor_programs(prog_name,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
     supabase.from('lodge_vendors').select('id,name,lodges(name,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
-    supabase.from('packages').select('*, package_programs(*)').or('is_deleted.is.null,is_deleted.eq.false').order('name'),
-    supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
-    supabase.from('reservation_pickup').select('*, drivers(name)').or('is_deleted.is.null,is_deleted.eq.false'),
-    supabase.from('reservation_program_snapshots').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
-    supabase.from('settle_history').select('*, settle_history_items(*), vendors(name)').order('settled_at', { ascending: false }),
+    supabase.from('packages').select(`${PACKAGE_FIELDS.join(',')}, package_programs(${PACKAGE_PROGRAM_FIELDS.join(',')})`).or('is_deleted.is.null,is_deleted.eq.false').order('name'),
+    supabase.from('lodge_confirms').select(LODGE_CONFIRM_FIELDS.join(',')).or('is_deleted.is.null,is_deleted.eq.false'),
+    supabase.from('reservation_pickup').select(`${PICKUP_FIELDS.join(',')}, drivers(name)`).or('is_deleted.is.null,is_deleted.eq.false'),
+    supabase.from('reservation_program_snapshots').select('id,reservation_no,package_name,vendor_key,vendor_name,prog_name,customer_price,vendor_settle_price,customer_total,vendor_settle_total,settle_type,pax,price_basis_date,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+    supabase.from('settle_history').select('id,vendor_key,settle_type,total_amt,settled_at,settled_by,is_deleted,settle_history_items(id,settle_history_id,reservation_no,customer,detail,amt,is_deleted),vendors(name)').order('settled_at', { ascending: false }),
   ])
 
   ;[
@@ -655,7 +656,7 @@ export async function GET() {
     ['reservation_program_snapshots', snapshotRes.error],
     ['settle_history', settleRes.error],
   ].forEach(([table, error]) => {
-    if (error) errors.push({ table, message: error.message })
+    if (error) errors.push({ source: 'data-load', message: 'Some data could not be loaded.' })
   })
 
   const reservations = activeRows(reservationRes.data).filter(isActiveReservation)
@@ -705,7 +706,7 @@ export async function GET() {
   ]
 
   if (errors.length) {
-    sheets.push({ name: '백업오류', columns: ['table', 'message'], rows: errors })
+    sheets.push({ name: '백업오류', columns: ['source', 'message'], rows: errors })
   }
 
   const workbook = workbookXlsx(sheets)

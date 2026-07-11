@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase-server'
 import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+import { HANDOFF_NOTE_FIELDS, pickRows } from '@/lib/api-dto'
+import { badRequestResponse, readJsonObject, validateRequiredSafeId } from '@/lib/api-validate'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,14 +17,14 @@ export async function GET() {
 
   const { data: notes, error: noteError } = await supabase
     .from('handoff_notes')
-    .select('*')
-    .eq('status', '긴급')
+    .select(HANDOFF_NOTE_FIELDS.join(','))
+    .eq('status', '湲닿툒')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('created_at', { ascending: false })
 
   if (noteError) {
     if (isMissingTable(noteError)) return NextResponse.json([])
-    return NextResponse.json({ error: noteError.message }, { status: 500 })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 
   const active = (notes || []).filter(note => String(note.created_by || '') !== String(user.id))
@@ -37,19 +39,22 @@ export async function GET() {
 
   if (readError) {
     if (isMissingTable(readError)) return NextResponse.json([])
-    return NextResponse.json({ error: readError.message }, { status: 500 })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 
   const readIds = new Set((reads || []).map(row => String(row.handoff_id)))
-  return NextResponse.json(active.filter(note => !readIds.has(String(note.id))))
+  return NextResponse.json(pickRows(active.filter(note => !readIds.has(String(note.id))), HANDOFF_NOTE_FIELDS))
 }
 
 export async function POST(req) {
   const user = await requireApiUser()
   if (!user) return unauthorizedResponse()
 
-  const { handoff_id } = await req.json()
-  if (!handoff_id) return NextResponse.json({ error: 'handoff_id is required.' }, { status: 400 })
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const { handoff_id } = parsed.body
+  const idError = validateRequiredSafeId(handoff_id, 'handoff_id')
+  if (idError) return badRequestResponse(idError)
 
   const { error } = await supabase
     .from('handoff_reads')
@@ -60,7 +65,7 @@ export async function POST(req) {
 
   if (error) {
     if (isMissingTable(error)) return NextResponse.json({ ok: false, skipped: true })
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

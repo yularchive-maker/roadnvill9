@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
-import { createServerSupabase } from '@/lib/supabase-server'
+﻿import { NextResponse } from 'next/server'
+import { forbiddenResponse, requireApiAdmin } from '@/lib/api-auth'
+import { telegramWebhookSettingsSchema } from '@/lib/api-schemas'
+import { badRequestResponse, readJsonObject, validatePayload } from '@/lib/api-validate'
 
 const TELEGRAM_API = 'https://api.telegram.org/bot'
 
@@ -11,12 +13,6 @@ function getToken() {
 
 function getWebhookSecret() {
   return process.env.TELEGRAM_WEBHOOK_SECRET
-}
-
-async function requireUser() {
-  const supabase = createServerSupabase()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  return error || !user ? null : user
 }
 
 async function telegram(method, body) {
@@ -40,7 +36,7 @@ async function telegram(method, body) {
     return {
       ok: false,
       status: 502,
-      payload: { error: payload.description || `Telegram ${method} failed.` },
+      payload: { error: `Telegram ${method} failed.` },
     }
   }
 
@@ -54,8 +50,7 @@ function webhookUrlFromRequest(req, bodyUrl) {
 }
 
 export async function GET() {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
   const result = await telegram('getWebhookInfo')
   if (!result.ok) return NextResponse.json(result.payload, { status: result.status })
@@ -63,11 +58,13 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
-  const body = await req.json().catch(() => ({}))
-  const url = webhookUrlFromRequest(req, body.url)
+  const parsed = await readJsonObject(req)
+  if (parsed.error) return badRequestResponse(parsed.error)
+  const validated = validatePayload(parsed.body, telegramWebhookSettingsSchema)
+  if (validated.error) return badRequestResponse(validated.error)
+  const url = webhookUrlFromRequest(req, validated.data.url)
   const secret = getWebhookSecret()
 
   if (!secret) {
@@ -86,8 +83,7 @@ export async function POST(req) {
 }
 
 export async function DELETE() {
-  const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireApiAdmin()) return forbiddenResponse()
 
   const result = await telegram('deleteWebhook', { drop_pending_updates: false })
   if (!result.ok) return NextResponse.json(result.payload, { status: result.status })

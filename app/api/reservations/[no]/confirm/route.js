@@ -1,11 +1,15 @@
 import { supabase } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { requireApiUser, unauthorizedResponse } from '@/lib/api-auth'
+import { badRequestResponse, validateRequiredSafeId } from '@/lib/api-validate'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(_, { params }) {
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await requireApiUser()
+  if (!user) return unauthorizedResponse()
+  const noError = validateRequiredSafeId(params.no, 'no')
+  if (noError) return badRequestResponse(noError)
 
   const confirmedBy = user?.email || user?.id || 'internal'
   const now = new Date().toISOString()
@@ -17,7 +21,7 @@ export async function POST(_, { params }) {
     .or('is_deleted.is.null,is_deleted.eq.false')
     .single()
 
-  if (loadError) return NextResponse.json({ error: loadError.message }, { status: 404 })
+  if (loadError) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   if (reservation.reservation_status !== '확정가능') {
     return NextResponse.json({ error: '확정가능 상태에서만 예약확정 처리할 수 있습니다.' }, { status: 409 })
@@ -36,6 +40,6 @@ export async function POST(_, { params }) {
     .select('no,reservation_status,customer_notice_sent_at,confirmed_at,confirmed_by')
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   return NextResponse.json(data)
 }
