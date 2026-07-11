@@ -90,7 +90,7 @@ function priceTypeLabel(type) {
 function StatusQuickPanel({ title, summary, value, options, onChange, hint, disabledOptions = [] }) {
   const disabled = new Set(disabledOptions)
   return (
-    <div style={{
+    <div className="status-quick-panel" style={{
       display:'flex',
       alignItems:'center',
       justifyContent:'space-between',
@@ -99,7 +99,6 @@ function StatusQuickPanel({ title, summary, value, options, onChange, hint, disa
       marginBottom:'10px',
       border:'1px solid var(--border2)',
       borderRadius:'8px',
-      background:'rgba(10,31,48,.35)',
     }}>
       <div style={{ minWidth:0 }}>
         <div style={{ fontSize:'12px', fontWeight:700, color:'var(--text-primary)' }}>{title}</div>
@@ -2021,7 +2020,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                       const businessSupportEnabled = canApplyBusinessSupport(row)
                       const businessSupportApplied = businessSupportEnabled && (Number(row.discount_rate) > 0 || Number(row.discount_amount) > 0 || amounts.prepaidUnit > 0)
                       return (
-                        <div key={row.id} style={{border:'1px solid var(--border)',borderRadius:'8px',background:'rgba(15,35,52,.45)',padding:'12px',maxWidth:'100%',overflow:'hidden'}}>
+                        <div key={row.id} className="reservation-component-card" style={{border:'1px solid var(--border)',borderRadius:'8px',padding:'12px',maxWidth:'100%',overflow:'hidden'}}>
                           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginBottom:'10px'}}>
                             <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
                               <span style={{width:'22px',height:'22px',borderRadius:'50%',background:'rgba(78,205,196,.14)',border:'1px solid rgba(78,205,196,.28)',color:'var(--accent)',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:'11px',fontWeight:800}}>{idx+1}</span>
@@ -2697,14 +2696,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   {!readiness ? (
                     <div className="list-box-empty">확정 조건을 불러오는 중입니다.</div>
                   ) : (
-                    <div className="list-box">
-                      <div className="list-box-header" style={{gridTemplateColumns:'90px 94px 1fr'}}>
+                    <div className="list-box readiness-list-box">
+                      <div className="list-box-header readiness-grid">
                         <span>조건</span><span>상태</span><span>내용</span>
                       </div>
                       {readiness.conditions.map(item => (
-                        <div key={item.key} className="list-box-row" style={{gridTemplateColumns:'90px 94px 1fr'}}>
+                        <div key={item.key} className="list-box-row readiness-grid">
                           <span>{item.label}</span>
-                          <span className={`badge ${item.passed ? 'confirmed' : item.status === '조정 필요' || item.status === '확정 불가' ? 'cancelled' : 'pending'}`}>
+                          <span className={`badge readiness-status-badge ${item.passed ? 'confirmed' : item.status === '조정 필요' || item.status === '확정 불가' ? 'cancelled' : 'pending'}`}>
                             {item.passed ? '통과' : item.status}
                           </span>
                           <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>{item.detail}</span>
