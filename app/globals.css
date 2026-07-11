@@ -1141,6 +1141,12 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   font-weight: 800;
 }
 .dashboard-page .cal-dow:nth-child(7n) { border-right: 0; }
+.dashboard-page .cal-dow.is-sunday {
+  color: var(--red);
+}
+.dashboard-page .cal-dow.is-saturday {
+  color: #6EA8FF;
+}
 .dashboard-page .cal-day {
   min-height: 84px;
   align-items: stretch;
@@ -1162,6 +1168,12 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   font-weight: 800;
   margin-top: 2px;
   margin-bottom: 10px;
+}
+.dashboard-page .cal-day.is-sunday .cal-day-num {
+  color: var(--red);
+}
+.dashboard-page .cal-day.is-saturday .cal-day-num {
+  color: #6EA8FF;
 }
 .dashboard-page .cal-res-count {
   width: fit-content;
@@ -1582,10 +1594,24 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   background: #FFFFFF;
   border-color: rgba(19,34,49,.12);
 }
+[data-theme="light"] .dashboard-calendar-legend > span {
+  background: #F8FAFD !important;
+  border-color: rgba(19,34,49,.14) !important;
+  color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.55);
+}
 [data-theme="light"] .dashboard-page .cal-dow {
   background: #EEF3F8;
   border-color: rgba(19,34,49,.12);
   color: var(--text-secondary);
+}
+[data-theme="light"] .dashboard-page .cal-dow.is-sunday,
+[data-theme="light"] .dashboard-page .cal-day.is-sunday .cal-day-num {
+  color: #D64545;
+}
+[data-theme="light"] .dashboard-page .cal-dow.is-saturday,
+[data-theme="light"] .dashboard-page .cal-day.is-saturday .cal-day-num {
+  color: #1D4ED8;
 }
 [data-theme="light"] .dashboard-page .cal-day {
   background: #FFFFFF;

@@ -703,7 +703,14 @@ export default function DashboardPage() {
               <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 7px',border:'1px solid rgba(255,107,107,.28)',borderRadius:'999px',color:'var(--red)',fontWeight:700}}>긴급</span>
             </div>
             <div className="cal-grid">
-              {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
+              {DAYS.map((d, idx) => (
+                <div
+                  key={d}
+                  className={`cal-dow${idx === 0 ? ' is-sunday' : ''}${idx === 6 ? ' is-saturday' : ''}`}
+                >
+                  {d}
+                </div>
+              ))}
               {cells.map((c, i) => {
                 const ds       = c.ds
                 const today    = todayStr()
@@ -717,7 +724,7 @@ export default function DashboardPage() {
                 return (
                   <div
                     key={i}
-                    className={`cal-day${c.cur?'':' other-month'}${isToday?' today':''}${isSel?' cal-selected':''}`}
+                    className={`cal-day${c.cur?'':' other-month'}${isToday?' today':''}${isSel?' cal-selected':''}${i % 7 === 0 ? ' is-sunday' : ''}${i % 7 === 6 ? ' is-saturday' : ''}`}
                     style={over
                       ? { boxShadow:'inset 0 0 0 2px rgba(255,107,107,0.62)' }
                       : caution
