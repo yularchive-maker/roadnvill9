@@ -330,6 +330,7 @@ export default function SettleDetailPage() {
       settle_type: settleType, total_amt: selectedAmt, settled_by: '관리자',
       items: selectedItems.map(it => ({ reservation_no: it.no, customer: it.customer, date: it.date, pax: it.pax || null, detail: it.detail, amt: it.amt })),
       reservation_nos: selectedNos,
+      update_reservations: selectedNos.length > 0,
     }
     const res = await fetch('/api/settle-history', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),

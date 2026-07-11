@@ -2758,6 +2758,7 @@ export default function ReservationsPage() {
   const [lodgeVendors, setLodgeVendors] = useState([])
   const [vendors, setVendors] = useState([])
   const [budgetUsages, setBudgetUsages] = useState([])
+  const [settledReservationNos, setSettledReservationNos] = useState(new Set())
   const [loading,   setLoading]   = useState(true)
 
   const [search,    setSearch]    = useState('')
@@ -2777,7 +2778,7 @@ export default function ReservationsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, vendorR, usageR] = await Promise.all([
+    const [resR, zoneR, pkgR, platR, drvR, bizR, lodgeR, vendorR, usageR, settleR] = await Promise.all([
       supabase.from('reservations').select('no,type,date,end_date,zone_code,package_name,customer,tel,pax,price,discount,pickup_fee,burden,total,payto,inflow,platform_name,plat_fee,agency_name,ag_fee,op,biz_id,settle_status,memo,reservation_status,payment_status,payment_type,lodging_status,pickup_status,is_deleted').order('date', { ascending: false }).order('no', { ascending: false }),
       supabase.from('zones').select('code,name,is_deleted').order('code'),
       supabase.from('packages').select('id,code,zone_code,name,pax_limit,total_price,package_type,is_deleted,package_zones(zone_code,is_deleted),package_programs(id,code,package_id,vendor_key,prog_name,default_start,default_end,sort_order,vendor_settle_price,settle_type,price_note,is_deleted,vendors(key,name,color))').order('name'),
@@ -2787,6 +2788,7 @@ export default function ReservationsPage() {
       supabase.from('lodge_vendors').select('*, lodges(*)').order('name'),
       supabase.from('vendors').select('key,name,color,is_deleted,vendor_programs(code,zone_code,prog_name,customer_price,vendor_settle_price,unit_price,settle_type,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false').order('key'),
       supabase.from('reservation_budget_usages').select('reservation_no,usage_type,biz_id,budget_item_id,zone_code,zone_codes,zone_name,package_id,package_name,item_name,sale_type,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
+      supabase.from('settle_history').select('id,is_deleted,settle_history_items(reservation_no,is_deleted)').or('is_deleted.is.null,is_deleted.eq.false'),
     ])
     setReservations(resR.data || [])
     setZones(zoneR.data || [])
@@ -2797,6 +2799,16 @@ export default function ReservationsPage() {
     setLodgeVendors(lodgeR.data || [])
     setVendors((vendorR.data || []).filter(vendor => vendor?.is_deleted !== true).map(normalizeVendorRow))
     setBudgetUsages(usageR.data || [])
+    const settledNos = new Set()
+    ;(settleR.data || []).forEach(history => {
+      if (history?.is_deleted === true) return
+      ;(history.settle_history_items || []).forEach(item => {
+        if (item?.is_deleted === true) return
+        const no = String(item?.reservation_no || '').trim()
+        if (no) settledNos.add(no)
+      })
+    })
+    setSettledReservationNos(settledNos)
     setLoading(false)
   }, [])
 
@@ -2871,6 +2883,11 @@ export default function ReservationsPage() {
     else router.replace('/dashboard/reservations')
   }
   function onSaved() { setModal(null); load(); if (fromDashboard) router.replace('/dashboard'); else router.replace('/dashboard/reservations') }
+  function reservationSettleState(r) {
+    return r?.settle_status === 'settled' || settledReservationNos.has(String(r?.no || ''))
+      ? 'settled'
+      : 'unsettled'
+  }
 
   if (loading) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'300px',color:'var(--text-muted)'}}>로딩 중…</div>
@@ -2999,8 +3016,8 @@ export default function ReservationsPage() {
               <div className="mobile-reservation-card-foot">
                 <span>{r.payto || '결제처 미입력'}</span>
                 <strong>{(r.total || 0).toLocaleString()}원</strong>
-                <span className={r.settle_status === 'settled' ? 'is-complete' : 'is-pending'}>
-                  {r.settle_status === 'settled' ? '정산완료' : '미정산'}
+                <span className={reservationSettleState(r) === 'settled' ? 'is-complete' : 'is-pending'}>
+                  {reservationSettleState(r) === 'settled' ? '정산완료' : '미정산'}
                 </span>
               </div>
             </button>
@@ -3047,7 +3064,7 @@ export default function ReservationsPage() {
               <span style={CENTER_CELL}>
                 <span style={{fontSize:'11px',minWidth:'52px',textAlign:'center',padding:'2px 8px',borderRadius:'4px',background: r.op==='사업비'?'rgba(123,104,238,.1)':'rgba(78,205,196,.08)',color: r.op==='사업비'?'var(--purple)':'var(--text-muted)',fontWeight:600}}>{r.op}</span>
               </span>
-              <span style={{...CENTER_CELL,fontSize:'11px',color: r.settle_status==='settled'?'var(--green)':'var(--amber)',fontWeight:700}}>{r.settle_status==='settled'?'완료':'미정산'}</span>
+              <span style={{...CENTER_CELL,fontSize:'11px',color: reservationSettleState(r)==='settled'?'var(--green)':'var(--amber)',fontWeight:700}}>{reservationSettleState(r)==='settled'?'완료':'미정산'}</span>
             </div>
           )
         })}

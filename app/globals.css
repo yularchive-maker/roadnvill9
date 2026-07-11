@@ -1570,6 +1570,38 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 [data-theme="light"] .svc-footer {
   background: rgba(19,34,49,.04);
 }
+[data-theme="light"] .dashboard-metric-card {
+  background: #F8FAFD !important;
+  border-color: rgba(19,34,49,.12) !important;
+}
+[data-theme="light"] .dashboard-metric-card.is-hot {
+  background: rgba(214,69,69,.06) !important;
+  border-color: rgba(214,69,69,.24) !important;
+}
+[data-theme="light"] .dashboard-page .cal-grid {
+  background: #FFFFFF;
+  border-color: rgba(19,34,49,.12);
+}
+[data-theme="light"] .dashboard-page .cal-dow {
+  background: #EEF3F8;
+  border-color: rgba(19,34,49,.12);
+  color: var(--text-secondary);
+}
+[data-theme="light"] .dashboard-page .cal-day {
+  background: #FFFFFF;
+  border-color: rgba(19,34,49,.10);
+}
+[data-theme="light"] .dashboard-page .cal-day.cal-selected,
+[data-theme="light"] .dashboard-page .cal-day.today {
+  background: rgba(22,142,134,.12);
+}
+[data-theme="light"] .dashboard-selected-pane .list-card {
+  background: #FFFFFF;
+}
+[data-theme="light"] .dashboard-page .reservation-card-detail,
+[data-theme="light"] .dashboard-page .reservation-card-subpanel {
+  background: #F8FAFD !important;
+}
 [data-theme="light"] .settle-mode-tabs button.active,
 [data-theme="light"] .btn-primary {
   color: #fff;

@@ -4,8 +4,6 @@ import { isAdminEmail } from '@/lib/auth-roles'
 
 const PUBLIC_PATHS = ['/login', '/api/auth/logout', '/api/telegram/webhook']
 const ADMIN_PATHS = [
-  '/dashboard/master',
-  '/dashboard/biz',
   '/api/backup/excel',
   '/api/telegram/webhook-settings',
   '/api/telegram/updates',

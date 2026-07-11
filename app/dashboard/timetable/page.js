@@ -954,9 +954,9 @@ export default function TimetablePage() {
   const tabBtn = active => ({
     height:'32px', minWidth:'42px', padding:'0 12px', borderRadius:'7px', cursor:'pointer',
     fontFamily:'Noto Sans KR, sans-serif', fontSize:'12px', fontWeight:'600',
-    border: active ? 'none' : '1px solid #2a3a4a',
-    background: active ? '#4ecdc4' : '#1a2535',
-    color: active ? '#0f1923' : '#8a9ab0',
+    border: active ? 'none' : '1px solid var(--border)',
+    background: active ? 'var(--accent)' : 'var(--navy2)',
+    color: active ? 'var(--navy)' : 'var(--text-secondary)',
     display:'inline-flex', alignItems:'center', justifyContent:'center', textAlign:'center',
     whiteSpace:'nowrap',
     transition:'all .15s',
@@ -964,10 +964,10 @@ export default function TimetablePage() {
 
   // ── 시간축
   const TimeAxis = () => (
-    <div style={{width:'56px',flexShrink:0,position:'relative',height:TOTAL_H,background:'#122132'}}>
+    <div style={{width:'56px',flexShrink:0,position:'relative',height:TOTAL_H,background:'var(--navy3)'}}>
       {Array.from({length: TT_END - TT_START}, (_, i) => (
         <div key={i} style={{position:'absolute',top:i*HOUR_H-8,fontSize:'10px',
-                              color:'#8a9ab0',right:'8px',userSelect:'none'}}>
+                              color:'var(--text-muted)',right:'8px',userSelect:'none'}}>
           {String(TT_START+i).padStart(2,'0')}:00
         </div>
       ))}
@@ -981,10 +981,10 @@ export default function TimetablePage() {
       <div style={{position:'absolute',inset:0,pointerEvents:'none'}}>
         {Array.from({length: TT_END - TT_START}, (_, i) => (
           <div key={i}>
-            <div style={{position:'absolute',left:0,right:0,top:i*HOUR_H,borderTop:'1px solid #2a3a4a'}}/>
+            <div style={{position:'absolute',left:0,right:0,top:i*HOUR_H,borderTop:'1px solid var(--border2)'}}/>
             {[1,2,3].map(q => (
               <div key={q} style={{position:'absolute',left:0,right:0,
-                                   top:i*HOUR_H+q*HOUR_H/4,borderTop:'1px dashed #1a2535'}}/>
+                                   top:i*HOUR_H+q*HOUR_H/4,borderTop:'1px dashed var(--border2)'}}/>
             ))}
           </div>
         ))}
@@ -1144,7 +1144,7 @@ export default function TimetablePage() {
         <span style={{display:'block',fontSize:'11px',fontWeight:'800',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'14px'}}>
           {eventTitle(ev)}
         </span>
-        <span style={{display:'block',fontSize:'9px',opacity:.82,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'11px',color:'#e8eaed'}}>
+        <span style={{display:'block',fontSize:'9px',opacity:.82,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'11px',color:'var(--text-primary)'}}>
           {eventSubTitle(ev) || timeText}
         </span>
       </button>
@@ -1163,17 +1163,17 @@ export default function TimetablePage() {
     const axisEnd = Math.min(24, Math.max(18, Math.ceil(maxMinute / 60) + 1))
     const hours = Array.from({ length: axisEnd - axisStart + 1 }, (_, i) => axisStart + i)
     if (!hasRows) {
-      return <div style={{padding:'22px',textAlign:'center',color:'#8a9ab0',fontSize:'13px'}}>{emptyText || '표시할 일정이 없습니다'}</div>
+      return <div style={{padding:'22px',textAlign:'center',color:'var(--text-muted)',fontSize:'13px'}}>{emptyText || '표시할 일정이 없습니다'}</div>
     }
 
     return (
       <div style={{overflowX:'auto'}}>
         <div style={{minWidth:'1120px'}}>
-          <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid #2a3a4a',background:'#0f1923'}}>
-            <div style={{padding:'12px 14px',fontSize:'11px',fontWeight:'800',color:'#e8eaed',background:'#122132'}}>구분</div>
+          <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid var(--border2)',background:'var(--navy3)'}}>
+            <div style={{padding:'12px 14px',fontSize:'11px',fontWeight:'800',color:'var(--text-primary)',background:'var(--navy3)'}}>구분</div>
             <div style={{display:'grid',gridTemplateColumns:`repeat(${hours.length}, minmax(0,1fr))`}}>
               {hours.map(h => (
-                <div key={h} style={{padding:'12px 0',textAlign:'center',fontSize:'11px',fontWeight:'800',color:'#8a9ab0',borderLeft:'1px solid rgba(78,205,196,.08)'}}>
+                <div key={h} style={{padding:'12px 0',textAlign:'center',fontSize:'11px',fontWeight:'800',color:'var(--text-muted)',borderLeft:'1px solid var(--border2)'}}>
                   {String(h).padStart(2,'0')}
                 </div>
               ))}
@@ -1182,19 +1182,19 @@ export default function TimetablePage() {
 
           {sections.map(section => section.rows?.length ? (
             <div key={section.key}>
-              <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid #2a3a4a',background:'rgba(13,27,42,.32)'}}>
+              <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid var(--border2)',background:'var(--sidebar-soft)'}}>
                 <div style={{padding:'9px 14px',fontSize:'12px',fontWeight:'900',color:section.color || '#4ecdc4'}}>{section.title}</div>
-                <div style={{padding:'9px 12px',fontSize:'11px',color:'#8a9ab0'}}>{section.subtitle}</div>
+                <div style={{padding:'9px 12px',fontSize:'11px',color:'var(--text-muted)'}}>{section.subtitle}</div>
               </div>
               {section.rows.map(row => {
                 const rowEvents = row.events || []
                 const packedHeight = packHorizontalRows(rowEvents)
                 const rowHeight = Math.max(56, 20 + packedHeight * 34)
                 return (
-                  <div key={row.key} style={{display:'grid',gridTemplateColumns:'170px 1fr',minHeight:rowHeight,borderBottom:'1px solid rgba(78,205,196,.08)'}}>
-                    <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:'2px',padding:'10px 14px',background:'rgba(18,33,50,.72)',minWidth:0}}>
-                      <div style={{fontSize:'12px',fontWeight:'800',color:'#e8eaed',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.title}</div>
-                      {row.subtitle && <div style={{fontSize:'10px',color:'#8a9ab0',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.subtitle}</div>}
+                  <div key={row.key} style={{display:'grid',gridTemplateColumns:'170px 1fr',minHeight:rowHeight,borderBottom:'1px solid var(--border2)'}}>
+                    <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:'2px',padding:'10px 14px',background:'var(--sidebar-soft)',minWidth:0}}>
+                      <div style={{fontSize:'12px',fontWeight:'800',color:'var(--text-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.title}</div>
+                      {row.subtitle && <div style={{fontSize:'10px',color:'var(--text-muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.subtitle}</div>}
                     </div>
                     <div
                       onMouseDown={e => beginHorizontalTimeDrag(e, row.date, axisStart, axisEnd)}
@@ -1205,7 +1205,7 @@ export default function TimetablePage() {
                         position:'relative',
                         minHeight:rowHeight,
                         cursor:'crosshair',
-                        background:`repeating-linear-gradient(to right, transparent 0, transparent calc(${100 / Math.max(axisEnd - axisStart, 1)}% - 1px), rgba(78,205,196,.08) calc(${100 / Math.max(axisEnd - axisStart, 1)}% - 1px), rgba(78,205,196,.08) ${100 / Math.max(axisEnd - axisStart, 1)}%)`,
+                        background:`repeating-linear-gradient(to right, transparent 0, transparent calc(${100 / Math.max(axisEnd - axisStart, 1)}% - 1px), var(--border2) calc(${100 / Math.max(axisEnd - axisStart, 1)}% - 1px), var(--border2) ${100 / Math.max(axisEnd - axisStart, 1)}%)`,
                       }}
                     >
                       <HorizontalDragSelection date={row.date}/>
@@ -1239,8 +1239,8 @@ export default function TimetablePage() {
         return { ev, startIdx: Math.max(startIdx, 0), endIdx: Math.max(endIdx, Math.max(startIdx, 0)) }
       })
     if (!rows.length) return (
-      <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#122132'}}>
-        <div style={{width:'56px',flexShrink:0,padding:'7px 8px 7px 0',fontSize:'10px',fontWeight:'800',color:'#8a9ab0',boxSizing:'border-box',textAlign:'right'}}>종일</div>
+      <div style={{display:'flex',borderBottom:'1px solid var(--border2)',background:'var(--navy3)'}}>
+        <div style={{width:'56px',flexShrink:0,padding:'7px 8px 7px 0',fontSize:'10px',fontWeight:'800',color:'var(--text-muted)',boxSizing:'border-box',textAlign:'right'}}>종일</div>
         <div style={{flex:1,minHeight:'30px'}}/>
       </div>
     )
@@ -1259,8 +1259,8 @@ export default function TimetablePage() {
     })
 
     return (
-      <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#122132'}}>
-        <div style={{width:'56px',flexShrink:0,padding:'7px 8px 7px 0',fontSize:'10px',fontWeight:'800',color:'#8a9ab0',boxSizing:'border-box',textAlign:'right'}}>종일</div>
+      <div style={{display:'flex',borderBottom:'1px solid var(--border2)',background:'var(--navy3)'}}>
+        <div style={{width:'56px',flexShrink:0,padding:'7px 8px 7px 0',fontSize:'10px',fontWeight:'800',color:'var(--text-muted)',boxSizing:'border-box',textAlign:'right'}}>종일</div>
         <div style={{flex:1,display:'grid',gridTemplateColumns:`repeat(${dateList.length}, minmax(0, 1fr))`,gap:'0',padding:'5px 0'}}>
           {lanes.map((lane, laneIdx) => lane.map(({ ev, startIdx, endIdx }) => {
             const color = ev.vendor_color || '#6E8DFB'
@@ -1461,7 +1461,7 @@ export default function TimetablePage() {
 
     return (
       <div>
-        <div style={{display:'flex',borderBottom:'1px solid #2a3a4a',background:'#0f1923',overflowX:'auto'}}>
+        <div style={{display:'flex',borderBottom:'1px solid var(--border2)',background:'var(--navy3)',overflowX:'auto'}}>
           {days.map((d, i) => {
             const ds = dateStr(d)
             const isT = ds === todayS
@@ -1469,13 +1469,13 @@ export default function TimetablePage() {
             return (
               <div key={i} onClick={() => { setCurDate(d); setView('day') }}
                    style={{flex:1,minWidth:'120px',padding:'11px 0',textAlign:'center',
-                           borderRight:'1px solid #2a3a4a',cursor:'pointer',
-                           background:isT?'rgba(78,205,196,.06)':'#132438',
+                           borderRight:'1px solid var(--border2)',cursor:'pointer',
+                           background:isT?'var(--soft-bg)':'var(--navy2)',
                            borderTop: isT ? '3px solid #4ecdc4' : '3px solid transparent'}}>
-                <div style={{fontSize:'11px',color:isT?'#4ecdc4':'#8a9ab0'}}>{dayNames[i]}</div>
+                <div style={{fontSize:'11px',color:isT?'var(--accent)':'var(--text-muted)'}}>{dayNames[i]}</div>
                 <div style={{fontSize:'16px',fontWeight:'700',
-                             color:isT?'#4ecdc4':'#e8eaed',marginTop:'2px'}}>{d.getDate()}</div>
-                {cnt > 0 && <div style={{fontSize:'10px',color:'#4ecdc4',marginTop:'2px'}}>{cnt}건</div>}
+                             color:isT?'var(--accent)':'var(--text-primary)',marginTop:'2px'}}>{d.getDate()}</div>
+                {cnt > 0 && <div style={{fontSize:'10px',color:'var(--accent)',marginTop:'2px'}}>{cnt}건</div>}
               </div>
             )
           })}
@@ -1595,7 +1595,7 @@ export default function TimetablePage() {
         <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(120px,1fr))',gap:'6px',overflowX:'auto',position:'relative'}}>
           {dows.map(d => (
             <div key={d} style={{textAlign:'center',fontSize:'10px',fontWeight:'600',
-                                  color:'#5a7080',padding:'4px 0'}}>{d}</div>
+                                  color:'var(--text-muted)',padding:'4px 0'}}>{d}</div>
           ))}
           {cells.map((cell, i) => {
             const monthItems = buildMonthItems(cell, i)
@@ -1604,8 +1604,8 @@ export default function TimetablePage() {
             <div key={i}
                  onClick={() => cell.date && (setCurDate(new Date(cell.date + 'T00:00:00')), setView('day'))}
                  style={{
-                   background:cell.isToday ? 'rgba(78,205,196,.08)' : '#1f344b',
-                   border:`1px solid ${cell.isToday ? '#4ecdc4' : '#2a3a4a'}`,
+                   background:cell.isToday ? 'var(--soft-bg)' : 'var(--navy2)',
+                   border:`1px solid ${cell.isToday ? 'var(--accent)' : 'var(--border2)'}`,
                    borderRadius:'8px', minHeight:'92px', padding:'8px', paddingTop: showReservationBars ? '60px' : '8px',
                    cursor: cell.date ? 'pointer' : 'default',
                    opacity: cell.other ? 0.4 : 1,
@@ -1617,7 +1617,7 @@ export default function TimetablePage() {
                   }}>
               <div style={{fontSize:'12px',fontWeight: cell.isToday ? '700' : '500',
                            marginBottom:'4px', position: showReservationBars ? 'absolute' : 'static', top:'8px', left:'8px',
-                           color: cell.isToday ? '#4ecdc4' : '#e8eaed'}}>{cell.day}</div>
+                           color: cell.isToday ? 'var(--accent)' : 'var(--text-primary)'}}>{cell.day}</div>
               {monthItems.slice(0,3).map((item, j) => {
                 const color = item.type === 'notice' ? (item.event?.vendor_color || '#F7C948') : '#4ECDC4'
                 const rangeStyle = item.type === 'reservation' && item.isRange
@@ -1661,7 +1661,7 @@ export default function TimetablePage() {
                 )
               })}
               {monthItems.length > 3 && (
-                <div style={{fontSize:'10px',color:'#5a7080',padding:'1px 4px'}}>
+                <div style={{fontSize:'10px',color:'var(--text-muted)',padding:'1px 4px'}}>
                   +{monthItems.length - 3}개
                 </div>
               )}
@@ -1711,13 +1711,13 @@ export default function TimetablePage() {
                   <span style={{display:'block',fontSize:'10px',fontWeight:'900',lineHeight:'11px',overflow:'hidden',textOverflow:'ellipsis'}}>
                     {item.title}
                   </span>
-                  <span style={{display:'block',fontSize:'9px',fontWeight:'500',lineHeight:'10px',color:'#8FE9E3',overflow:'hidden',textOverflow:'ellipsis'}}>
+                  <span style={{display:'block',fontSize:'9px',fontWeight:'500',lineHeight:'10px',color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis'}}>
                     {item.subtitle}
                   </span>
                 </button>
               ))}
               {bars.length > 2 && (
-                <div style={{position:'absolute',right:'8px',top:'48px',fontSize:'10px',color:'#8a9ab0'}}>
+                <div style={{position:'absolute',right:'8px',top:'48px',fontSize:'10px',color:'var(--text-muted)'}}>
                   +{bars.length - 2}개 예약
                 </div>
               )}
@@ -1780,10 +1780,10 @@ export default function TimetablePage() {
   return (
     <div>
       {/* ── 툴바 */}
-      <div style={{background:'#1a2535',border:'1px solid #2a3a4a',borderRadius:'12px',
+      <div style={{background:'var(--navy2)',border:'1px solid var(--border2)',borderRadius:'12px',
                    padding:'14px 16px',marginBottom:'14px'}}>
         <div style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
-          <div style={{display:'flex',gap:'3px',background:'#122132',border:'1px solid #2a3a4a',
+          <div style={{display:'flex',gap:'3px',background:'var(--navy3)',border:'1px solid var(--border)',
                        borderRadius:'8px',padding:'3px'}}>
             {[['day','일'],['week','주'],['month','월']].map(([v,l]) => (
               <button key={v} onClick={() => setView(v)} style={tabBtn(view === v)}>{l}</button>
@@ -1795,20 +1795,20 @@ export default function TimetablePage() {
                 if (t === '오늘') setCurDate(new Date())
                 else navigate(t === '‹' ? -1 : 1)
               }} style={{height:'32px',minWidth:t === '오늘' ? '54px' : '34px',padding:'0 12px',
-                         background:'#122132',border:'1px solid #2a3a4a',
-                         borderRadius:'7px',color:'#8a9ab0',cursor:'pointer',fontSize:'13px',
+                         background:'var(--navy2)',border:'1px solid var(--border)',
+                         borderRadius:'7px',color:'var(--text-secondary)',cursor:'pointer',fontSize:'13px',
                          display:'inline-flex',alignItems:'center',justifyContent:'center',
                          fontFamily:'Noto Sans KR, sans-serif'}}>{t}</button>
             ))}
           </div>
-          <div style={{fontSize:'15px',fontWeight:'800',color:'#e8eaed',minWidth:'180px'}}>
+          <div style={{fontSize:'15px',fontWeight:'800',color:'var(--text-primary)',minWidth:'180px'}}>
             {view === 'day'   ? formatDay(curDate)
              : view === 'week' ? `${getMon(curDate).getMonth()+1}월 ${getMon(curDate).getDate()}일 주간`
              : `${curDate.getFullYear()}년 ${curDate.getMonth()+1}월`}
           </div>
 
           <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
-            <div style={{display:'flex',gap:'3px',background:'#122132',border:'1px solid #2a3a4a',
+            <div style={{display:'flex',gap:'3px',background:'var(--navy3)',border:'1px solid var(--border)',
                          borderRadius:'8px',padding:'3px'}}>
               {[['all','전체'],['zone','구역별'],['package','예약별'],['vendor','업체별']].map(([v,l]) => (
                 <button key={v} onClick={() => setGroup(v)} style={tabBtn(group === v)}>{l}</button>
@@ -1838,9 +1838,9 @@ export default function TimetablePage() {
             ['픽업', visiblePickupCount],
             ['예약', visibleReservationCount],
           ].map(([label, value]) => (
-            <div key={label} style={{background:'#122132',border:'1px solid rgba(78,205,196,.1)',
+            <div key={label} style={{background:'var(--control-bg)',border:'1px solid var(--border2)',
                                      borderRadius:'8px',padding:'10px 12px'}}>
-              <div style={{fontSize:'11px',color:'#8a9ab0',marginBottom:'4px'}}>{label}</div>
+              <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>{label}</div>
               <div style={{fontSize:'18px',fontWeight:'800',color:label === '픽업' ? '#B8B8FF' : '#4ecdc4'}}>
                 {value}건
               </div>
@@ -1860,9 +1860,9 @@ export default function TimetablePage() {
                       style={{height:'30px',padding:'0 14px',borderRadius:'7px',cursor:'pointer',
                               fontFamily:'Noto Sans KR, sans-serif',fontSize:'12px',fontWeight:'600',
                               border:'1px solid',
-                              background: selZone === z.code ? '#4ecdc4' : '#1a2535',
-                              color: selZone === z.code ? '#0f1923' : '#8a9ab0',
-                              borderColor: selZone === z.code ? '#4ecdc4' : '#2a3a4a'}}>
+                              background: selZone === z.code ? 'var(--accent)' : 'var(--navy2)',
+                              color: selZone === z.code ? 'var(--navy)' : 'var(--text-secondary)',
+                              borderColor: selZone === z.code ? 'var(--accent)' : 'var(--border)'}}>
                 {z.code} · {z.name} <span style={{opacity:.7,fontSize:'11px'}}>({cnt}건)</span>
               </button>
             )
@@ -1871,11 +1871,11 @@ export default function TimetablePage() {
       )}
 
       {/* ── 타임테이블 본문 */}
-      <div style={{background:'#1a2535',border:'1px solid #2a3a4a',borderRadius:'12px',overflow:'hidden'}}>
+      <div style={{background:'var(--navy2)',border:'1px solid var(--border2)',borderRadius:'12px',overflow:'hidden'}}>
         {view === 'day' ? <DayView/> : view === 'week' ? <WeekView/> : <MonthView/>}
       </div>
 
-      <div style={{marginTop:'8px',fontSize:'11px',color:'#5a7080'}}>
+      <div style={{marginTop:'8px',fontSize:'11px',color:'var(--text-muted)'}}>
         이벤트 클릭 → 상세 보기 · 형광연두 테두리 → 시간/장소 겹침 · 빈 시간 영역 드래그 → 일반 일정 등록
       </div>
 
