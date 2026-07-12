@@ -256,9 +256,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const noticeTimer = useRef(null)
   const [saving,  setSaving]  = useState(false)
   const [showPaymentDetails, setShowPaymentDetails] = useState(false)
-  const [paymentKind, setPaymentKind] = useState(
-    form.platform_name ? '플랫폼' : form.agency_name ? '여행사' : form.payto ? '직접결제' : ''
-  )
+  const platformOptions = platforms.filter(p => p.type === '플랫폼')
+  const agencyOptions = platforms.filter(p => p.type === '여행사')
 
   // pickup form row
   const [pkRow, setPkRow] = useState({ pickup_type:'픽업', driver_id:'', pickup_fee:0 })
@@ -1214,35 +1213,30 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
     if (error) throw error
   }
 
-  function onPaymentKindChange(kind) {
-    setPaymentKind(kind)
-    setShowPaymentDetails(false)
+  function defaultFee(row, pax = form.pax) {
+    if (!row) return 0
+    return Number(pax) >= 10 ? Number(row.fee_grp) || 0 : Number(row.fee_ind) || 0
+  }
+
+  function onPlatformChange(val) {
+    const platform = platformOptions.find(p => p.name === val)
     setForm(f => ({
       ...f,
-      payto: '',
-      inflow: '',
-      platform_name: '',
-      plat_fee: 0,
-      agency_name: '',
-      ag_fee: 0,
+      platform_name: val,
+      plat_fee: platform ? defaultFee(platform, f.pax) : 0,
+      inflow: val || f.agency_name || '',
     }))
   }
 
-  function onPaytoChange(val, kind = paymentKind) {
-    const plat = platforms.find(p => p.name === val && p.type === '플랫폼')
-    const agnt = platforms.find(p => p.name === val && p.type === '여행사')
+  function onAgencyChange(val) {
+    const agency = agencyOptions.find(p => p.name === val)
     setForm(f => ({
-      ...f, payto: val,
-      inflow: val,
-      platform_name: plat ? val : '',
-      plat_fee:      plat ? (f.pax >= 10 ? plat.fee_grp : plat.fee_ind) : 0,
-      agency_name:   agnt ? val : '',
-      ag_fee:        agnt ? (f.pax >= 10 ? agnt.fee_grp : agnt.fee_ind) : 0,
+      ...f,
+      payto: val,
+      inflow: f.platform_name || val,
+      agency_name: val,
+      ag_fee: agency ? defaultFee(agency, f.pax) : 0,
     }))
-    if (plat || kind === '플랫폼') setPaymentKind('플랫폼')
-    else if (agnt || kind === '여행사') setPaymentKind('여행사')
-    else if (val) setPaymentKind('직접결제')
-    setShowPaymentDetails(false)
   }
 
   async function insertLodgeRows(rows) {
@@ -1297,6 +1291,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   async function save() {
     if (!form.customer) { alert('고객명을 입력하세요.'); return }
     if (!form.date)      { alert('예약날짜를 입력하세요.'); return }
+    if (!form.agency_name) { alert('여행사를 선택하세요.'); return }
     setSaving(true)
 
     const activeComponents = componentRows.filter(row => (row.item_name || row.package_name) && Number(row.people_count) > 0)
@@ -2437,31 +2432,17 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
                   <div className="form-field">
-                    <label>고객결제처 구분 <span className="req">*</span></label>
-                    <select className="form-select" value={paymentKind} onChange={e=>onPaymentKindChange(e.target.value)}>
-                      <option value="">선택</option>
-                      <option value="플랫폼">플랫폼</option>
-                      <option value="여행사">여행사</option>
-                      <option value="직접결제">직접결제</option>
+                    <label>플랫폼</label>
+                    <select className="form-select" value={form.platform_name||''} onChange={e=>onPlatformChange(e.target.value)}>
+                      <option value="">해당없음</option>
+                      {platformOptions.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>{paymentKind === '여행사' ? '여행사명' : paymentKind === '직접결제' ? '결제 방식' : '플랫폼명'} <span className="req">*</span></label>
-                    <select
-                      className="form-select"
-                      value={form.payto||''}
-                      onChange={e=>onPaytoChange(e.target.value, paymentKind)}
-                      disabled={!paymentKind}
-                    >
-                      <option value="">선택</option>
-                      {paymentKind === '플랫폼' && platforms.filter(p=>p.type==='플랫폼').map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                      {paymentKind === '여행사' && platforms.filter(p=>p.type==='여행사').map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                      {paymentKind === '직접결제' && (
-                        <>
-                          <option value="계좌이체">계좌이체</option>
-                          <option value="현금">현금</option>
-                        </>
-                      )}
+                    <label>여행사 <span className="req">*</span></label>
+                    <select className="form-select" value={form.agency_name||''} onChange={e=>onAgencyChange(e.target.value)}>
+                      <option value="">여행사 선택</option>
+                      {agencyOptions.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
                   </div>
                   <div className="form-field">
@@ -2473,11 +2454,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   <div>
                     <span>자동 적용</span>
                     <strong>
-                      {form.platform_name
-                        ? `플랫폼 ${form.platform_name} · ${form.plat_fee || 0}%`
-                        : form.agency_name
-                          ? `여행사 ${form.agency_name} · ${form.ag_fee || 0}%`
-                          : '수수료 없음'}
+                      플랫폼 {form.platform_name || '해당없음'} · {form.plat_fee || 0}% / 여행사 {form.agency_name || '미선택'} · {form.ag_fee || 0}%
                     </strong>
                   </div>
                   <button type="button" className="btn-outline btn-sm" onClick={() => setShowPaymentDetails(v => !v)}>
@@ -2488,48 +2465,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   <>
                     <div className="form-grid form-grid-2" style={{marginBottom:'10px'}}>
                       <div className="form-field">
-                        <label>플랫폼명</label>
-                        <select className="form-select" value={form.platform_name||''} onChange={e=>{
-                          const p = platforms.find(x=>x.name===e.target.value&&x.type==='플랫폼')
-                          setPaymentKind(e.target.value ? '플랫폼' : paymentKind)
-                          setForm(f=>({
-                            ...f,
-                            payto:e.target.value || f.payto,
-                            inflow:e.target.value || f.inflow,
-                            platform_name:e.target.value,
-                            plat_fee: p ? (f.pax>=10?p.fee_grp:p.fee_ind) : f.plat_fee,
-                            agency_name: e.target.value ? '' : f.agency_name,
-                            ag_fee: e.target.value ? 0 : f.ag_fee,
-                          }))
-                        }}>
-                          <option value="">선택</option>
-                          {platforms.filter(p=>p.type==='플랫폼').map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="form-field">
                         <label>플랫폼 수수료(%) <span className="auto">자동/수동</span></label>
                         <input className="form-input fee-input" type="number" value={form.plat_fee||0} onChange={e=>inp('plat_fee',e.target.value)}/>
-                      </div>
-                    </div>
-                    <div className="form-grid form-grid-2" style={{marginBottom:'10px'}}>
-                      <div className="form-field">
-                        <label>여행사명</label>
-                        <select className="form-select" value={form.agency_name||''} onChange={e=>{
-                          const a = platforms.find(x=>x.name===e.target.value&&x.type==='여행사')
-                          setPaymentKind(e.target.value ? '여행사' : paymentKind)
-                          setForm(f=>({
-                            ...f,
-                            payto:e.target.value || f.payto,
-                            inflow:e.target.value || f.inflow,
-                            platform_name: e.target.value ? '' : f.platform_name,
-                            plat_fee: e.target.value ? 0 : f.plat_fee,
-                            agency_name:e.target.value,
-                            ag_fee: a ? (f.pax>=10?a.fee_grp:a.fee_ind) : f.ag_fee,
-                          }))
-                        }}>
-                          <option value="">선택</option>
-                          {platforms.filter(p=>p.type==='여행사').map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                        </select>
                       </div>
                       <div className="form-field">
                         <label>여행사 수수료(%) <span className="auto">자동/수동</span></label>
@@ -2921,7 +2858,7 @@ export default function ReservationsPage() {
       </div>
 
       {/* 요약 카운트 */}
-      <div style={{display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap'}}>
+      <div className="reservation-status-chip-row" style={{display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap'}}>
         {Object.entries(STATUS_LABEL).map(([type,label])=>{
           const cnt = activeReservations.filter(r=>r.type===type).length
           return (

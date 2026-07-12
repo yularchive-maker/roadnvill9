@@ -383,6 +383,10 @@ export default function BizPage() {
       .filter(item => !selectedBizId || !item.biz_id || String(item.biz_id) === String(selectedBizId))
   }, [items, selectedBizId])
 
+  const businessPackages = useMemo(() => {
+    return packages.filter(pkg => (pkg.package_type || 'general') === 'business')
+  }, [packages])
+
   const cards = useMemo(() => {
     return productItems.map(product => {
       const promo = promotionItems.find(item =>
@@ -391,12 +395,14 @@ export default function BizPage() {
         String(item.biz_id || '') === String(product.biz_id || '')
       )
       const pkg = (product.sale_type || 'package') === 'package'
-        ? packages.find(p => matchesName(p.name, packageTarget(product)))
+        ? businessPackages.find(p => matchesName(p.name, packageTarget(product)))
         : null
       const biz = bizList.find(item => String(item.id) === String(product.biz_id))
       const actualZoneCodes = packageProgramZoneCodes(pkg)
       const pkgZoneCodes = packageZoneCodes(pkg)
-      const zoneCodes = pkgZoneCodes.length ? pkgZoneCodes : (actualZoneCodes.length ? actualZoneCodes : (product.zone_code ? [product.zone_code] : []))
+      const zoneCodes = pkg
+        ? (pkgZoneCodes.length ? pkgZoneCodes : actualZoneCodes)
+        : ((product.sale_type || 'package') === 'package' ? [] : (product.zone_code ? [product.zone_code] : []))
       const zoneCode = zoneCodes[0] || ''
       const productUsage = buildProductUsage(product, reservations, snapshots, budgetUsages)
       const promoUsage = promo ? buildPromotionUsage(promo, reservations, budgetUsages) : { usedPeople: 0, usedAmount: 0, reimbursedAmount: 0, unpaidAmount: 0, details: [] }
@@ -440,7 +446,7 @@ export default function BizPage() {
         vendorRows,
       }
     })
-  }, [productItems, promotionItems, packages, reservations, snapshots, budgetUsages, zoneMap, bizList])
+  }, [productItems, promotionItems, businessPackages, reservations, snapshots, budgetUsages, zoneMap, bizList])
 
   const availableZones = useMemo(() => {
     const codes = [...new Set(cards.flatMap(card => card.zoneCodes || []).filter(Boolean))]

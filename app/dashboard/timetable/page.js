@@ -1125,27 +1125,27 @@ export default function TimetablePage() {
           width:`${width}%`,
           top:rowTop,
           height:'28px',
-          minWidth:'34px',
-          padding:'0 9px',
+          minWidth:'12px',
+          padding:0,
           border:`${level ? 2 : 1}px solid ${borderColor}`,
-          borderLeft:`3px solid ${borderColor}`,
+          borderLeft:`${level ? 3 : 1}px solid ${borderColor}`,
           borderRadius:'6px',
-          background: level ? 'rgba(51,255,102,.08)' : `${color}22`,
-          color: level ? '#e8eaed' : color,
+          background: color,
+          color:'transparent',
           boxShadow: level ? '0 0 0 1px rgba(51,255,102,.28), 0 0 16px rgba(51,255,102,.12)' : '0 6px 18px rgba(0,0,0,.16)',
           cursor:'pointer',
           overflow:'hidden',
-          textAlign:'left',
+          textAlign:'center',
           fontFamily:'Noto Sans KR, sans-serif',
           zIndex: level ? 5 : 3,
         }}
         title={`${eventTitle(ev)} · ${timeText}`}
       >
         <span style={{display:'block',fontSize:'11px',fontWeight:'800',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'14px'}}>
-          {eventTitle(ev)}
+          {''}
         </span>
         <span style={{display:'block',fontSize:'9px',opacity:.82,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'11px',color:'var(--text-primary)'}}>
-          {eventSubTitle(ev) || timeText}
+          {''}
         </span>
       </button>
     )
@@ -1162,6 +1162,7 @@ export default function TimetablePage() {
     const axisStart = Math.max(0, Math.min(8, Math.floor(minMinute / 60) - 1))
     const axisEnd = Math.min(24, Math.max(18, Math.ceil(maxMinute / 60) + 1))
     const hours = Array.from({ length: axisEnd - axisStart + 1 }, (_, i) => axisStart + i)
+    const hourIntervals = Math.max(axisEnd - axisStart, 1)
     if (!hasRows) {
       return <div style={{padding:'22px',textAlign:'center',color:'var(--text-muted)',fontSize:'13px'}}>{emptyText || '표시할 일정이 없습니다'}</div>
     }
@@ -1171,9 +1172,25 @@ export default function TimetablePage() {
         <div style={{minWidth:'1120px'}}>
           <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid var(--border2)',background:'var(--navy3)'}}>
             <div style={{padding:'12px 14px',fontSize:'11px',fontWeight:'800',color:'var(--text-primary)',background:'var(--navy3)'}}>구분</div>
-            <div style={{display:'grid',gridTemplateColumns:`repeat(${hours.length}, minmax(0,1fr))`}}>
+            <div style={{position:'relative',height:'42px',background:'var(--navy3)'}}>
+              {Array.from({ length: hourIntervals + 1 }, (_, i) => (
+                <div key={`line-${i}`} style={{position:'absolute',left:`${(i / hourIntervals) * 100}%`,top:0,bottom:0,borderLeft:'1px solid var(--border2)'}} />
+              ))}
               {hours.map(h => (
-                <div key={h} style={{padding:'12px 0',textAlign:'center',fontSize:'11px',fontWeight:'800',color:'var(--text-muted)',borderLeft:'1px solid var(--border2)'}}>
+                <div
+                  key={h}
+                  style={{
+                    position:'absolute',
+                    left:`${((h - axisStart) / hourIntervals) * 100}%`,
+                    top:'50%',
+                    transform:h === axisStart ? 'translate(6px,-50%)' : h === axisEnd ? 'translate(calc(-100% - 6px),-50%)' : 'translate(-50%,-50%)',
+                    fontSize:'11px',
+                    fontWeight:'800',
+                    color:'var(--text-muted)',
+                    lineHeight:1,
+                    pointerEvents:'none',
+                  }}
+                >
                   {String(h).padStart(2,'0')}
                 </div>
               ))}
