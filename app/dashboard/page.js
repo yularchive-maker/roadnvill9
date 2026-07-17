@@ -149,6 +149,7 @@ export default function DashboardPage() {
   const [urgentQueue, setUrgentQueue] = useState([])
   const [urgentAcking, setUrgentAcking] = useState(false)
   const [openMetricDetail, setOpenMetricDetail] = useState('')
+  const [mobileMetricsOpen, setMobileMetricsOpen] = useState(false)
   const [openHandoffDetail, setOpenHandoffDetail] = useState('')
 
   const load = useCallback(async () => {
@@ -633,13 +634,21 @@ export default function DashboardPage() {
   return (
     <div className="dashboard-page">
       {/* 운영 KPI 바 */}
-      <div className="card dashboard-metrics-card">
+      <div className={`card dashboard-metrics-card${mobileMetricsOpen ? ' metrics-open' : ''}`}>
         <div className="dashboard-metrics-head">
           <div>
             <div className="dashboard-metrics-title">오늘 확인할 운영 지표</div>
             <div className="dashboard-metrics-subtitle">바로 처리할 항목을 우선 표시합니다.</div>
           </div>
           <div className="dashboard-metrics-month">{selectedMonth} 기준</div>
+          <button
+            type="button"
+            className="dashboard-metrics-toggle"
+            onClick={() => setMobileMetricsOpen(v => !v)}
+            aria-expanded={mobileMetricsOpen}
+          >
+            {mobileMetricsOpen ? '접기' : '펼치기'}
+          </button>
         </div>
         <div className="dashboard-metrics-grid">
           {[

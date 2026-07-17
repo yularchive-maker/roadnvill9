@@ -689,10 +689,18 @@ export default function TimetablePage() {
   const [popup,        setPopup]        = useState(null)   // { ev, pos }
   const [monthReservationDetail, setMonthReservationDetail] = useState(null)
   const [conflictPopup,setConflictPopup]= useState(false)
+  const [isMobileTimeline, setIsMobileTimeline] = useState(false)
   const lastConflictsRef = useRef([])
   const dragRef = useRef(null)
 
   // ── 기준 데이터 로드 (1회)
+  useEffect(() => {
+    const updateMobileTimeline = () => setIsMobileTimeline(window.innerWidth <= 768)
+    updateMobileTimeline()
+    window.addEventListener('resize', updateMobileTimeline)
+    return () => window.removeEventListener('resize', updateMobileTimeline)
+  }, [])
+
   useEffect(() => {
     Promise.all([
       supabase.from('vendors').select('*').order('key'),
@@ -1159,20 +1167,37 @@ export default function TimetablePage() {
       .flatMap(ev => [timeToMin(ev.start_time), timeToMin(ev.end_time)])
     const minMinute = timedMinutes.length ? Math.min(...timedMinutes) : 8 * 60
     const maxMinute = timedMinutes.length ? Math.max(...timedMinutes) : 18 * 60
-    const axisStart = Math.max(0, Math.min(8, Math.floor(minMinute / 60) - 1))
-    const axisEnd = Math.min(24, Math.max(18, Math.ceil(maxMinute / 60) + 1))
+    const eventStartHour = Math.max(0, Math.floor(minMinute / 60))
+    const eventEndHour = Math.min(24, Math.ceil(maxMinute / 60))
+    const axisStart = isMobileTimeline && timedMinutes.length
+      ? eventStartHour
+      : Math.max(0, Math.min(8, eventStartHour - 1))
+    const axisEnd = isMobileTimeline && timedMinutes.length
+      ? Math.min(24, Math.max(axisStart + 1, eventEndHour))
+      : Math.min(24, Math.max(18, eventEndHour + 1))
     const hours = Array.from({ length: axisEnd - axisStart + 1 }, (_, i) => axisStart + i)
     const hourIntervals = Math.max(axisEnd - axisStart, 1)
+    const timelineGridColumns = isMobileTimeline ? '58px minmax(0, 1fr)' : '170px 1fr'
+    const timelineMinWidth = isMobileTimeline ? '100%' : '1120px'
+    const timelineHeaderHeight = isMobileTimeline ? '26px' : '42px'
+    const labelTransform = (h) => {
+      if (!isMobileTimeline) {
+        return h === axisStart ? 'translate(6px,0)' : h === axisEnd ? 'translate(calc(-100% - 6px),0)' : 'translate(5px,0)'
+      }
+      if (h === axisStart) return 'translate(0,0)'
+      if (h === axisEnd) return 'translate(-100%,0)'
+      return 'translate(-50%,0)'
+    }
     if (!hasRows) {
       return <div style={{padding:'22px',textAlign:'center',color:'var(--text-muted)',fontSize:'13px'}}>{emptyText || '표시할 일정이 없습니다'}</div>
     }
 
     return (
       <div style={{overflowX:'auto'}}>
-        <div style={{minWidth:'1120px'}}>
-          <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid var(--border2)',background:'var(--navy3)'}}>
-            <div style={{padding:'12px 14px',fontSize:'11px',fontWeight:'800',color:'var(--text-primary)',background:'var(--navy3)'}}>구분</div>
-            <div style={{position:'relative',height:'42px',background:'var(--navy3)'}}>
+        <div style={{minWidth:timelineMinWidth}}>
+          <div style={{display:'grid',gridTemplateColumns:timelineGridColumns,borderBottom:'1px solid var(--border2)',background:'var(--navy3)'}}>
+            <div style={{padding:isMobileTimeline ? '6px 6px' : '12px 14px',fontSize:'11px',fontWeight:'800',color:'var(--text-primary)',background:'var(--navy3)',textAlign:isMobileTimeline ? 'center' : 'left',lineHeight:isMobileTimeline ? '14px' : 'normal'}}>구분</div>
+            <div style={{position:'relative',height:timelineHeaderHeight,background:'var(--navy3)'}}>
               {Array.from({ length: hourIntervals + 1 }, (_, i) => (
                 <div key={`line-${i}`} style={{position:'absolute',left:`${(i / hourIntervals) * 100}%`,top:0,bottom:0,borderLeft:'1px solid var(--border2)'}} />
               ))}
@@ -1182,12 +1207,14 @@ export default function TimetablePage() {
                   style={{
                     position:'absolute',
                     left:`${((h - axisStart) / hourIntervals) * 100}%`,
-                    top:'50%',
-                    transform:h === axisStart ? 'translate(6px,-50%)' : h === axisEnd ? 'translate(calc(-100% - 6px),-50%)' : 'translate(-50%,-50%)',
-                    fontSize:'11px',
+                    top:isMobileTimeline ? '5px' : '7px',
+                    transform:labelTransform(h),
+                    fontSize:isMobileTimeline ? '10px' : '11px',
                     fontWeight:'800',
                     color:'var(--text-muted)',
                     lineHeight:1,
+                    padding:'0 2px',
+                    background:isMobileTimeline ? 'transparent' : 'var(--navy3)',
                     pointerEvents:'none',
                   }}
                 >
@@ -1199,17 +1226,17 @@ export default function TimetablePage() {
 
           {sections.map(section => section.rows?.length ? (
             <div key={section.key}>
-              <div style={{display:'grid',gridTemplateColumns:'170px 1fr',borderBottom:'1px solid var(--border2)',background:'var(--sidebar-soft)'}}>
-                <div style={{padding:'9px 14px',fontSize:'12px',fontWeight:'900',color:section.color || '#4ecdc4'}}>{section.title}</div>
-                <div style={{padding:'9px 12px',fontSize:'11px',color:'var(--text-muted)'}}>{section.subtitle}</div>
+              <div style={{display:'grid',gridTemplateColumns:timelineGridColumns,borderBottom:'1px solid var(--border2)',background:'var(--sidebar-soft)'}}>
+                <div style={{padding:isMobileTimeline ? '6px 5px' : '9px 14px',fontSize:isMobileTimeline ? '10px' : '12px',fontWeight:'900',color:section.color || '#4ecdc4',textAlign:isMobileTimeline ? 'center' : 'left',lineHeight:isMobileTimeline ? '13px' : 'normal'}}>{section.title}</div>
+                <div style={{padding:isMobileTimeline ? '6px 8px' : '9px 12px',fontSize:isMobileTimeline ? '10px' : '11px',color:'var(--text-muted)',lineHeight:isMobileTimeline ? '13px' : 'normal'}}>{section.subtitle}</div>
               </div>
               {section.rows.map(row => {
                 const rowEvents = row.events || []
                 const packedHeight = packHorizontalRows(rowEvents)
                 const rowHeight = Math.max(56, 20 + packedHeight * 34)
                 return (
-                  <div key={row.key} style={{display:'grid',gridTemplateColumns:'170px 1fr',minHeight:rowHeight,borderBottom:'1px solid var(--border2)'}}>
-                    <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:'2px',padding:'10px 14px',background:'var(--sidebar-soft)',minWidth:0}}>
+                  <div key={row.key} style={{display:'grid',gridTemplateColumns:timelineGridColumns,minHeight:rowHeight,borderBottom:'1px solid var(--border2)'}}>
+                    <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:'2px',padding:isMobileTimeline ? '8px 5px' : '10px 14px',background:'var(--sidebar-soft)',minWidth:0}}>
                       <div style={{fontSize:'12px',fontWeight:'800',color:'var(--text-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.title}</div>
                       {row.subtitle && <div style={{fontSize:'10px',color:'var(--text-muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row.subtitle}</div>}
                     </div>
@@ -1347,47 +1374,58 @@ export default function TimetablePage() {
     const timeCnt = cs.filter(c => c.level === 'time').length
     const totalConflict = realCnt + warnCnt + timeCnt
 
+    const zoneLabel = (code) => {
+      if (!code) return '구역 미지정'
+      const zone = zones.find(z => z.code === code)
+      return zone ? `${zone.code} · ${zone.name}` : code
+    }
+    const reservationLabel = (no) => {
+      const r = reservations.find(x => String(x.no) === String(no))
+      return r ? `NO.${no} · ${r.customer || ''}` : `NO.${no}`
+    }
+    const reservationSubtitle = (no, evs) => {
+      const r = reservations.find(x => String(x.no) === String(no))
+      const packageName = r?.package_name || r?.pkg || ''
+      const zoneCode = r?.zone_code || r?.zone || evs[0]?.zone_code || ''
+      const zone = zones.find(z => z.code === zoneCode)
+      return [zone ? `${zone.code} · ${zone.name}` : '', packageName, r?.pax ? `${r.pax}명` : '', `${evs.length}개 일정`].filter(Boolean).join(' · ')
+    }
+
     let rows = []
-    if (group === 'all' || group === 'zone') {
-      const resNos = [...new Set(expEvs.map(e => e.reservation_no).filter(Boolean))]
-      rows = resNos.map(no => {
-        const r = reservations.find(x => x.no === no)
-        const packageName = r?.package_name || r?.pkg || ''
-        const zoneCode = r?.zone_code || r?.zone || ''
-        const zone = zones.find(z => z.code === zoneCode)
+    if (group === 'all') {
+      rows = expEvs.length ? [{
+        key: 'all',
+        title: '전체 체험 흐름',
+        subtitle: `체험 ${expEvs.length}개 일정`,
+        date: ds,
+        events: expEvs,
+      }] : []
+    } else if (group === 'zone') {
+      const zoneCodes = [...new Set(expEvs.map(e => e.zone_code || ''))]
+      rows = zoneCodes.map(code => {
+        const evs = expEvs.filter(e => (e.zone_code || '') === code)
         return {
-          key: no,
-          title: `NO.${no} · ${r?.customer || ''}`,
-          subtitle: [zone ? `${zone.code} · ${zone.name}` : '', packageName, r?.pax ? `${r.pax}명` : '', `${expEvs.filter(e => e.reservation_no === no).length}개 일정`].filter(Boolean).join(' · '),
+          key: `zone_${code || 'none'}`,
+          title: zoneLabel(code),
+          subtitle: `${evs.length}개 일정`,
           date: ds,
-          events: expEvs.filter(e => e.reservation_no === no),
+          events: evs,
         }
       })
-      // 예약 미연결 수동 이벤트
-      const noRes = expEvs.filter(e => !e.reservation_no)
-      if (noRes.length) rows.push({
-        key: 'unlinked',
-        title: '기타',
-        subtitle: '예약 미연결 일정',
-        date: ds,
-        events: noRes,
-      })
-
     } else if (group === 'package') {
       const resNos = [...new Set(expEvs.map(e => e.reservation_no).filter(Boolean))]
       rows = resNos.map(no => {
-        const r = reservations.find(x => x.no === no)
+        const evs = expEvs.filter(e => String(e.reservation_no) === String(no))
         return {
           key: no,
-          title: `NO.${no} · ${r?.customer || ''}`,
-          subtitle: [r?.package_name || r?.pkg || '', r?.pax ? `${r.pax}명` : '', `${expEvs.filter(e => e.reservation_no === no).length}개 일정`].filter(Boolean).join(' · '),
+          title: reservationLabel(no),
+          subtitle: reservationSubtitle(no, evs),
           date: ds,
-          events: expEvs.filter(e => e.reservation_no === no),
+          events: evs,
         }
       })
       const noRes = expEvs.filter(e => !e.reservation_no)
       if (noRes.length) rows.push({ key:'unlinked', title:'기타', subtitle:'예약 미연결 일정', date:ds, events:noRes })
-
     } else if (group === 'vendor') {
       const vkeys = [...new Set(expEvs.map(e => e.vendor_key).filter(Boolean))]
       rows = vkeys.map(k => {
@@ -1401,15 +1439,24 @@ export default function TimetablePage() {
           events: evs,
         }
       })
+      const noVendor = expEvs.filter(e => !e.vendor_key)
+      if (noVendor.length) rows.push({ key:'vendor_none', title:'업체 미지정', subtitle:`${noVendor.length}건`, date:ds, events:noVendor })
     }
 
+    const groupTitle = group === 'all' ? '전체 체험 흐름'
+      : group === 'zone' ? '구역별 체험 일정'
+      : group === 'vendor' ? '업체별 체험 일정'
+      : '예약별 체험 일정'
+    const groupUnit = group === 'all' ? '흐름'
+      : group === 'zone' ? '구역'
+      : group === 'vendor' ? '업체'
+      : '예약'
+    const rowEventCount = rows.reduce((sum, row) => sum + row.events.length, 0)
     const sections = [
       {
         key: 'experience',
-        title: group === 'vendor' ? '업체별 체험 일정' : '예약별 체험 일정',
-        subtitle: group === 'vendor'
-          ? `업체 ${rows.length}곳 · 일정 ${rows.reduce((sum, row) => sum + row.events.length, 0)}개`
-          : `예약 ${rows.length}건 · 하위 일정 ${rows.reduce((sum, row) => sum + row.events.length, 0)}개`,
+        title: groupTitle,
+        subtitle: `${groupUnit} ${rows.length}건 · 일정 ${rowEventCount}개`,
         color: '#4ECDC4',
         rows,
       },
@@ -1461,20 +1508,84 @@ export default function TimetablePage() {
       const evs = allEvents.filter(e => eventActiveOn(e, ds) && e.type !== 'pickup' && e.type !== 'notice' && !isAllDayEvent(e))
       detectConflicts(evs).forEach((value, key) => weekConflictMap.set(key, value))
     })
-    const weekRows = days.map((d, i) => {
-      const ds = dateStr(d)
-      const evs = allEvents.filter(e => eventActiveOn(e, ds) && !isAllDayEvent(e))
-      const expCount = evs.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
-      const pickupCount = evs.filter(e => e.type === 'pickup').length
-      const noticeCount = evs.filter(e => e.type === 'notice').length
-      return {
-        key: ds,
-        title: `${dayNames[i]} · ${d.getDate()}일`,
-        subtitle: [`체험 ${expCount}건`, pickupCount ? `픽업 ${pickupCount}건` : '', noticeCount ? `NOTICE ${noticeCount}건` : ''].filter(Boolean).join(' · '),
-        date: ds,
-        events: evs,
+    const weekEvents = allEvents.filter(e => dateList.some(ds => eventActiveOn(e, ds)) && !isAllDayEvent(e))
+    const weekExpEvents = weekEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice')
+    const makeGroupedRows = (items, keyFn, titleFn, subtitleFn, emptyTitle) => {
+      const keys = [...new Set(items.map(keyFn))]
+      return keys.map(key => {
+        const evs = items.filter(e => keyFn(e) === key)
+        return {
+          key: key || 'none',
+          title: titleFn(key, evs) || emptyTitle,
+          subtitle: subtitleFn(key, evs),
+          date: evs[0]?.date || dateList[0],
+          events: evs,
+        }
+      })
+    }
+    const weekRows = (() => {
+      if (group === 'all') {
+        return days.map((d, i) => {
+          const ds = dateStr(d)
+          const evs = allEvents.filter(e => eventActiveOn(e, ds) && !isAllDayEvent(e))
+          const expCount = evs.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
+          const pickupCount = evs.filter(e => e.type === 'pickup').length
+          const noticeCount = evs.filter(e => e.type === 'notice').length
+          return {
+            key: ds,
+            title: `${dayNames[i]} · ${d.getDate()}일`,
+            subtitle: [`체험 ${expCount}건`, pickupCount ? `픽업 ${pickupCount}건` : '', noticeCount ? `NOTICE ${noticeCount}건` : ''].filter(Boolean).join(' · '),
+            date: ds,
+            events: evs,
+          }
+        })
       }
-    })
+      if (group === 'zone') {
+        return makeGroupedRows(
+          weekExpEvents,
+          e => e.zone_code || '',
+          key => {
+            if (!key) return '구역 미지정'
+            const zone = zones.find(z => z.code === key)
+            return zone ? `${zone.code} · ${zone.name}` : key
+          },
+          (key, evs) => `체험 ${evs.length}건`,
+          '구역 미지정'
+        )
+      }
+      if (group === 'package') {
+        return makeGroupedRows(
+          weekExpEvents,
+          e => e.reservation_no ? String(e.reservation_no) : '',
+          key => {
+            if (!key) return '예약 미연결'
+            const r = reservations.find(x => String(x.no) === String(key))
+            return r ? `NO.${key} · ${r.customer || ''}` : `NO.${key}`
+          },
+          (key, evs) => {
+            const r = reservations.find(x => String(x.no) === String(key))
+            return [r?.pax ? `${r.pax}명` : '', `체험 ${evs.length}건`].filter(Boolean).join(' · ')
+          },
+          '예약 미연결'
+        )
+      }
+      return makeGroupedRows(
+        weekExpEvents,
+        e => e.vendor_key || '',
+        key => {
+          if (!key) return '업체 미지정'
+          const v = vendors.find(x => x.key === key)
+          return v?.name || key
+        },
+        (key, evs) => `체험 ${evs.length}건`,
+        '업체 미지정'
+      )
+    })()
+    const weekTitle = group === 'all' ? '주간 일정'
+      : group === 'zone' ? '구역별 주간 일정'
+      : group === 'vendor' ? '업체별 주간 일정'
+      : '예약별 주간 일정'
+    const weekSubtitle = group === 'all' ? '요일별 시간 흐름' : `${weekRows.length}개 그룹 · 체험 ${weekExpEvents.length}건`
 
     return (
       <div>
@@ -1501,8 +1612,8 @@ export default function TimetablePage() {
         <HorizontalTimeline
           sections={[{
             key:'week',
-            title:'주간 일정',
-            subtitle:'요일별 시간 흐름',
+            title:weekTitle,
+            subtitle:weekSubtitle,
             color:'#4ECDC4',
             rows:weekRows,
           }]}
@@ -1607,9 +1718,70 @@ export default function TimetablePage() {
       }))
     }
 
+    const monthAgendaDays = cells
+      .filter(cell => !cell.other)
+      .map(cell => {
+        const dayReservations = reservationRanges.filter(item => inDateRange(cell.date, item.startDate, item.endDate))
+        const dayEvents = (cell.evs || []).filter(ev => !ev.reservation_no)
+        const eventItems = group === 'vendor'
+          ? (cell.evs || []).map(ev => ({ key: ev.id, type: 'event', event: ev, title: eventTitle(ev), subtitle: eventSubTitle(ev) || `${ev.start_time?.slice(0,5)}~${ev.end_time?.slice(0,5)}` }))
+          : dayEvents.map(ev => ({ key: ev.id, type: ev.type === 'notice' ? 'notice' : 'event', event: ev, title: ev.prog_name || ev.title || eventTitle(ev), subtitle: ev.vendor_name || eventSubTitle(ev) || '일정' }))
+        const reservationItems = group === 'vendor' ? [] : dayReservations.map(item => ({
+          key: item.key,
+          type: 'reservation',
+          item,
+          title: item.title,
+          subtitle: item.subtitle,
+        }))
+        return {
+          ...cell,
+          items: [...reservationItems, ...eventItems],
+        }
+      })
+      .filter(cell => cell.items.length > 0)
     return (
       <div style={{padding:'16px'}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(120px,1fr))',gap:'6px',overflowX:'auto',position:'relative'}}>
+        <div className="timetable-month-mobile">
+          {monthAgendaDays.length === 0 ? (
+            <div className="timetable-month-empty">이번 달 일정이 없습니다.</div>
+          ) : monthAgendaDays.map(cell => (
+            <section key={cell.date} className="timetable-month-day-card">
+              <button
+                type="button"
+                className="timetable-month-day-head"
+                onClick={() => { setCurDate(new Date(cell.date + 'T00:00:00')); setView('day') }}
+              >
+                <span>{cell.day}일</span>
+                <strong>{cell.items.length}건</strong>
+              </button>
+              <div className="timetable-month-day-items">
+                {cell.items.slice(0, 6).map((entry, idx) => {
+                  const color = entry.type === 'notice' ? (entry.event?.vendor_color || '#F7C948') : entry.type === 'reservation' ? '#4ECDC4' : (entry.event?.vendor_color || '#4ECDC4')
+                  return (
+                    <button
+                      key={`${entry.key}-${idx}`}
+                      type="button"
+                      className="timetable-month-agenda-item"
+                      style={{ borderColor: color, color }}
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (entry.type === 'reservation') {
+                          setMonthReservationDetail({ date: cell.date, item: entry.item })
+                          return
+                        }
+                        if (entry.event) setPopup({ ev: entry.event, pos:{ x:e.clientX, y:e.clientY } })
+                      }}
+                    >
+                      <span>{entry.title}</span>
+                      <small>{entry.subtitle}</small>
+                    </button>
+                  )
+                })}
+                {cell.items.length > 6 && <div className="timetable-month-more">+{cell.items.length - 6}건 더 있음</div>}
+              </div>
+            </section>
+          ))}
+        </div>        <div className="timetable-month-desktop" style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(120px,1fr))',gap:'6px',overflowX:'auto',position:'relative'}}>
           {dows.map(d => (
             <div key={d} style={{textAlign:'center',fontSize:'10px',fontWeight:'600',
                                   color:'var(--text-muted)',padding:'4px 0'}}>{d}</div>
@@ -1795,11 +1967,11 @@ export default function TimetablePage() {
   }
 
   return (
-    <div>
+    <div className="timetable-page">
       {/* ── 툴바 */}
-      <div style={{background:'var(--navy2)',border:'1px solid var(--border2)',borderRadius:'12px',
+      <div className="timetable-toolbar-card" style={{background:'var(--navy2)',border:'1px solid var(--border2)',borderRadius:'12px',
                    padding:'14px 16px',marginBottom:'14px'}}>
-        <div style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
+        <div className="timetable-toolbar-main" style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
           <div style={{display:'flex',gap:'3px',background:'var(--navy3)',border:'1px solid var(--border)',
                        borderRadius:'8px',padding:'3px'}}>
             {[['day','일'],['week','주'],['month','월']].map(([v,l]) => (
@@ -1824,7 +1996,7 @@ export default function TimetablePage() {
              : `${curDate.getFullYear()}년 ${curDate.getMonth()+1}월`}
           </div>
 
-          <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+          <div className="timetable-scope-actions" style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
             <div style={{display:'flex',gap:'3px',background:'var(--navy3)',border:'1px solid var(--border)',
                          borderRadius:'8px',padding:'3px'}}>
               {[['all','전체'],['zone','구역별'],['package','예약별'],['vendor','업체별']].map(([v,l]) => (
@@ -1840,14 +2012,14 @@ export default function TimetablePage() {
                 시간/장소 겹침 {curConflictCount}건
               </div>
             )}
-            <button onClick={() => openNoticeModal({ date: dateStr(curDate), start_time:'09:00', end_time:'10:00', is_all_day:false })}
-                    style={{height:'32px',padding:'0 16px',background:'#4ecdc4',border:'none',
-                            borderRadius:'8px',color:'#0f1923',fontSize:'12px',fontWeight:'700',
+            <button className="timetable-add-manual-btn" onClick={() => openNoticeModal({ date: dateStr(curDate), start_time:'09:00', end_time:'10:00', is_all_day:false })}
+                    style={{height:'32px',padding:'0 16px',background:'#d7ff3f',border:'2px solid #111827',
+                            borderRadius:'8px',color:'#0f1923',fontSize:'12px',fontWeight:'800',
                             cursor:'pointer',fontFamily:'Noto Sans KR, sans-serif',
                             display:'inline-flex',alignItems:'center',justifyContent:'center'}}>+ 일반 일정</button>
           </div>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(120px,1fr))',gap:'10px',
+        <div className="timetable-stat-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(120px,1fr))',gap:'10px',
                      marginTop:'12px'}}>
           {[
             ['일정', visibleEvents.length],

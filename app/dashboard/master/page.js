@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { numberInputValue, numberInputChange } from '@/lib/number-format'
 import { formatPhoneTyping } from '@/lib/phone-format'
+import { resolveVendorColor } from '@/lib/vendor-colors'
 
 function activePackagePrograms(programs) {
   return (programs || []).filter(program => program && program.is_deleted !== true)
@@ -196,7 +197,7 @@ function VendorsTab() {
 
   async function openNew() {
     const key = await genVendorKey()
-    setForm({ key, name: '', contact: '', tel: '', color: '#4ECDC4', note: '', telegram_chat_id: '', telegram_username: '' })
+    setForm({ key, name: '', contact: '', tel: '', color: '', note: '', telegram_chat_id: '', telegram_username: '' })
     setPrograms([])
     setOriginalPrograms([])
     setProgForm(emptyProgForm)
@@ -262,6 +263,7 @@ function VendorsTab() {
 
   async function save() {
     if (!form.name) { alert('업체명을 입력하세요.'); return }
+    const color = resolveVendorColor(form.color, vendors, modal.mode === 'edit' ? modal.data.key : '')
     if (modal.mode === 'new') {
       const res = await fetch('/api/vendors', {
         method: 'POST',
@@ -270,7 +272,7 @@ function VendorsTab() {
           name: form.name,
           contact: form.contact,
           tel: form.tel,
-          color: form.color,
+          color,
           note: form.note,
           key: form.key,
           telegram_chat_id: form.telegram_chat_id || null,
@@ -283,7 +285,7 @@ function VendorsTab() {
         name: form.name,
         contact: form.contact,
         tel: form.tel,
-        color: form.color,
+        color,
         note: form.note,
         telegram_chat_id: form.telegram_chat_id || null,
         telegram_username: form.telegram_username || null,

@@ -4,6 +4,7 @@ import { notFoundResponse, requireApiAdmin } from '@/lib/api-auth'
 import { VENDOR_FIELDS, pickFields } from '@/lib/api-dto'
 import { vendorWriteSchema } from '@/lib/api-schemas'
 import { badRequestResponse, readJsonObject, validatePayload, validateRequiredSafeId } from '@/lib/api-validate'
+import { resolveVendorColor } from '@/lib/vendor-colors'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,8 @@ export async function PUT(req, { params }) {
   const validated = validatePayload(parsed.body, vendorWriteSchema)
   if (validated.error) return badRequestResponse(validated.error)
   const { key: _ignored, ...payload } = validated.data
+  const { data: existing } = await supabase.from('vendors').select('key,color').or('is_deleted.is.null,is_deleted.eq.false')
+  payload.color = resolveVendorColor(payload.color, existing || [], params.key)
   const { data, error } = await supabase.from('vendors').update(payload).eq('key', params.key).select(VENDOR_FIELDS.join(',')).single()
   if (error) return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   return NextResponse.json(pickFields(data, VENDOR_FIELDS))
