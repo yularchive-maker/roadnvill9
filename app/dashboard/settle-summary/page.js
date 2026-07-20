@@ -81,6 +81,15 @@ function lodgeVendorInfo(lodge, lodgeVendors = []) {
   }
 }
 
+function salesChannelLabel(reservation) {
+  const platform = reservation?.platform_name || ''
+  const agency = reservation?.agency_name || reservation?.payto || ''
+  if (platform && agency) return `${platform} / ${agency}`
+  if (platform) return platform
+  if (agency) return `전화/직접 / ${agency}`
+  return '-'
+}
+
 function normalizeSettleType(type, vendorKey) {
   if (vendorKey) return '체험'
   if (SETTLE_TYPES.some(item => item.key === type)) return type
@@ -148,6 +157,8 @@ export default function SettleSummaryPage() {
   const [lodgeVendors, setLodgeVendors] = useState([])
   const [packages, setPackages] = useState([])
   const [rows, setRows] = useState(emptyRows())
+  const [reservationCostRows, setReservationCostRows] = useState([])
+  const [summaryView, setSummaryView] = useState('vendor')
   const [activeType, setActiveType] = useState(SETTLE_TYPES[0].key)
   const [expandedRows, setExpandedRows] = useState({})
   const [hasQueried, setHasQueried] = useState(false)
@@ -239,6 +250,59 @@ export default function SettleSummaryPage() {
 
       const snapshots = snapshotRes.data || []
       const snapshotNos = new Set(snapshots.map(item => item.reservation_no))
+      const snapshotsByNo = snapshots.reduce((map, snapshot) => {
+        if (!map[snapshot.reservation_no]) map[snapshot.reservation_no] = []
+        map[snapshot.reservation_no].push(snapshot)
+        return map
+      }, {})
+      const lodgesByNo = (lodgeRes.data || []).reduce((map, lodge) => {
+        if (!map[lodge.reservation_no]) map[lodge.reservation_no] = []
+        map[lodge.reservation_no].push(lodge)
+        return map
+      }, {})
+      const pickupsByNo = (pickupRes.data || []).reduce((map, pickup) => {
+        if (!map[pickup.reservation_no]) map[pickup.reservation_no] = []
+        map[pickup.reservation_no].push(pickup)
+        return map
+      }, {})
+
+      setReservationCostRows(reservations
+        .map(reservation => {
+          const reservationSnapshots = snapshotsByNo[reservation.no] || []
+          const pack = packages.find(item => item.name === pkgName(reservation))
+          const fallbackExperienceCost = reservationSnapshots.length ? 0 : (pack?.package_programs || []).reduce((sum, program) => {
+            const vendor = vendors.find(item => item.key === program.vendor_key)
+            const vendorProgram = vendor?.vendor_programs?.find(item => item.prog_name === program.prog_name)
+            const settleType = program.settle_type || vendorProgram?.settle_type || 'per_person'
+            const unitPrice = Number(program.vendor_settle_price ?? vendorProgram?.vendor_settle_price ?? vendorProgram?.unit_price ?? 0) || 0
+            return sum + (settleType === 'per_person' ? unitPrice * (Number(reservation.pax) || 0) : unitPrice)
+          }, 0)
+          const experienceCost = reservationSnapshots.reduce((sum, snapshot) => sum + (Number(snapshot.vendor_settle_total) || 0), 0) || fallbackExperienceCost
+          const lodgingCost = (lodgesByNo[reservation.no] || []).reduce((sum, lodge) => sum + lodgeSettleAmount(lodge, reservation), 0)
+          const pickupCost = (pickupsByNo[reservation.no] || []).reduce((sum, pickup) => sum + (Number(pickup.pickup_fee) || 0), 0)
+          const platformFee = Number(reservation.platform_fee_amount) || feeAmount(reservation.experience_sales_amount || reservation.total, reservation.plat_fee)
+          const agencyFee = Number(reservation.agency_fee_amount) || feeAmount(reservation.experience_sales_amount || reservation.total, reservation.ag_fee)
+          const salesAmount = Number(reservation.experience_sales_amount) || Number(reservation.total) || 0
+          const totalCost = experienceCost + lodgingCost + pickupCost + platformFee + agencyFee
+          return {
+            no: reservation.no,
+            date: reservation.date,
+            customer: reservation.customer,
+            packageName: pkgName(reservation) || '-',
+            pax: Number(reservation.pax) || 0,
+            channel: salesChannelLabel(reservation),
+            salesAmount,
+            experienceCost,
+            lodgingCost,
+            pickupCost,
+            platformFee,
+            agencyFee,
+            totalCost,
+            margin: salesAmount - totalCost,
+          }
+        })
+        .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.no || '').localeCompare(String(b.no || '')))
+      )
 
       for (const snapshot of snapshots) {
         const amount = Number(snapshot.vendor_settle_total) || 0
@@ -342,6 +406,8 @@ export default function SettleSummaryPage() {
           }
         }
       }
+    } else {
+      setReservationCostRows([])
     }
 
     const merged = emptyMap()
@@ -508,6 +574,15 @@ export default function SettleSummaryPage() {
       </div>
 
       <div className="tab-bar" style={{ marginBottom: '16px' }}>
+        <button
+          className={`tab-btn${summaryView === 'reservation-cost' ? ' active' : ''}`}
+          onClick={() => setSummaryView('reservation-cost')}
+        >
+          예약별 원가
+          <span style={{ marginLeft: '6px', fontSize: '11px', color: summaryView === 'reservation-cost' ? 'var(--accent)' : 'var(--text-muted)' }}>
+            {reservationCostRows.length}건
+          </span>
+        </button>
         {SETTLE_TYPES.map(type => {
           const data = rows[type.key] || []
           const count = data.reduce((sum, row) => sum + row.count, 0)
@@ -515,11 +590,14 @@ export default function SettleSummaryPage() {
           return (
             <button
               key={type.key}
-              className={`tab-btn${activeType === type.key ? ' active' : ''}`}
-              onClick={() => setActiveType(type.key)}
+              className={`tab-btn${summaryView === 'vendor' && activeType === type.key ? ' active' : ''}`}
+              onClick={() => {
+                setSummaryView('vendor')
+                setActiveType(type.key)
+              }}
             >
               {type.key}
-              <span style={{ marginLeft: '6px', fontSize: '11px', color: activeType === type.key ? 'var(--accent)' : 'var(--text-muted)' }}>
+              <span style={{ marginLeft: '6px', fontSize: '11px', color: summaryView === 'vendor' && activeType === type.key ? 'var(--accent)' : 'var(--text-muted)' }}>
                 {count}건 · ₩{fmt(amount)}
               </span>
             </button>
@@ -529,6 +607,52 @@ export default function SettleSummaryPage() {
 
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>조회 중...</div>
+      ) : summaryView === 'reservation-cost' ? (
+        <div className="list-card">
+          <div className="master-card-header">
+            <div>
+              <div className="master-card-title">예약별 원가</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                판매 예약 1건마다 정산총액과 예상 차액을 확인합니다.
+              </div>
+            </div>
+            <div style={{ fontSize:'12px', color:'var(--text-muted)' }}>
+              {startDate} ~ {endDate}
+            </div>
+          </div>
+          <div className="list-header" style={{ gridTemplateColumns: '74px 92px minmax(110px,1fr) minmax(140px,1.1fr) 54px 116px 112px 98px 98px 98px 112px 112px', gap:'8px', fontSize:'10px', alignItems:'center' }}>
+            <span>예약</span><span>날짜</span><span>고객명</span><span>상품</span><span style={{textAlign:'center'}}>인원</span><span>판매채널</span><span style={{textAlign:'right'}}>판매금액</span><span style={{textAlign:'right'}}>체험정산</span><span style={{textAlign:'right'}}>숙박/픽업</span><span style={{textAlign:'right'}}>수수료</span><span style={{textAlign:'right'}}>총 원가</span><span style={{textAlign:'right'}}>예상 차액</span>
+          </div>
+          {reservationCostRows.length === 0 ? (
+            <div style={{ padding:'32px', textAlign:'center', fontSize:'13px', color:'var(--text-muted)' }}>기간 내 예약별 원가 내역이 없습니다.</div>
+          ) : reservationCostRows.map(row => (
+            <div key={row.no} className="list-row" style={{ gridTemplateColumns: '74px 92px minmax(110px,1fr) minmax(140px,1.1fr) 54px 116px 112px 98px 98px 98px 112px 112px', gap:'8px', fontSize:'12px', alignItems:'center' }}>
+              <span className="no-col">#{row.no}</span>
+              <span style={{ color:'var(--text-secondary)' }}>{row.date || '-'}</span>
+              <span style={{ fontWeight:800, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={row.customer}>{row.customer || '-'}</span>
+              <span style={{ color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={row.packageName}>{row.packageName}</span>
+              <span style={{ textAlign:'center', fontWeight:800 }}>{row.pax}명</span>
+              <span style={{ color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={row.channel}>{row.channel}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:800, textAlign:'right' }}>₩{fmt(row.salesAmount)}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(row.experienceCost)}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(row.lodgingCost + row.pickupCost)}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(row.platformFee + row.agencyFee)}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:900, color:'var(--amber)', textAlign:'right' }}>₩{fmt(row.totalCost)}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:900, color: row.margin >= 0 ? 'var(--green)' : 'var(--red)', textAlign:'right' }}>₩{fmt(row.margin)}</span>
+            </div>
+          ))}
+          {reservationCostRows.length > 0 && (
+            <div style={{ padding:'12px 18px', borderTop:'1px solid var(--border2)', display:'grid', gridTemplateColumns:'minmax(0,1fr) 112px 98px 98px 98px 112px 112px', gap:'8px', fontSize:'12px', fontWeight:800, alignItems:'center' }}>
+              <span>합계</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.salesAmount, 0))}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.experienceCost, 0))}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.lodgingCost + row.pickupCost, 0))}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.platformFee + row.agencyFee, 0))}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", color:'var(--amber)', textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.totalCost, 0))}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", color:'var(--green)', textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.margin, 0))}</span>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="list-card">
           <div className="master-card-header">

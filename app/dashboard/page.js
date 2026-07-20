@@ -155,7 +155,7 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [resR, pkgR, zoneR, notR, vcR, lcR, pkR, usageR] = await Promise.all([
-      supabase.from('reservations').select('no,date,end_date,customer,tel,package_name,pax,type,is_deleted,total,settle_status,reservation_status,biz_id,op,payto,pickup_fee').order('date', { ascending: false }),
+      supabase.from('reservations').select('no,date,end_date,customer,tel,package_name,pax,type,is_deleted,total,settle_status,reservation_status,biz_id,op,payto,inflow,platform_name,agency_name,pickup_fee').order('date', { ascending: false }),
       supabase.from('packages').select('id,name,zone_code,pax_limit,total_price,is_deleted,package_zones(zone_code,is_deleted),package_programs(vendor_key,prog_name,is_deleted,vendors(key,name,color))'),
       supabase.from('zones').select('code,name,is_deleted').order('code'),
       supabase.from('notices').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date'),
@@ -450,6 +450,15 @@ export default function DashboardPage() {
         <div style={{ fontSize:'12px', fontWeight:500 }}>{value || '-'}</div>
       </div>
     )
+  }
+
+  function salesChannelLabel(row) {
+    const platform = row?.platform_name || ''
+    const agency = row?.agency_name || row?.payto || ''
+    if (platform && agency) return `${platform} / ${agency}`
+    if (platform) return platform
+    if (agency) return `전화/직접 / ${agency}`
+    return '-'
   }
 
   // 상태별 현황
@@ -902,7 +911,7 @@ export default function DashboardPage() {
                             {infoItem('구성', `${componentSummary.zoneCount}구역 / 상품 ${componentSummary.packageCount}건`)}
                             {infoItem('연락처', r.tel)}
                             {infoItem('날짜', `${r.date}${r.end_date && r.end_date !== r.date ? ` ~ ${r.end_date.slice(5)}` : ''}`)}
-                            {infoItem('결제처', r.payto)}
+                            {infoItem('판매채널', salesChannelLabel(r))}
                           </div>
                           <div style={{ marginBottom:'8px', padding:'9px 12px', background:'var(--navy2)', borderRadius:'8px', border:`1px solid ${lodges.some(l => l.checked) ? 'rgba(78,205,196,.25)' : 'var(--border2)'}` }}>
                             <div style={{ fontSize:'10px', color:'var(--text-muted)', letterSpacing:'.5px', marginBottom:'4px' }}>숙소</div>

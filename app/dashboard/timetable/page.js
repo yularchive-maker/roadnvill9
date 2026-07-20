@@ -43,6 +43,9 @@ function eventOverlapsRange(ev, start, end) {
   if (!ev?.date || !start || !end) return false
   return ev.date <= end && eventEndDate(ev) >= start
 }
+function isStayEvent(ev) {
+  return ev?.type === 'stay'
+}
 function isAllDayEvent(ev) {
   return ev?.type === 'notice' && ev?.is_all_day_notice
 }
@@ -250,6 +253,93 @@ function buildNoticeEvents(notices = []) {
   })
 }
 
+function lodgeInfoForReservation(lodgeConfirms = [], reservationNo) {
+  const rows = (lodgeConfirms || [])
+    .filter(row => String(row?.reservation_no || '') === String(reservationNo || '') && row.is_deleted !== true)
+    .filter(row => row.lodge_name || row.room_name)
+  if (!rows.length) return { label: '', detail: '' }
+  const labels = rows.map(row => [row.lodge_name, row.room_name].filter(Boolean).join(' / ')).filter(Boolean)
+  const details = rows.map(row => {
+    const place = [row.lodge_name, row.room_name].filter(Boolean).join(' / ')
+    return [place, row.guest_assignment].filter(Boolean).join(' - ')
+  }).filter(Boolean)
+  return {
+    label: labels[0] || '',
+    detail: details.join('\n'),
+  }
+}
+
+function buildStayBridgeEvents(autoEvents = [], reservations = [], lodgeConfirms = []) {
+  const byReservation = new Map()
+  ;(autoEvents || [])
+    .filter(ev => ev?.reservation_no && ev.type !== 'pickup' && ev.type !== 'notice' && ev.type !== 'stay' && ev.date && ev.start_time && ev.end_time)
+    .forEach(ev => {
+      const key = String(ev.reservation_no)
+      if (!byReservation.has(key)) byReservation.set(key, [])
+      byReservation.get(key).push(ev)
+    })
+
+  const stayEvents = []
+  byReservation.forEach((items, no) => {
+    const byDate = new Map()
+    items.forEach(ev => {
+      if (!byDate.has(ev.date)) byDate.set(ev.date, [])
+      byDate.get(ev.date).push(ev)
+    })
+    const dates = [...byDate.keys()].sort()
+    for (let i = 0; i < dates.length - 1; i++) {
+      const cur = dates[i]
+      const next = dates[i + 1]
+      if (next !== addDaysStr(cur, 1)) continue
+
+      const curEvents = byDate.get(cur).slice().sort((a, b) => timeToMin(a.end_time) - timeToMin(b.end_time))
+      const nextEvents = byDate.get(next).slice().sort((a, b) => timeToMin(a.start_time) - timeToMin(b.start_time))
+      const last = curEvents[curEvents.length - 1]
+      const first = nextEvents[0]
+      const r = reservations.find(x => String(x.no) === no)
+      const lodgeInfo = lodgeInfoForReservation(lodgeConfirms, no)
+      const stayLabel = lodgeInfo.label ? `숙박 · ${lodgeInfo.label}` : '숙박'
+      const baseStay = {
+        type: 'stay',
+        vendor_key: 'STAY',
+        vendor_name: '숙박',
+        vendor_color: '#2E8796',
+        prog_name: stayLabel,
+        stay_label: stayLabel,
+        lodge_info: lodgeInfo.label,
+        lodge_detail: lodgeInfo.detail,
+        reservation_no: no,
+        pkg_name: r?.package_name || r?.pkg || last?.pkg_name || first?.pkg_name || '',
+        customer: r?.customer || last?.customer || first?.customer || '',
+        pax: Number(r?.pax) || Number(last?.pax) || Number(first?.pax) || 0,
+        zone_code: r?.zone_code || r?.zone || last?.zone_code || first?.zone_code || '',
+        memo: [`${cur} ${last?.end_time?.slice(0, 5) || ''} 이후부터 ${next} ${first?.start_time?.slice(0, 5) || ''} 전까지 이어지는 숙박 구간입니다.`, lodgeInfo.detail ? `숙소: ${lodgeInfo.detail}` : ''].filter(Boolean).join('\n'),
+        is_manual: false,
+        is_stay_bridge: true,
+      }
+      stayEvents.push({
+        ...baseStay,
+        id: `stay_${no}_${cur}_night`,
+        date: cur,
+        start_time: last?.end_time || '18:00',
+        end_time: '24:00',
+        stay_range_start: cur,
+        stay_range_end: next,
+      })
+      stayEvents.push({
+        ...baseStay,
+        id: `stay_${no}_${next}_morning`,
+        date: next,
+        start_time: '00:00',
+        end_time: first?.start_time || '08:00',
+        stay_range_start: cur,
+        stay_range_end: next,
+      })
+    }
+  })
+  return stayEvents
+}
+
 function dateOnlyNotices(notices = [], date) {
   return notices.filter(n => (
     n && n.is_deleted !== true && n.date &&
@@ -260,7 +350,7 @@ function dateOnlyNotices(notices = [], date) {
 
 // 겹침 감지: 같은 업체 충돌은 강하게, 다른 일정 간 시간 겹침도 놓치지 않게 표시
 function isTimedConflictTarget(ev) {
-  return ev && ev.type !== 'pickup' && !isAllDayEvent(ev) && ev.start_time && ev.end_time
+  return ev && ev.type !== 'pickup' && !isStayEvent(ev) && !isAllDayEvent(ev) && ev.start_time && ev.end_time
 }
 
 function eventsOverlapTime(a, b) {
@@ -611,9 +701,13 @@ function NoticeEventModal({ open, onClose, onSave, defaultDate, defaultStartTime
 function EventPopup({ ev, pos, onClose, onEdit, onDelete, zones }) {
   if (!ev) return null
   const zone = zones.find(z => z.code === ev.zone_code)
-  const popupDateLabel = ev.end_date && ev.end_date !== ev.date ? `${ev.date} ~ ${ev.end_date}` : ev.date
-  const popupTimeLabel = ev.is_all_day_notice ? '00:00 ~ 24:00' : `${ev.start_time?.slice(0,5)} ~ ${ev.end_time?.slice(0,5)}`
-  const popupKind = ev.type === 'notice' ? '일반 일정' : ev.type === 'pickup' ? '🚐 픽업/드랍 일정' : '체험 일정'
+  const popupDateLabel = isStayEvent(ev) && ev.stay_range_start && ev.stay_range_end
+    ? `${ev.stay_range_start} ~ ${ev.stay_range_end}`
+    : ev.end_date && ev.end_date !== ev.date ? `${ev.date} ~ ${ev.end_date}` : ev.date
+  const popupTimeLabel = isStayEvent(ev)
+    ? `${ev.start_time?.slice(0,5)} ~ ${ev.end_time?.slice(0,5)}`
+    : ev.is_all_day_notice ? '00:00 ~ 24:00' : `${ev.start_time?.slice(0,5)} ~ ${ev.end_time?.slice(0,5)}`
+  const popupKind = ev.type === 'notice' ? '일반 일정' : ev.type === 'pickup' ? '🚐 픽업/드랍 일정' : isStayEvent(ev) ? '숙박 연결' : '체험 일정'
   return (
     <div style={{position:'fixed',inset:0,zIndex:900}} onClick={onClose}>
       <div style={{position:'fixed', top: pos.y, left: pos.x,
@@ -630,7 +724,8 @@ function EventPopup({ ev, pos, onClose, onEdit, onDelete, zones }) {
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:'5px',fontSize:'12px'}}>
           <div><span style={{color:'#8a9ab0'}}>{ev.type === 'notice' ? '구분 ' : '업체 '} </span><span style={{color:'#e8eaed'}}>{ev.vendor_name}</span></div>
-          {ev.prog_name && <div><span style={{color:'#8a9ab0'}}>{ev.type === 'notice' ? '제목 ' : '프로그램 '} </span><span style={{color:'#e8eaed'}}>{ev.prog_name}</span></div>}
+          {ev.prog_name && <div><span style={{color:'#8a9ab0'}}>{ev.type === 'notice' ? '제목 ' : isStayEvent(ev) ? '구간 ' : '프로그램 '} </span><span style={{color:'#e8eaed'}}>{ev.prog_name}</span></div>}
+          {isStayEvent(ev) && ev.lodge_detail && <div><span style={{color:'#8a9ab0'}}>숙소 </span><span style={{color:'#e8eaed',whiteSpace:'pre-wrap'}}>{ev.lodge_detail}</span></div>}
           {ev.customer && <div><span style={{color:'#8a9ab0'}}>고객 </span><span style={{color:'#e8eaed'}}>{ev.customer}{ev.pax?` (${ev.pax}명)`:''}</span></div>}
           {ev.pkg_name && <div><span style={{color:'#8a9ab0'}}>패키지 </span><span style={{color:'#e8eaed'}}>{ev.pkg_name}</span></div>}
           {ev.reservation_no && <div><span style={{color:'#8a9ab0'}}>예약 </span><span style={{color:'#e8eaed'}}>#{ev.reservation_no}</span></div>}
@@ -676,6 +771,7 @@ export default function TimetablePage() {
   const [budgetUsages, setBudgetUsages] = useState([])
   const [zones,        setZones]        = useState([])
   const [notices,      setNotices]      = useState([])
+  const [lodgeConfirms,setLodgeConfirms]= useState([])
   const [manualEvents, setManualEvents] = useState([])
   const [loading,      setLoading]      = useState(true)
   const [view,         setView]         = useState('day')
@@ -709,12 +805,14 @@ export default function TimetablePage() {
       supabase.from('reservation_budget_usages').select('id,reservation_no,usage_type,operation_type,sale_type,item_name,component_uid,zone_code,zone_codes,package_id,package_name,vendor_key,prog_name,people_count,start_time,end_time,place,is_deleted').or('is_deleted.is.null,is_deleted.eq.false'),
       supabase.from('zones').select('*').order('code'),
       supabase.from('notices').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('date').order('start_time', { nullsFirst: true }),
-    ]).then(([vR, rR, pR, uR, zR, nR]) => {
+      supabase.from('lodge_confirms').select('*').or('is_deleted.is.null,is_deleted.eq.false'),
+    ]).then(([vR, rR, pR, uR, zR, nR, lR]) => {
       setVendors(vR.data || [])
       setReservations(rR.data || [])
       setPackages(pR.data || [])
       setBudgetUsages(uR.data || [])
       setNotices(nR.data || [])
+      setLodgeConfirms(lR.data || [])
       const zd = zR.data || []
       setZones(zd)
       if (zd.length) setSelZone(zd[0].code)
@@ -741,9 +839,11 @@ export default function TimetablePage() {
 
   // ── 전체 이벤트 = 자동 + 수동
   const autoEvents = buildAutoEvents(reservations, packages, budgetUsages, vendors)
+  const stayEvents = buildStayBridgeEvents(autoEvents, reservations, lodgeConfirms)
   const noticeEvents = buildNoticeEvents(notices)
   const allEvents = [
     ...autoEvents.map(e => ({ ...e, id: String(e.id) })),
+    ...stayEvents.map(e => ({ ...e, id: String(e.id) })),
     ...noticeEvents.map(e => ({ ...e, id: String(e.id) })),
     ...manualEvents.map(e => ({ ...e, id: String(e.id), vendor_name: e.vendor_name || e.vendor_key || '' })),
   ]
@@ -1081,12 +1181,14 @@ export default function TimetablePage() {
   const eventTitle = ev => {
     if (ev.type === 'pickup') return ev.prog_name || ev.vendor_name || '픽업'
     if (ev.type === 'notice') return ev.prog_name || ev.title || 'NOTICE'
+    if (isStayEvent(ev)) return ev.prog_name || '숙박'
     return ev.prog_name || ev.pkg_name || ev.vendor_name || '체험'
   }
 
   const eventSubTitle = ev => {
     const parts = []
-    if (ev.vendor_name && ev.type !== 'pickup' && ev.type !== 'notice') parts.push(ev.vendor_name)
+    if (ev.vendor_name && ev.type !== 'pickup' && ev.type !== 'notice' && !isStayEvent(ev)) parts.push(ev.vendor_name)
+    if (isStayEvent(ev) && ev.customer) parts.push(`${ev.customer}${ev.pax ? ` ${ev.pax}명` : ''}`)
     if (ev.customer && (ev.type === 'pickup' || ev.type === 'notice')) parts.push(`${ev.customer}${ev.pax ? ` ${ev.pax}명` : ''}`)
     return parts.join(' · ')
   }
@@ -1117,6 +1219,8 @@ export default function TimetablePage() {
     const borderColor = level ? '#33FF66' : color
     const rowTop = 10 + (ev._laneRow || 0) * 34
     const timeText = `${ev.start_time?.slice(0,5)}~${ev.end_time?.slice(0,5)}`
+    const displayTitle = isStayEvent(ev) ? eventTitle(ev) : ''
+    const displaySubTitle = isStayEvent(ev) && ev.customer ? `${ev.customer}${ev.pax ? ` ${ev.pax}명` : ''}` : ''
 
     return (
       <button
@@ -1134,26 +1238,26 @@ export default function TimetablePage() {
           top:rowTop,
           height:'28px',
           minWidth:'12px',
-          padding:0,
+          padding:isStayEvent(ev) ? '3px 7px' : 0,
           border:`${level ? 2 : 1}px solid ${borderColor}`,
           borderLeft:`${level ? 3 : 1}px solid ${borderColor}`,
           borderRadius:'6px',
           background: color,
-          color:'transparent',
+          color:isStayEvent(ev) ? '#fffdf0' : 'transparent',
           boxShadow: level ? '0 0 0 1px rgba(51,255,102,.28), 0 0 16px rgba(51,255,102,.12)' : '0 6px 18px rgba(0,0,0,.16)',
           cursor:'pointer',
           overflow:'hidden',
-          textAlign:'center',
+          textAlign:isStayEvent(ev) ? 'left' : 'center',
           fontFamily:'Noto Sans KR, sans-serif',
           zIndex: level ? 5 : 3,
         }}
         title={`${eventTitle(ev)} · ${timeText}`}
       >
-        <span style={{display:'block',fontSize:'11px',fontWeight:'800',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'14px'}}>
-          {''}
+        <span style={{display:'block',fontSize:'11px',fontWeight:'900',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'13px'}}>
+          {displayTitle}
         </span>
-        <span style={{display:'block',fontSize:'9px',opacity:.82,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'11px',color:'var(--text-primary)'}}>
-          {''}
+        <span style={{display:'block',fontSize:'9px',opacity:.86,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'10px',color:isStayEvent(ev) ? '#fffdf0' : 'var(--text-primary)'}}>
+          {displaySubTitle}
         </span>
       </button>
     )
@@ -1272,7 +1376,7 @@ export default function TimetablePage() {
 
   const AllDayLane = ({ dates }) => {
     const dateList = Array.isArray(dates) ? dates : [dates]
-    const rows = buildNoticeEvents(notices)
+    const rows = allEvents
       .filter(ev => isAllDayEvent(ev) && dateList.some(ds => eventActiveOn(ev, ds)))
       .map(ev => {
         const startIdx = dateList.findIndex(ds => eventActiveOn(ev, ds))
@@ -1663,7 +1767,7 @@ export default function TimetablePage() {
       const startDate = dates.length ? dates.reduce((a, b) => a < b ? a : b) : ''
       const endDate = dates.length ? dates.reduce((a, b) => a > b ? a : b) : startDate
       const r = reservations.find(x => String(x.no) === String(no))
-      const expCount = allItemEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
+      const expCount = allItemEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice' && !isStayEvent(e)).length
       const pickupCount = allItemEvents.filter(e => e.type === 'pickup').length
       return {
         key: `res_${no}`,
@@ -1958,7 +2062,7 @@ export default function TimetablePage() {
       return eventOverlapsRange(e, start, end)
     })
   })()
-  const visibleExpCount = visibleEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice').length
+  const visibleExpCount = visibleEvents.filter(e => e.type !== 'pickup' && e.type !== 'notice' && !isStayEvent(e)).length
   const visiblePickupCount = visibleEvents.filter(e => e.type === 'pickup').length
   const visibleReservationCount = new Set(visibleEvents.map(e => e.reservation_no).filter(Boolean)).size
 
@@ -2100,10 +2204,13 @@ export default function TimetablePage() {
             <div style={{padding:'12px 18px',maxHeight:'56vh',overflowY:'auto'}}>
               {(monthReservationDetail.item.events || [])
                 .slice()
-                .sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')))
+                .sort((a, b) =>
+                  String(a.date || '').localeCompare(String(b.date || '')) ||
+                  String(a.start_time || '').localeCompare(String(b.start_time || ''))
+                )
                 .map((ev, idx) => {
-                  const color = ev.vendor_color || (ev.type === 'pickup' ? '#B8B8FF' : '#4ECDC4')
-                  const timeText = ev.is_all_day_notice ? '종일' : `${ev.start_time?.slice(0,5) || '-'} ~ ${ev.end_time?.slice(0,5) || '-'}`
+                  const color = ev.vendor_color || (ev.type === 'pickup' ? '#B8B8FF' : isStayEvent(ev) ? '#2E8796' : '#4ECDC4')
+                  const timeText = isStayEvent(ev) ? '숙박' : ev.is_all_day_notice ? '종일' : `${ev.start_time?.slice(0,5) || '-'} ~ ${ev.end_time?.slice(0,5) || '-'}`
                   return (
                     <button key={`${ev.id}-${idx}`} type="button"
                             onClick={e => {

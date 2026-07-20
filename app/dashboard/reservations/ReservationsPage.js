@@ -17,6 +17,22 @@ const RIGHT_CELL = { display:'flex', alignItems:'center', justifyContent:'flex-e
 const NOWRAP_CELL = { overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
 const COMPACT_ACTION_BUTTON = { display:'inline-flex', alignItems:'center', justifyContent:'center', minWidth:'78px', whiteSpace:'nowrap' }
 
+function salesChannelLabel(row) {
+  const platform = row?.platform_name || ''
+  const agency = row?.agency_name || row?.payto || ''
+  if (platform && agency) return `${platform} / ${agency}`
+  if (platform) return platform
+  if (agency) return `전화/직접 / ${agency}`
+  return '판매채널 미입력'
+}
+
+function salesChannelTitle(row) {
+  return [
+    `플랫폼/판매채널: ${row?.platform_name || '해당없음(전화/직접)'}`,
+    `여행사/관리처: ${row?.agency_name || row?.payto || '-'}`,
+  ].join('\n')
+}
+
 function activeRows(rows) {
   return (rows || []).filter(row => row && row.is_deleted !== true)
 }
@@ -139,7 +155,7 @@ function StatusQuickPanel({ title, summary, value, options, onChange, hint, disa
 function emptyLodgeRow() {
   return {
     lodge_vendor_id:'', lodge_id:'', lodge_name:'', room_name:'',
-    room_price:0, price_type:'per_room',
+    room_price:0, price_type:'per_room', guest_assignment:'',
     support_amt:0, support_by:'', burden:0, checked:false, note:'',
   }
 }
@@ -1242,8 +1258,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   async function insertLodgeRows(rows) {
     const { error } = await supabase.from('lodge_confirms').insert(rows)
     if (!error) return null
-    if (error.code === '42703' && error.message?.includes('price_type')) {
-      const legacyRows = rows.map(({ price_type, ...row }) => row)
+    if (error.code === '42703') {
+      const legacyRows = rows.map(({ price_type, guest_assignment, ...row }) => row)
       const retry = await supabase.from('lodge_confirms').insert(legacyRows)
       return retry.error || null
     }
@@ -2327,6 +2343,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                           room_name:'',
                           room_price:0,
                           price_type:'per_room',
+                          guest_assignment:'',
                         }))}>
                           <option value="">선택</option>
                           {visibleLodgeVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
@@ -2349,6 +2366,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             room_name:'',
                             room_price:0,
                             price_type:'per_room',
+                            guest_assignment:'',
                           }))
                         }}>
                           <option value="">선택</option>
@@ -2375,7 +2393,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                         <input className="form-input auto-fill" inputMode="numeric" value={numberInputValue(lgRow.room_price)} onChange={e=>setLgRow(r=>({...r,room_price:numberInputChange(e.target.value)}))}/>
                       </div>
                     </div>
-                    <div className="form-grid form-grid-2" style={{marginBottom:'8px',gap:'8px'}}>
+                    <div className="form-grid form-grid-3" style={{marginBottom:'8px',gap:'8px'}}>
+                      <div className="form-field">
+                        <label>숙박자/배정메모</label>
+                        <input className="form-input" value={lgRow.guest_assignment||''} onChange={e=>setLgRow(r=>({...r,guest_assignment:e.target.value}))} placeholder="예: 남학생 8명 / 인솔교사 2명"/>
+                      </div>
                       <div className="form-field">
                         <label>숙박지원금</label>
                         <input className="form-input" inputMode="numeric" value={numberInputValue(lgRow.support_amt)} onChange={e=>setLgRow(r=>({...r,support_amt:numberInputChange(e.target.value)}))}/>
@@ -2389,14 +2411,15 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   </>
                 )}
                 <div className="list-box">
-                  <div className="list-box-header" style={{gridTemplateColumns:'1fr 1fr 70px 80px 80px 40px'}}>
-                    <span>숙소</span><span>객실</span><span>유형</span><span>금액</span><span>부담금</span><span/>
+                  <div className="list-box-header" style={{gridTemplateColumns:'1fr 1fr 1fr 70px 80px 80px 40px'}}>
+                    <span>숙소</span><span>객실</span><span>숙박자</span><span>유형</span><span>금액</span><span>부담금</span><span/>
                   </div>
                   {lodges.length === 0 && <div className="list-box-empty">배정된 객실 없음</div>}
                   {lodges.map(l=>(
-                    <div key={l.id} className="list-box-row" style={{gridTemplateColumns:'1fr 1fr 70px 80px 80px 40px'}}>
+                    <div key={l.id} className="list-box-row" style={{gridTemplateColumns:'1fr 1fr 1fr 70px 80px 80px 40px'}}>
                       <span>{l.lodge_name||'-'}</span>
                       <span>{l.room_name||'-'}</span>
+                      <span title={l.guest_assignment||''}>{l.guest_assignment||'-'}</span>
                       <span style={{fontSize:'11px',color:'var(--text-muted)'}}>{priceTypeLabel(l.price_type)}</span>
                       <span style={{fontFamily:'DM Mono,monospace',fontSize:'11px'}}>{(l.room_price||0).toLocaleString()}</span>
                       <span style={{fontFamily:'DM Mono,monospace',fontSize:'11px'}}>{(l.burden||0).toLocaleString()}</span>
@@ -2432,16 +2455,16 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
                   <div className="form-field">
-                    <label>플랫폼</label>
+                    <label>플랫폼/판매채널</label>
                     <select className="form-select" value={form.platform_name||''} onChange={e=>onPlatformChange(e.target.value)}>
-                      <option value="">해당없음</option>
+                      <option value="">해당없음(전화/직접)</option>
                       {platformOptions.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>여행사 <span className="req">*</span></label>
+                    <label>여행사/관리처 <span className="req">*</span></label>
                     <select className="form-select" value={form.agency_name||''} onChange={e=>onAgencyChange(e.target.value)}>
-                      <option value="">여행사 선택</option>
+                      <option value="">여행사/관리처 선택</option>
                       {agencyOptions.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
                   </div>
@@ -2454,7 +2477,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   <div>
                     <span>자동 적용</span>
                     <strong>
-                      플랫폼 {form.platform_name || '해당없음'} · {form.plat_fee || 0}% / 여행사 {form.agency_name || '미선택'} · {form.ag_fee || 0}%
+                      판매채널 {form.platform_name || '해당없음(전화/직접)'} · {form.plat_fee || 0}% / 여행사 {form.agency_name || '미선택'} · {form.ag_fee || 0}%
                     </strong>
                   </div>
                   <button type="button" className="btn-outline btn-sm" onClick={() => setShowPaymentDetails(v => !v)}>
@@ -2950,7 +2973,7 @@ export default function ReservationsPage() {
                 <span>{summary.maxPeople || r.pax || 0}명</span>
               </div>
               <div className="mobile-reservation-card-foot">
-                <span>{r.payto || '결제처 미입력'}</span>
+                <span title={salesChannelTitle(r)}>{salesChannelLabel(r)}</span>
                 <strong>{(r.total || 0).toLocaleString()}원</strong>
                 <span className={reservationSettleState(r) === 'settled' ? 'is-complete' : 'is-pending'}>
                   {reservationSettleState(r) === 'settled' ? '정산완료' : '미정산'}
@@ -2972,7 +2995,7 @@ export default function ReservationsPage() {
           <span style={CENTER_CELL}>구역</span>
           <span style={CENTER_CELL}>구성</span>
           <span style={RIGHT_CELL}>총금액</span>
-          <span style={CENTER_CELL}>결제처</span>
+          <span style={CENTER_CELL}>판매채널</span>
           <span style={CENTER_CELL}>운영</span>
           <span style={CENTER_CELL}>정산</span>
         </div>
@@ -2996,7 +3019,10 @@ export default function ReservationsPage() {
                 <span style={{color:'var(--accent)'}}>상품 {summary.packageCount}건</span>
               </span>
               <span style={{...RIGHT_CELL,fontFamily:'DM Mono,monospace',fontSize:'12px',fontWeight:700}}>{(r.total||0).toLocaleString()}</span>
-              <span style={{...CENTER_CELL,fontSize:'12px',color:'var(--text-secondary)', ...NOWRAP_CELL}} title={r.payto || '-'}>{r.payto||'-'}</span>
+              <span style={{...CENTER_CELL,flexDirection:'column',gap:'2px',fontSize:'11px',lineHeight:1.15,color:'var(--text-secondary)',minWidth:0}} title={salesChannelTitle(r)}>
+                <span style={{...NOWRAP_CELL,width:'100%',fontWeight:700,color:r.platform_name ? 'var(--accent)' : 'var(--text-muted)'}}>{r.platform_name || '전화/직접'}</span>
+                <span style={{...NOWRAP_CELL,width:'100%'}}>{r.agency_name || r.payto || '-'}</span>
+              </span>
               <span style={CENTER_CELL}>
                 <span style={{fontSize:'11px',minWidth:'52px',textAlign:'center',padding:'2px 8px',borderRadius:'4px',background: r.op==='사업비'?'rgba(123,104,238,.1)':'rgba(78,205,196,.08)',color: r.op==='사업비'?'var(--purple)':'var(--text-muted)',fontWeight:600}}>{r.op}</span>
               </span>
