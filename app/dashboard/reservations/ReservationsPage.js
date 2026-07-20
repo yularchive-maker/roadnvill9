@@ -103,7 +103,7 @@ function priceTypeLabel(type) {
   return type === 'per_person' ? '인원당' : '객실당'
 }
 
-function StatusQuickPanel({ title, summary, value, options, onChange, hint, disabledOptions = [] }) {
+function StatusQuickPanel({ title, summary, value, options, onChange, hint, disabledOptions = [], optionColumns = 0 }) {
   const disabled = new Set(disabledOptions)
   return (
     <div className="status-quick-panel" style={{
@@ -121,7 +121,7 @@ function StatusQuickPanel({ title, summary, value, options, onChange, hint, disa
         <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'3px', lineHeight:1.35 }}>{summary}</div>
         {hint && <div style={{ fontSize:'11px', color:'var(--amber)', marginTop:'4px', lineHeight:1.35 }}>{hint}</div>}
       </div>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', flexWrap:'wrap', gap:'6px' }}>
+      <div className={`status-quick-actions${optionColumns === 2 ? ' is-two-column' : ''}`}>
         {options.map(option => {
           const active = value === option
           const isDisabled = disabled.has(option)
@@ -616,6 +616,22 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   function componentBiz(row) {
     return bizList.find(b => String(b.id) === String(row.biz_id))
+  }
+
+  function componentBusinessOptions(row) {
+    return bizList.filter(biz => {
+      // Keep legacy selections editable, but hide business rows that are already
+      // represented as a product under another business.
+      if (String(biz.id) === String(row.biz_id || '')) return true
+      const businessName = String(biz.name || '').trim()
+      if (!businessName) return false
+      return !budgetItems.some(item =>
+        item.category === 'product_operation' &&
+        item.is_active !== false &&
+        String(item.item_name || '').trim() === businessName &&
+        String(item.biz_id || '') !== String(biz.id)
+      )
+    })
   }
 
   function componentVendor(row) {
@@ -2058,19 +2074,19 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                             </div>
                             <button type="button" className="icon-btn" onClick={()=>removeComponentRow(row.id)}>×</button>
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(0,1fr) 112px 112px minmax(128px,.65fr)' : 'minmax(0,1fr) 112px 112px',gap:'8px',alignItems:'end'}}>
-                            <div className="form-field">
+                          <div className={`reservation-component-controls${row.operation_type === 'business' ? ' is-business' : ''}`}>
+                            <div className="form-field component-zone-field">
                               <label>구역</label>
-                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                              <div className="component-zone-buttons">
                                 {zones.map(z => {
                                   const active = selectedZoneCodes.includes(z.code)
                                   return (
                                     <button
                                       key={z.code}
                                       type="button"
-                                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                                      className={`${active ? 'btn-primary' : 'btn-outline'} btn-sm component-zone-btn`}
                                       onClick={() => toggleComponentZone(row.id, z.code)}
-                                      style={{height:'32px',minWidth:'76px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
+                                      style={{height:'32px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
                                       {z.name}
                                     </button>
@@ -2078,7 +2094,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                 })}
                               </div>
                             </div>
-                            <div className="form-field">
+                            <div className="form-field component-operation-field">
                               <label>운영구분</label>
                               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}}>
                                 {[
@@ -2090,8 +2106,8 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                     <button
                                       key={value}
                                       type="button"
-                                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
                                       onClick={() => updateComponentRow(row.id,{operation_type:value})}
+                                      className={`${active ? 'btn-primary' : 'btn-outline'} btn-sm component-choice-btn`}
                                       style={{height:'34px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
                                       {label}
@@ -2100,7 +2116,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                 })}
                               </div>
                             </div>
-                            <div className="form-field">
+                            <div className="form-field component-sale-field">
                               <label>판매형태</label>
                               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}}>
                                 {[
@@ -2112,7 +2128,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                                     <button
                                       key={value}
                                       type="button"
-                                      className={active ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+                                      className={`${active ? 'btn-primary' : 'btn-outline'} btn-sm component-choice-btn`}
                                       onClick={() => updateComponentRow(row.id,{sale_type:value})}
                                       style={{height:'34px',padding:'0 8px',display:'flex',alignItems:'center',justifyContent:'center',textAlign:'center'}}
                                     >
@@ -2123,17 +2139,17 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               </div>
                             </div>
                             {row.operation_type === 'business' && (
-                              <div className="form-field">
+                              <div className="form-field component-business-field">
                                 <label>사업명</label>
                                 <select className="form-select" value={row.biz_id||''} onChange={e=>updateComponentRow(row.id,{biz_id:e.target.value,selection:''})}>
                                   <option value="">전체 사업</option>
-                                  {bizList.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                                  {componentBusinessOptions(row).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                                 </select>
                               </div>
                             )}
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:row.operation_type === 'business' ? 'minmax(0,1fr) 126px 70px' : 'minmax(0,1fr) 70px',gap:'8px',alignItems:'end',marginTop:'8px'}}>
-                            <div className="form-field">
+                          <div className={`reservation-product-selection-grid${row.operation_type === 'business' && row.sale_type === 'package' && row.budget_item_id ? ' has-actual-package' : ''}`}>
+                            <div className="form-field component-product-field">
                               <label>{row.operation_type === 'business' ? '사업비 상품 선택' : '상품 선택'}</label>
                               <select className="form-select" value={rowSelectionValue(row)} onChange={e=>updateComponentRow(row.id,{selection:e.target.value})} disabled={!canSelectProduct}>
                                 <option value="">{canSelectProduct ? '선택' : '구역 먼저 선택'}</option>
@@ -2144,7 +2160,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                               )}
                             </div>
                             {row.operation_type === 'business' && row.sale_type === 'package' && row.budget_item_id && (
-                              <div className="form-field" style={{gridColumn:'1 / -1'}}>
+                              <div className="form-field component-actual-package-field">
                                 <label>실제 진행 패키지 <span className="auto">체험 구성 선택</span></label>
                                 <select className="form-select" value={row.package_id || ''} onChange={e=>updateComponentRow(row.id,{actual_package_id:e.target.value})}>
                                   <option value="">하위 사업비 패키지 선택 안 함 (인원만 카운팅)</option>
@@ -2321,6 +2337,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                   summary={`배정 객실 ${lodges.length}개 · 현재 상태 ${form.lodging_status || '해당없음'}`}
                   value={form.lodging_status || '해당없음'}
                   options={['해당없음', '배정필요', '배정완료', '확정완료']}
+                  optionColumns={2}
                   disabledOptions={lodges.length === 0 ? ['배정완료', '확정완료'] : []}
                   hint={lodges.length === 0 ? '숙박이 없는 예약은 해당없음, 숙박이 있으면 객실 추가 후 배정완료/확정완료를 선택하세요.' : '상태 변경 후 하단 저장 버튼을 눌러야 반영됩니다.'}
                   onChange={value => inp('lodging_status', value)}

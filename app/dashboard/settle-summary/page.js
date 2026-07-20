@@ -158,10 +158,11 @@ export default function SettleSummaryPage() {
   const [packages, setPackages] = useState([])
   const [rows, setRows] = useState(emptyRows())
   const [reservationCostRows, setReservationCostRows] = useState([])
-  const [summaryView, setSummaryView] = useState('vendor')
+  const [summaryView, setSummaryView] = useState('reservation-cost')
   const [activeType, setActiveType] = useState(SETTLE_TYPES[0].key)
   const [expandedRows, setExpandedRows] = useState({})
-  const [hasQueried, setHasQueried] = useState(false)
+  const [expandedCostRows, setExpandedCostRows] = useState({})
+  const [hasQueried, setHasQueried] = useState(true)
 
   useEffect(() => {
     Promise.all([
@@ -242,10 +243,11 @@ export default function SettleSummaryPage() {
     if (reservations?.length) {
       const reservationNos = reservations.map(item => item.no)
       const reservationByNo = Object.fromEntries(reservations.map(item => [item.no, item]))
-      const [lodgeRes, pickupRes, snapshotRes] = await Promise.all([
+      const [lodgeRes, pickupRes, snapshotRes, supportRes] = await Promise.all([
         supabase.from('lodge_confirms').select('*').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
         supabase.from('reservation_pickup').select('*, drivers(name)').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
         supabase.from('reservation_program_snapshots').select('*').in('reservation_no', reservationNos).or('is_deleted.is.null,is_deleted.eq.false'),
+        supabase.from('reservation_budget_usages').select('reservation_no,usage_type,prepaid_total_amount,used_amount,is_deleted').in('reservation_no', reservationNos).in('usage_type', ['promotion_discount', 'business_support']).or('is_deleted.is.null,is_deleted.eq.false'),
       ])
 
       const snapshots = snapshotRes.data || []
@@ -265,6 +267,11 @@ export default function SettleSummaryPage() {
         map[pickup.reservation_no].push(pickup)
         return map
       }, {})
+      const supportRowsByNo = (supportRes.data || []).reduce((map, usage) => {
+        if (!map[usage.reservation_no]) map[usage.reservation_no] = []
+        map[usage.reservation_no].push(usage)
+        return map
+      }, {})
 
       setReservationCostRows(reservations
         .map(reservation => {
@@ -282,15 +289,31 @@ export default function SettleSummaryPage() {
           const pickupCost = (pickupsByNo[reservation.no] || []).reduce((sum, pickup) => sum + (Number(pickup.pickup_fee) || 0), 0)
           const platformFee = Number(reservation.platform_fee_amount) || feeAmount(reservation.experience_sales_amount || reservation.total, reservation.plat_fee)
           const agencyFee = Number(reservation.agency_fee_amount) || feeAmount(reservation.experience_sales_amount || reservation.total, reservation.ag_fee)
-          const salesAmount = Number(reservation.experience_sales_amount) || Number(reservation.total) || 0
+          const customerPaymentAmount = Number(reservation.total) || Number(reservation.experience_sales_amount) || 0
+          const supportRows = supportRowsByNo[reservation.no] || []
+          const promotionRows = supportRows.filter(usage => usage.usage_type === 'promotion_discount')
+          const applicableSupportRows = promotionRows.length
+            ? promotionRows
+            : supportRows.filter(usage => usage.usage_type === 'business_support')
+          const supportAmount = applicableSupportRows.reduce((sum, usage) => (
+            sum + (Number(usage.prepaid_total_amount) || Number(usage.used_amount) || 0)
+          ), 0)
+          const reservationPax = Number(reservation.pax) || 0
+          const customerUnitAmount = reservationPax > 0 ? Math.round(customerPaymentAmount / reservationPax) : 0
+          const supportUnitAmount = reservationPax > 0 ? Math.round(supportAmount / reservationPax) : 0
+          const salesAmount = customerPaymentAmount + supportAmount
           const totalCost = experienceCost + lodgingCost + pickupCost + platformFee + agencyFee
           return {
             no: reservation.no,
             date: reservation.date,
             customer: reservation.customer,
             packageName: pkgName(reservation) || '-',
-            pax: Number(reservation.pax) || 0,
+            pax: reservationPax,
             channel: salesChannelLabel(reservation),
+            customerPaymentAmount,
+            supportAmount,
+            customerUnitAmount,
+            supportUnitAmount,
             salesAmount,
             experienceCost,
             lodgingCost,
@@ -453,7 +476,14 @@ export default function SettleSummaryPage() {
   const overallUnsettled = allRows.reduce((sum, row) => sum + row.unsettled, 0)
   const overallSettled = allRows.reduce((sum, row) => sum + row.settled, 0)
   const overallCount = allRows.reduce((sum, row) => sum + row.count, 0)
+  const reservationTotals = useMemo(() => reservationCostRows.reduce((totals, row) => ({
+    count: totals.count + 1,
+    sales: totals.sales + row.salesAmount,
+    cost: totals.cost + row.totalCost,
+    margin: totals.margin + row.margin,
+  }), { count: 0, sales: 0, cost: 0, margin: 0 }), [reservationCostRows])
   const toggleRow = key => setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }))
+  const toggleCostRow = key => setExpandedCostRows(prev => ({ ...prev, [key]: !prev[key] }))
   const applyPeriod = () => {
     if (!draftStartDate || !draftEndDate) return
     setHasQueried(true)
@@ -554,61 +584,95 @@ export default function SettleSummaryPage() {
         </Link>
       </div>
 
-      <div className="summary-cards" style={{ marginBottom: '14px' }}>
-        <div className="summary-card">
-          <div className="summary-label">기간 내 전체 건수</div>
-          <div className="summary-value">{overallCount}건</div>
-        </div>
-        <div className="summary-card">
-          <div className="summary-label">기간 내 정산 대상</div>
-          <div className="summary-value settle-money">₩{fmt(overallAmount)}</div>
-        </div>
-        <div className="summary-card">
-          <div className="summary-label">미정산 합계</div>
-          <div className="summary-value settle-money" style={{ color: 'var(--amber)' }}>₩{fmt(overallUnsettled)}</div>
-        </div>
-        <div className="summary-card">
-          <div className="summary-label">정산완료 합계</div>
-          <div className="summary-value settle-money" style={{ color: 'var(--green)' }}>₩{fmt(overallSettled)}</div>
-        </div>
+      <div className="summary-cards settle-summary-cards" style={{ marginBottom: '14px' }}>
+        {summaryView === 'reservation-cost' ? (
+          <>
+            <div className="summary-card">
+              <div className="summary-label">판매 예약</div>
+              <div className="summary-value">{reservationTotals.count}건</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">총 판매금액</div>
+              <div className="summary-value settle-money">₩{fmt(reservationTotals.sales)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">총 원가</div>
+              <div className="summary-value settle-money" style={{ color: 'var(--amber)' }}>₩{fmt(reservationTotals.cost)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">예상 차액</div>
+              <div className="summary-value settle-money" style={{ color: reservationTotals.margin >= 0 ? 'var(--green)' : 'var(--red)' }}>₩{fmt(reservationTotals.margin)}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="summary-card">
+              <div className="summary-label">정산 항목</div>
+              <div className="summary-value">{overallCount}건</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">정산 대상</div>
+              <div className="summary-value settle-money">₩{fmt(overallAmount)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">미정산 합계</div>
+              <div className="summary-value settle-money" style={{ color: 'var(--amber)' }}>₩{fmt(overallUnsettled)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">정산완료 합계</div>
+              <div className="summary-value settle-money" style={{ color: 'var(--green)' }}>₩{fmt(overallSettled)}</div>
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="tab-bar" style={{ marginBottom: '16px' }}>
+      <div className="settle-summary-view-tabs" aria-label="정산 요약 보기">
         <button
-          className={`tab-btn${summaryView === 'reservation-cost' ? ' active' : ''}`}
+          type="button"
+          className={summaryView === 'reservation-cost' ? 'active' : ''}
           onClick={() => setSummaryView('reservation-cost')}
         >
-          예약별 원가
-          <span style={{ marginLeft: '6px', fontSize: '11px', color: summaryView === 'reservation-cost' ? 'var(--accent)' : 'var(--text-muted)' }}>
-            {reservationCostRows.length}건
-          </span>
+          <strong>예약별 원가</strong>
+          <span>판매 건별 수익 확인 · {reservationCostRows.length}건</span>
         </button>
-        {SETTLE_TYPES.map(type => {
+        <button
+          type="button"
+          className={summaryView === 'vendor' ? 'active' : ''}
+          onClick={() => setSummaryView('vendor')}
+        >
+          <strong>업체별 정산</strong>
+          <span>비용 종류별 지급 현황 · {overallCount}건</span>
+        </button>
+      </div>
+
+      {summaryView === 'vendor' && (
+        <div className="tab-bar settle-cost-type-tabs" style={{ marginBottom: '16px' }}>
+          {SETTLE_TYPES.map(type => {
           const data = rows[type.key] || []
           const count = data.reduce((sum, row) => sum + row.count, 0)
           const amount = data.reduce((sum, row) => sum + row.settled + row.unsettled, 0)
           return (
             <button
               key={type.key}
-              className={`tab-btn${summaryView === 'vendor' && activeType === type.key ? ' active' : ''}`}
+              className={`tab-btn${activeType === type.key ? ' active' : ''}`}
               onClick={() => {
-                setSummaryView('vendor')
                 setActiveType(type.key)
               }}
             >
               {type.key}
-              <span style={{ marginLeft: '6px', fontSize: '11px', color: summaryView === 'vendor' && activeType === type.key ? 'var(--accent)' : 'var(--text-muted)' }}>
+              <span style={{ marginLeft: '6px', fontSize: '11px', color: activeType === type.key ? 'var(--accent)' : 'var(--text-muted)' }}>
                 {count}건 · ₩{fmt(amount)}
               </span>
             </button>
           )
-        })}
-      </div>
+          })}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>조회 중...</div>
       ) : summaryView === 'reservation-cost' ? (
-        <div className="list-card">
+        <div className="list-card reservation-cost-card">
           <div className="master-card-header">
             <div>
               <div className="master-card-title">예약별 원가</div>
@@ -620,36 +684,62 @@ export default function SettleSummaryPage() {
               {startDate} ~ {endDate}
             </div>
           </div>
-          <div className="list-header" style={{ gridTemplateColumns: '74px 92px minmax(110px,1fr) minmax(140px,1.1fr) 54px 116px 112px 98px 98px 98px 112px 112px', gap:'8px', fontSize:'10px', alignItems:'center' }}>
-            <span>예약</span><span>날짜</span><span>고객명</span><span>상품</span><span style={{textAlign:'center'}}>인원</span><span>판매채널</span><span style={{textAlign:'right'}}>판매금액</span><span style={{textAlign:'right'}}>체험정산</span><span style={{textAlign:'right'}}>숙박/픽업</span><span style={{textAlign:'right'}}>수수료</span><span style={{textAlign:'right'}}>총 원가</span><span style={{textAlign:'right'}}>예상 차액</span>
+          <div className="list-header reservation-cost-header">
+            <span>예약/날짜</span><span>고객/상품</span><span>인원/판매채널</span><span>총 판매금액</span><span>총 원가</span><span>예상 차액</span><span />
           </div>
           {reservationCostRows.length === 0 ? (
             <div style={{ padding:'32px', textAlign:'center', fontSize:'13px', color:'var(--text-muted)' }}>기간 내 예약별 원가 내역이 없습니다.</div>
-          ) : reservationCostRows.map(row => (
-            <div key={row.no} className="list-row" style={{ gridTemplateColumns: '74px 92px minmax(110px,1fr) minmax(140px,1.1fr) 54px 116px 112px 98px 98px 98px 112px 112px', gap:'8px', fontSize:'12px', alignItems:'center' }}>
-              <span className="no-col">#{row.no}</span>
-              <span style={{ color:'var(--text-secondary)' }}>{row.date || '-'}</span>
-              <span style={{ fontWeight:800, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={row.customer}>{row.customer || '-'}</span>
-              <span style={{ color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={row.packageName}>{row.packageName}</span>
-              <span style={{ textAlign:'center', fontWeight:800 }}>{row.pax}명</span>
-              <span style={{ color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={row.channel}>{row.channel}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:800, textAlign:'right' }}>₩{fmt(row.salesAmount)}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(row.experienceCost)}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(row.lodgingCost + row.pickupCost)}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(row.platformFee + row.agencyFee)}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:900, color:'var(--amber)', textAlign:'right' }}>₩{fmt(row.totalCost)}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", fontWeight:900, color: row.margin >= 0 ? 'var(--green)' : 'var(--red)', textAlign:'right' }}>₩{fmt(row.margin)}</span>
-            </div>
-          ))}
+          ) : reservationCostRows.map(row => {
+            const isOpen = !!expandedCostRows[row.no]
+            const breakdown = [
+              ['고객 총결제금액', row.customerPaymentAmount, `1인 결제가 ₩${fmt(row.customerUnitAmount)}`],
+              ['사업비 지원금', row.supportAmount, row.supportAmount > 0 ? `1인 지원금 ₩${fmt(row.supportUnitAmount)}` : '지원금 없음'],
+              ['총 판매금액', row.salesAmount],
+              ['체험 정산', row.experienceCost],
+              ['숙박', row.lodgingCost],
+              ['픽업', row.pickupCost],
+              ['플랫폼 수수료', row.platformFee],
+              ['여행사 수수료', row.agencyFee],
+            ]
+            return (
+              <div key={row.no} className={`reservation-cost-item${isOpen ? ' open' : ''}`}>
+                <button
+                  type="button"
+                  className="list-row reservation-cost-row"
+                  onClick={() => toggleCostRow(row.no)}
+                  aria-expanded={isOpen}
+                >
+                  <span className="reservation-cost-identity"><b>#{row.no}</b><small>{row.date || '-'}</small></span>
+                  <span className="reservation-cost-customer" title={`${row.customer || '-'} / ${row.packageName}`}><b>{row.customer || '-'}</b><small>{row.packageName}</small></span>
+                  <span className="reservation-cost-party" title={row.channel}><b>{row.pax}명</b><small>{row.channel}</small></span>
+                  <span className="reservation-cost-money"><small>총 판매금액</small>₩{fmt(row.salesAmount)}</span>
+                  <span className="reservation-cost-money cost"><small>총 원가</small>₩{fmt(row.totalCost)}</span>
+                  <span className={`reservation-cost-money margin${row.margin < 0 ? ' negative' : ''}`}><small>예상 차액</small>₩{fmt(row.margin)}</span>
+                  <span className="reservation-cost-toggle">{isOpen ? '−' : '+'}</span>
+                </button>
+                {isOpen && (
+                  <div className="reservation-cost-breakdown">
+                    {breakdown.map(([label, amount, unitLabel]) => (
+                      <div key={label}>
+                        <div className="reservation-cost-breakdown-label">
+                          <span>{label}</span>
+                          {unitLabel && <small>{unitLabel}</small>}
+                        </div>
+                        <strong>₩{fmt(amount)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
           {reservationCostRows.length > 0 && (
-            <div style={{ padding:'12px 18px', borderTop:'1px solid var(--border2)', display:'grid', gridTemplateColumns:'minmax(0,1fr) 112px 98px 98px 98px 112px 112px', gap:'8px', fontSize:'12px', fontWeight:800, alignItems:'center' }}>
-              <span>합계</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.salesAmount, 0))}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.experienceCost, 0))}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.lodgingCost + row.pickupCost, 0))}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.platformFee + row.agencyFee, 0))}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", color:'var(--amber)', textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.totalCost, 0))}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", color:'var(--green)', textAlign:'right' }}>₩{fmt(reservationCostRows.reduce((sum, row) => sum + row.margin, 0))}</span>
+            <div className="reservation-cost-total">
+              <span>기간 합계</span><span /><span />
+              <strong>₩{fmt(reservationTotals.sales)}</strong>
+              <strong className="cost">₩{fmt(reservationTotals.cost)}</strong>
+              <strong className={reservationTotals.margin < 0 ? 'negative' : ''}>₩{fmt(reservationTotals.margin)}</strong>
+              <span />
             </div>
           )}
         </div>
