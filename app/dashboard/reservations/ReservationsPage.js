@@ -270,6 +270,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   const [vendorReplyRefreshing, setVendorReplyRefreshing] = useState(false)
   const [notice, setNotice] = useState(null)
   const noticeTimer = useRef(null)
+  const modalBodyRef = useRef(null)
   const [saving,  setSaving]  = useState(false)
   const [showPaymentDetails, setShowPaymentDetails] = useState(false)
   const platformOptions = platforms.filter(p => p.type === '플랫폼')
@@ -280,6 +281,10 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   // lodge form row
   const [lgRow, setLgRow] = useState(emptyLodgeRow)
+
+  useEffect(() => {
+    modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [tab])
 
   const selectedLodgeVendor = lodgeVendors.find(v => v.id === lgRow.lodge_vendor_id)
   const selectedLodgeZoneCodes = useMemo(() => {
@@ -1398,6 +1403,23 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         }
       }
 
+      const pendingPickups = pickups
+        .filter(pickup => String(pickup.id || '').startsWith('tmp-'))
+        .map(pickup => ({
+          reservation_no: no,
+          pickup_type: pickup.pickup_type,
+          driver_id: pickup.driver_id || null,
+          pickup_fee: Number(pickup.pickup_fee) || 0,
+        }))
+      if (pendingPickups.length) {
+        const { error: pickupError } = await supabase.from('reservation_pickup').insert(pendingPickups)
+        if (pickupError) {
+          alert('픽업 저장 실패: ' + pickupError.message)
+          setSaving(false)
+          return
+        }
+      }
+
       // 패키지 업체 자동으로 vendor_confirms 생성
       const pkg = packages.find(p => p.name === payload.package_name)
       if (pkg) {
@@ -1500,7 +1522,19 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
   // 픽업 추가
   async function addPickup() {
-    if (!isEdit) { alert('예약을 먼저 저장하세요.'); return }
+    if (!isEdit) {
+      const driver = drivers.find(item => String(item.id) === String(pkRow.driver_id || ''))
+      setPickups(list => [...list, {
+        id: `tmp-${Date.now()}`,
+        pickup_type: pkRow.pickup_type,
+        driver_id: pkRow.driver_id || null,
+        pickup_fee: Number(pkRow.pickup_fee) || 0,
+        drivers: driver ? { name: driver.name } : null,
+      }])
+      setPkRow({ pickup_type:'픽업', driver_id:'', pickup_fee:0 })
+      inp('pickup_fee', (pickups.reduce((sum, row) => sum + (Number(row.pickup_fee) || 0), 0)) + (Number(pkRow.pickup_fee) || 0))
+      return
+    }
     await supabase.from('reservation_pickup').insert({ reservation_no: form.no, pickup_type: pkRow.pickup_type, driver_id: pkRow.driver_id || null, pickup_fee: Number(pkRow.pickup_fee)||0 })
     const { data } = await supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
     setPickups(data || [])
@@ -1511,6 +1545,12 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
   }
 
   async function delPickup(id) {
+    if (String(id || '').startsWith('tmp-')) {
+      const remaining = pickups.filter(row => row.id !== id)
+      setPickups(remaining)
+      inp('pickup_fee', remaining.reduce((sum, row) => sum + (Number(row.pickup_fee) || 0), 0))
+      return
+    }
     await supabase.from('reservation_pickup').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id)
     const { data } = await supabase.from('reservation_pickup').select('*, drivers(name)').eq('reservation_no', form.no).or('is_deleted.is.null,is_deleted.eq.false')
     setPickups(data || [])
@@ -1927,15 +1967,22 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
           </div>
         )}
 
-        {/* 탭 */}
-        <div className="modal-tabs">
-          <div className={`modal-tab${tab===0?' active':''}`} onClick={()=>setTab(0)}>기본정보 · 결제</div>
-          <div className={`modal-tab${tab===1?' active':''}`} onClick={()=>setTab(1)}>업체 확인</div>
-          <div className={`modal-tab${tab===2?' active':''}`} onClick={()=>setTab(2)}>픽업정보</div>
-          <div className={`modal-tab${tab===3?' active':''}`} onClick={()=>setTab(3)}>확정 조건</div>
+        <div className="modal-tabs reservation-step-tabs" aria-label="예약 입력 단계">
+          {['기본정보', '상품 구성', '업체·숙박·픽업', '결제·확정'].map((label, index) => (
+            <button
+              key={label}
+              type="button"
+              className={`modal-tab${tab === index ? ' active' : ''}`}
+              onClick={() => setTab(index)}
+              aria-current={tab === index ? 'step' : undefined}
+            >
+              <span>{index + 1}</span>
+              <strong>{label}</strong>
+            </button>
+          ))}
         </div>
 
-        <div className="modal-body">
+        <div className="modal-body" ref={modalBodyRef}>
           {/* ── 탭0: 기본정보 */}
           {tab === 0 && (
             <>
@@ -1973,26 +2020,6 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                     <input className="form-input" type="text" inputMode="numeric" maxLength={10} placeholder="2026-05-09" value={form.end_date||''} onChange={e=>inp('end_date',formatDateTyping(e.target.value))}/>
                   </div>
                 </div>
-                <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
-                  <div className="form-field">
-                    <label>결제 상태</label>
-                    <select className="form-select" value={form.payment_status || '미결제'} onChange={e=>inp('payment_status',e.target.value)}>
-                      {['미결제','선결제완료','후결제예정','일부결제','결제완료','환불필요','환불완료'].map(v => <option key={v}>{v}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>숙소 상태</label>
-                    <select className="form-select" value={form.lodging_status || '해당없음'} onChange={e=>inp('lodging_status',e.target.value)}>
-                      {['해당없음','배정필요','배정완료','확정완료'].map(v => <option key={v}>{v}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label>픽업 상태</label>
-                    <select className="form-select" value={form.pickup_status || '해당없음'} onChange={e=>inp('pickup_status',e.target.value)}>
-                      {['해당없음','확정필요','확정완료'].map(v => <option key={v}>{v}</option>)}
-                    </select>
-                  </div>
-                </div>
                 <div className="form-grid form-grid-2">
                   <div className="form-field">
                     <label>고객명 <span className="req">*</span></label>
@@ -2017,6 +2044,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
               </div>
 
+            </>
+          )}
+
+          {tab === 1 && (
+            <>
               <div className="form-section">
                 <div className="form-section-label" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px'}}>
                   <span>예약 상품 구성</span>
@@ -2329,6 +2361,11 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 )}
               </div>
 
+            </>
+          )}
+
+          {tab === 2 && (
+            <>
               {/* 객실 배정 */}
               <div className="form-section">
                 <div className="form-section-label">객실 배정</div>
@@ -2446,9 +2483,20 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
                 </div>
               </div>
 
+            </>
+          )}
+
+          {tab === 3 && (
+            <>
               {/* 결제 · 수수료 */}
               <div className="form-section">
                 <div className="form-section-label">결제 · 수수료</div>
+                <div className="form-field" style={{marginBottom:'10px'}}>
+                  <label>결제 상태</label>
+                  <select className="form-select" value={form.payment_status || '미결제'} onChange={e=>inp('payment_status',e.target.value)}>
+                    {['미결제','선결제완료','후결제예정','일부결제','결제완료','환불필요','환불완료'].map(v => <option key={v}>{v}</option>)}
+                  </select>
+                </div>
                 <div className="form-grid form-grid-3" style={{marginBottom:'10px'}}>
                   <div className="form-field">
                     <label>1인 판매가 <span className="req">*</span></label>
@@ -2532,7 +2580,7 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
 
 
           {/* 업체 가능 여부 확인 */}
-          {tab === 1 && (
+          {tab === 2 && (
             <div className="form-section">
               <div className="form-section-label">업체 가능 여부 확인</div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr auto', alignItems:'center', marginBottom:'12px', gap:'12px' }}>
@@ -2708,9 +2756,14 @@ function ReservationModal({ editData, initDate, onClose, onSaved, zones, package
         <div className="modal-footer">
           {isEdit && <button className="btn-danger" onClick={del}>삭제</button>}
           <button className="btn-outline" onClick={onClose}>닫기</button>
-          <button className="btn-primary" onClick={save} disabled={saving}>
-            {saving ? '저장 중…' : '저장'}
-          </button>
+          {tab > 0 && <button className="btn-outline" onClick={() => setTab(current => Math.max(0, current - 1))}>이전</button>}
+          {tab < 3 ? (
+            <button className="btn-primary" onClick={() => setTab(current => Math.min(3, current + 1))}>다음</button>
+          ) : (
+            <button className="btn-primary" onClick={save} disabled={saving}>
+              {saving ? '저장 중…' : '저장'}
+            </button>
+          )}
         </div>
       </div>
     </div>

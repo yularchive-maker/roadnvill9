@@ -354,6 +354,29 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 .settle-summary-cards .summary-value {
   font-family: inherit;
 }
+.settle-summary-cards {
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+.settle-summary-cards .summary-card {
+  display: grid;
+  min-height: 88px;
+  grid-template-rows: 28px 1fr;
+  align-content: center;
+}
+.settle-summary-cards .summary-label {
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.settle-summary-cards .summary-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-weight: 900;
+  white-space: nowrap;
+}
 
 /* ══ 리스트 카드 */
 .list-card { background: var(--navy2); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden; }
@@ -1364,6 +1387,50 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   color: var(--text-muted); border-bottom: 2px solid transparent; transition: all .15s;
 }
 .modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.reservation-step-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 8px 12px;
+  gap: 6px;
+}
+.reservation-step-tabs .modal-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 6px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  cursor: pointer;
+}
+.reservation-step-tabs .modal-tab span {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 900;
+}
+.reservation-step-tabs .modal-tab strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reservation-step-tabs .modal-tab.active {
+  border-color: var(--accent);
+  background: rgba(78,205,196,.12);
+  color: var(--accent);
+}
 .modal-body { padding: 20px 22px; overflow-y: auto; overflow-x: hidden; flex: 1; }
 .modal-footer {
   padding: 14px 22px; border-top: 1px solid var(--border2);
@@ -1605,6 +1672,27 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   gap: 8px;
   margin: 4px 0 12px;
 }
+.settle-summary-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.settle-summary-heading h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 900;
+}
+.settle-summary-heading p,
+.settle-summary-heading > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.settle-summary-heading p { margin: 4px 0 0; }
+.settle-summary-heading > span { white-space: nowrap; }
 .settle-summary-view-tabs button {
   min-width: 0;
   padding: 12px 14px;
@@ -1696,6 +1784,29 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   border-top: 1px dashed var(--border2);
   background: var(--navy3);
 }
+.reservation-cost-statuses {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 18px 0;
+  border-top: 1px dashed var(--border2);
+  background: var(--navy3);
+}
+.reservation-cost-statuses > div {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: var(--navy2);
+}
+.reservation-cost-statuses span,
+.reservation-cost-statuses small { color: var(--text-muted); font-size: 10px; }
+.reservation-cost-statuses strong { color: var(--text-primary); font-size: 12px; }
+.reservation-cost-statuses small { text-align: right; white-space: nowrap; }
 .reservation-cost-breakdown > div {
   min-width: 0;
   padding: 9px 10px;
@@ -1737,9 +1848,11 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
 }
 .reservation-cost-total .cost { color: var(--amber); }
 [data-theme="light"] .settle-summary-view-tabs button,
-[data-theme="light"] .reservation-cost-breakdown > div { background: var(--neo-paper); }
+[data-theme="light"] .reservation-cost-breakdown > div,
+[data-theme="light"] .reservation-cost-statuses > div { background: var(--neo-paper); }
 [data-theme="light"] .settle-summary-view-tabs button.active { background: var(--accent); }
-[data-theme="light"] .reservation-cost-breakdown { background: #F3EFD9; }
+[data-theme="light"] .reservation-cost-breakdown,
+[data-theme="light"] .reservation-cost-statuses { background: #F3EFD9; }
 .reservation-component-controls {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) 118px 118px;
@@ -1776,6 +1889,82 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
   writing-mode: horizontal-tb;
 }
 @media (max-width: 600px) {
+  .settle-summary-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .settle-summary-heading h2 { font-size: 16px; }
+  .settle-summary-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settle-summary-cards .summary-card {
+    min-height: 78px;
+    padding: 10px;
+    grid-template-rows: 25px 1fr;
+  }
+  .settle-summary-cards .summary-label { font-size: 10px; }
+  .settle-summary-cards .summary-value { font-size: 15px; }
+  .reservation-cost-statuses {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px 12px 0;
+  }
+  .reservation-cost-statuses > div {
+    grid-template-columns: 62px minmax(0, 1fr) auto;
+  }
+  .reservation-cost-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px;
+  }
+  .reservation-cost-identity { grid-column: 1; }
+  .reservation-cost-party { grid-column: 2; text-align: center; }
+  .reservation-cost-toggle { grid-column: 3; grid-row: 1; }
+  .reservation-cost-customer {
+    grid-column: 1 / -1;
+    padding: 8px 0;
+    border-top: 1px dashed var(--border2);
+    border-bottom: 1px dashed var(--border2);
+  }
+  .reservation-cost-money:nth-of-type(4) { grid-column: 1; }
+  .reservation-cost-money:nth-of-type(5) { grid-column: 2; }
+  .reservation-cost-money:nth-of-type(6) { grid-column: 3; }
+  .reservation-cost-money,
+  .reservation-cost-money:nth-of-type(6) {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    text-align: right;
+  }
+  .reservation-cost-money small {
+    display: block;
+    font-family: inherit;
+    font-size: 9px;
+    white-space: normal;
+  }
+  .reservation-cost-total {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px;
+  }
+  .reservation-cost-total > span:first-child { grid-column: 1 / -1; }
+  .reservation-cost-total > span:nth-child(2),
+  .reservation-cost-total > span:nth-child(3),
+  .reservation-cost-total > span:last-child { display: none; }
+  .reservation-step-tabs {
+    grid-template-columns: repeat(4, minmax(72px, 1fr));
+    overflow-x: auto;
+    padding: 7px 10px 9px;
+  }
+  .reservation-step-tabs .modal-tab {
+    min-height: 48px;
+    flex-direction: column;
+    gap: 3px;
+    padding: 5px 4px;
+  }
+  .reservation-step-tabs .modal-tab strong { font-size: 10px; }
   .reservation-component-controls,
   .reservation-component-controls.is-business {
     grid-template-columns: repeat(2, minmax(0, 1fr));

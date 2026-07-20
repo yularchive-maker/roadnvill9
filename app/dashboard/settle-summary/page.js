@@ -187,6 +187,7 @@ export default function SettleSummaryPage() {
     const activeHistory = (historyRows || []).filter(row => row?.is_deleted !== true)
     const settledMap = emptyMap()
     const settled = new Set()
+    const settledAmountByReservation = {}
 
     for (const history of activeHistory) {
       const items = (history.settle_history_items || []).filter(item => item?.is_deleted !== true)
@@ -199,6 +200,11 @@ export default function SettleSummaryPage() {
           settled.add(settledKey(type, vendorKey, item))
           if (type === '체험') settled.add(settledKey('체험', vendorKey, item))
         })
+
+        const reservationNo = item.no || item.reservation_no
+        if (reservationNo && inDateRange(item.date, startDate, endDate)) {
+          settledAmountByReservation[reservationNo] = (settledAmountByReservation[reservationNo] || 0) + (Number(item.amt) || 0)
+        }
 
         if (!inDateRange(item.date, startDate, endDate)) continue
         if (!settledMap[type]) continue
@@ -298,11 +304,27 @@ export default function SettleSummaryPage() {
           const supportAmount = applicableSupportRows.reduce((sum, usage) => (
             sum + (Number(usage.prepaid_total_amount) || Number(usage.used_amount) || 0)
           ), 0)
+          const reimbursedSupportAmount = applicableSupportRows.reduce((sum, usage) => (
+            sum + (Number(usage.reimbursed_amount) || 0)
+          ), 0)
           const reservationPax = Number(reservation.pax) || 0
           const customerUnitAmount = reservationPax > 0 ? Math.round(customerPaymentAmount / reservationPax) : 0
           const supportUnitAmount = reservationPax > 0 ? Math.round(supportAmount / reservationPax) : 0
           const salesAmount = customerPaymentAmount + supportAmount
           const totalCost = experienceCost + lodgingCost + pickupCost + platformFee + agencyFee
+          const settledCostAmount = Math.min(totalCost, Number(settledAmountByReservation[reservation.no]) || 0)
+          const supportStatus = supportAmount <= 0
+            ? '미적용'
+            : reimbursedSupportAmount >= supportAmount
+              ? '수령 완료'
+              : reimbursedSupportAmount > 0
+                ? '일부 수령'
+                : '수령 예정'
+          const settlementStatus = totalCost <= 0 || settledCostAmount >= totalCost
+            ? '정산 완료'
+            : settledCostAmount > 0
+              ? '일부 정산'
+              : '미정산'
           return {
             no: reservation.no,
             date: reservation.date,
@@ -312,6 +334,7 @@ export default function SettleSummaryPage() {
             channel: salesChannelLabel(reservation),
             customerPaymentAmount,
             supportAmount,
+            reimbursedSupportAmount,
             customerUnitAmount,
             supportUnitAmount,
             salesAmount,
@@ -321,6 +344,9 @@ export default function SettleSummaryPage() {
             platformFee,
             agencyFee,
             totalCost,
+            settledCostAmount,
+            supportStatus,
+            settlementStatus,
             margin: salesAmount - totalCost,
           }
         })
@@ -478,10 +504,12 @@ export default function SettleSummaryPage() {
   const overallCount = allRows.reduce((sum, row) => sum + row.count, 0)
   const reservationTotals = useMemo(() => reservationCostRows.reduce((totals, row) => ({
     count: totals.count + 1,
+    customerPayment: totals.customerPayment + row.customerPaymentAmount,
+    support: totals.support + row.supportAmount,
     sales: totals.sales + row.salesAmount,
     cost: totals.cost + row.totalCost,
     margin: totals.margin + row.margin,
-  }), { count: 0, sales: 0, cost: 0, margin: 0 }), [reservationCostRows])
+  }), { count: 0, customerPayment: 0, support: 0, sales: 0, cost: 0, margin: 0 }), [reservationCostRows])
   const toggleRow = key => setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }))
   const toggleCostRow = key => setExpandedCostRows(prev => ({ ...prev, [key]: !prev[key] }))
   const applyPeriod = () => {
@@ -520,6 +548,13 @@ export default function SettleSummaryPage() {
 
   return (
     <div>
+      <div className="settle-summary-heading">
+        <div>
+          <h2>판매·정산 현황</h2>
+          <p>예약에 저장된 최종 금액을 기준으로 판매금액, 업체 정산액과 차액을 확인합니다.</p>
+        </div>
+        <span>{startDate} ~ {endDate}</span>
+      </div>
       <div className="settle-mode-tabs" aria-label="정산 요약 조회 방식">
         <button
           type="button"
@@ -588,19 +623,23 @@ export default function SettleSummaryPage() {
         {summaryView === 'reservation-cost' ? (
           <>
             <div className="summary-card">
-              <div className="summary-label">판매 예약</div>
-              <div className="summary-value">{reservationTotals.count}건</div>
+              <div className="summary-label">고객 결제금액</div>
+              <div className="summary-value settle-money">₩{fmt(reservationTotals.customerPayment)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-label">사업비 지원금</div>
+              <div className="summary-value settle-money">₩{fmt(reservationTotals.support)}</div>
             </div>
             <div className="summary-card">
               <div className="summary-label">총 판매금액</div>
               <div className="summary-value settle-money">₩{fmt(reservationTotals.sales)}</div>
             </div>
             <div className="summary-card">
-              <div className="summary-label">총 원가</div>
+              <div className="summary-label">업체 정산 총액</div>
               <div className="summary-value settle-money" style={{ color: 'var(--amber)' }}>₩{fmt(reservationTotals.cost)}</div>
             </div>
             <div className="summary-card">
-              <div className="summary-label">예상 차액</div>
+              <div className="summary-label">판매 차액</div>
               <div className="summary-value settle-money" style={{ color: reservationTotals.margin >= 0 ? 'var(--green)' : 'var(--red)' }}>₩{fmt(reservationTotals.margin)}</div>
             </div>
           </>
@@ -675,9 +714,9 @@ export default function SettleSummaryPage() {
         <div className="list-card reservation-cost-card">
           <div className="master-card-header">
             <div>
-              <div className="master-card-title">예약별 원가</div>
+              <div className="master-card-title">예약별 판매·정산</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                판매 예약 1건마다 정산총액과 예상 차액을 확인합니다.
+                판매 예약 1건마다 최종 판매금액, 업체 정산 총액과 판매 차액을 확인합니다.
               </div>
             </div>
             <div style={{ fontSize:'12px', color:'var(--text-muted)' }}>
@@ -685,7 +724,7 @@ export default function SettleSummaryPage() {
             </div>
           </div>
           <div className="list-header reservation-cost-header">
-            <span>예약/날짜</span><span>고객/상품</span><span>인원/판매채널</span><span>총 판매금액</span><span>총 원가</span><span>예상 차액</span><span />
+            <span>예약/날짜</span><span>고객/상품</span><span>인원/판매채널</span><span>총 판매금액</span><span>업체 정산</span><span>판매 차액</span><span />
           </div>
           {reservationCostRows.length === 0 ? (
             <div style={{ padding:'32px', textAlign:'center', fontSize:'13px', color:'var(--text-muted)' }}>기간 내 예약별 원가 내역이 없습니다.</div>
@@ -713,22 +752,28 @@ export default function SettleSummaryPage() {
                   <span className="reservation-cost-customer" title={`${row.customer || '-'} / ${row.packageName}`}><b>{row.customer || '-'}</b><small>{row.packageName}</small></span>
                   <span className="reservation-cost-party" title={row.channel}><b>{row.pax}명</b><small>{row.channel}</small></span>
                   <span className="reservation-cost-money"><small>총 판매금액</small>₩{fmt(row.salesAmount)}</span>
-                  <span className="reservation-cost-money cost"><small>총 원가</small>₩{fmt(row.totalCost)}</span>
-                  <span className={`reservation-cost-money margin${row.margin < 0 ? ' negative' : ''}`}><small>예상 차액</small>₩{fmt(row.margin)}</span>
+                  <span className="reservation-cost-money cost"><small>업체 정산</small>₩{fmt(row.totalCost)}</span>
+                  <span className={`reservation-cost-money margin${row.margin < 0 ? ' negative' : ''}`}><small>판매 차액</small>₩{fmt(row.margin)}</span>
                   <span className="reservation-cost-toggle">{isOpen ? '−' : '+'}</span>
                 </button>
                 {isOpen && (
-                  <div className="reservation-cost-breakdown">
-                    {breakdown.map(([label, amount, unitLabel]) => (
-                      <div key={label}>
-                        <div className="reservation-cost-breakdown-label">
-                          <span>{label}</span>
-                          {unitLabel && <small>{unitLabel}</small>}
+                  <>
+                    <div className="reservation-cost-statuses">
+                      <div><span>사업비</span><strong>{row.supportStatus}</strong><small>수령액 ₩{fmt(row.reimbursedSupportAmount)}</small></div>
+                      <div><span>업체 정산</span><strong>{row.settlementStatus}</strong><small>지급액 ₩{fmt(row.settledCostAmount)}</small></div>
+                    </div>
+                    <div className="reservation-cost-breakdown">
+                      {breakdown.map(([label, amount, unitLabel]) => (
+                        <div key={label}>
+                          <div className="reservation-cost-breakdown-label">
+                            <span>{label}</span>
+                            {unitLabel && <small>{unitLabel}</small>}
+                          </div>
+                          <strong>₩{fmt(amount)}</strong>
                         </div>
-                        <strong>₩{fmt(amount)}</strong>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             )
